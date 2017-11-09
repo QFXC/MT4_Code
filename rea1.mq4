@@ -170,7 +170,7 @@ void enter_order(ENUM_ORDER_TYPE type)
    if(type==OP_SELL || type==OP_SELLSTOP || type==OP_SELLLIMIT)
       if(!short_allowed) return;
    double lots=calculate_lots();
-   entry(NULL,type,lots,0,entering_max_slippage,stoploss,takeprofit,order_comment,order_magic,order_expire,arrow_color_short,market_exec); // why does it only use the arrow_color_short variable and arrow_color_long is never used?
+   entry(NULL,type,lots,0,stoploss,takeprofit,order_comment,order_magic,order_expire,arrow_color_short,market_exec); // why does it only use the arrow_color_short variable and arrow_color_long is never used?
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -437,7 +437,7 @@ bool exit_order(int ticket,double size=-1,color a_color=clrNONE)
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-bool exit(int ticket,color a_color=clrNONE,int exiting_max_slippage=50,int retries=3,int sleep=500)
+bool exit(int ticket,color a_color=clrNONE,int retries=3,int sleep=500)
   {
    bool result=false;
    for(int i=0;i<retries;i++)
@@ -536,7 +536,7 @@ void exit_all_set(ENUM_ORDER_SET type=-1,int magic=-1)
 //+------------------------------------------------------------------+
 
 // the distanceFromCurrentPrice parameter is to specify what type of order you would like to enter
-int send_order(string instrument,int cmd,double lots,int distanceFromCurrentPrice,int entering_max_slippage,int sl,int tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false)
+int send_order(string instrument,int cmd,double lots,int distanceFromCurrentPrice,int sl,int tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false)
   {
    double entryPrice=0; 
    double price_sl=0; 
@@ -604,7 +604,7 @@ int send_order(string instrument,int cmd,double lots,int distanceFromCurrentPric
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-int entry(string instrument,int cmd,double lots,int distanceFromCurrentPrice,int entering_max_slippage,int sl,int tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false,int retries=3,int sleep=500)
+int entry(string instrument,int cmd,double lots,int distanceFromCurrentPrice,int sl,int tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false,int retries=3,int sleep=500)
   {
    int ticket=0;
    for(int i=0;i<retries;i++)
@@ -614,7 +614,7 @@ int entry(string instrument,int cmd,double lots,int distanceFromCurrentPrice,int
       else if(!IsExpertEnabled()) Print("Experts not enabled in trading platform");
       else if(IsTradeContextBusy()) Print("Trade context is busy");
       else if(!IsTradeAllowed()) Print("Trade is not allowed in trading platform");
-      else ticket=send_order(instrument,cmd,lots,distanceFromCurrentPrice,entering_max_slippage,sl,tp,comment,magic,expire,a_clr,market);
+      else ticket=send_order(instrument,cmd,lots,distanceFromCurrentPrice,sl,tp,comment,magic,expire,a_clr,market);
       if(ticket>0)
          break;
       else Print("Error in sending order ("+IntegerToString(GetLastError(),0)+"), retry: "+IntegerToString(i,0)+"/"+IntegerToString(retries));
