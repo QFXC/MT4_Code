@@ -53,7 +53,7 @@ enum MM
 
 
 //ontick()
-	input int timeframe = 0;
+	input int timeframe=0;
 	input int virtual_sl=0;
 	input int virtual_tp=0;
 	input int breakeven_threshold=500;
@@ -82,48 +82,48 @@ enum MM
 	input string order_comment="Relativity EA"; // allows the robot to enter a description for the order. An empty string is a default value.
 	input int order_magic=12345; // An EA can only have one magic number. Used to identify the EA that is managing the order.
 	input int order_expire=0; // The default is 0. The expiration is only needed when opening pending orders. I thought this was supposed to be the datetime type??? An exact date is needed to close the order.
-	input bool market_exec= false;
+	input bool market_exec=false;
 	input bool long_allowed=true;
 	input bool short_allowed=true;
 	input color arrow_color_short=clrRed;
 	
-	input int exiting_max_slippage = 50; // i added this
+	input int exiting_max_slippage=50; // i added this
 
 //????
 	input color arrow_color_long=clrGreen;
 
 
 //calculate_lots
-	input string symbol = NULL;
+	input string symbol=NULL;
 	input double lotsize=0.1;
 	input int stoploss=0;
 	input MM money_management=MM_FIXED_LOT;
-	input double mm1_risk = 0.05;
-	input double mm2_lots = 0.1;
+	input double mm1_risk=0.05;
+	input double mm2_lots=0.1;
 	input double mm2_per=1000;
-	input double mm3_risk = 50;
-	input double mm4_risk = 50;
+	input double mm3_risk=50;
+	input double mm4_risk=50;
 
 
 
 //signal_zigzag
-	input int depth = 12;
-	input int deviation = 5;
-	input int backstep = 3;
-	input int shift = 1;
+	input int depth=12;
+	input int deviation=5;
+	input int backstep=3;
+	input int shift=1;
 
 int signal_zigzag()
 {
-   int signal = TRADE_SIGNAL_NEUTRAL;
-   double zigzag = iCustom(NULL,0,"ZigZag",depth,deviation,backstep,0,shift);
-   double open = iOpen(NULL,0,shift);
+   int signal=TRADE_SIGNAL_NEUTRAL;
+   double zigzag=iCustom(NULL,0,"ZigZag",depth,deviation,backstep,0,shift);
+   double open=iOpen(NULL,0,shift);
    
    if (zigzag>0 && zigzag<EMPTY_VALUE)
    {
       if (zigzag>open)
-         signal = TRADE_SIGNAL_SELL;
+         signal=TRADE_SIGNAL_SELL;
       else if (zigzag<open)
-         signal = TRADE_SIGNAL_BUY;
+         signal=TRADE_SIGNAL_BUY;
    }
    
    return signal;
@@ -135,7 +135,7 @@ int signal_entry()
   {
    int signal=TRADE_SIGNAL_NEUTRAL;
 //add entry signals below
-   signal = signal_add(signal,signal_zigzag());
+   signal=signal_add(signal,signal_zigzag());
 //return entry signal
    return signal;
   }
@@ -362,7 +362,7 @@ bool modify_order(int ticket,double sl,double tp=-1,double entryPrice=-1,datetim
       else if(OrderType()>1)
         {
          if(entryPrice==-1)
-            entryPrice= OrderOpenPrice();
+            entryPrice=OrderOpenPrice();
          else entryPrice=NormalizeDouble(entryPrice,digits);
          if(compare_doubles(entryPrice,OrderOpenPrice(),digits)==0 && 
             compare_doubles(sl,OrderStopLoss(),digits)==0 && 
@@ -405,8 +405,8 @@ bool modify(int ticket,double sl,double tp=-1,double entryPrice=-1,datetime expi
 int compare_doubles(double var1,double var2,int precision)
   {
    double point=MathPow(10,-precision); //10^(-precision)
-   int var1_int = (int) (var1/point);
-   int var2_int = (int) (var2/point);
+   int var1_int=(int) (var1/point);
+   int var2_int=(int) (var2/point);
    if(var1_int>var2_int)
       return 1;
    else if(var1_int<var2_int)
@@ -417,7 +417,7 @@ int compare_doubles(double var1,double var2,int precision)
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-bool exit_order(int ticket,double size=-1,color a_color=clrNONE,int exiting_max_slippage= 50)
+bool exit_order(int ticket,double size=-1,color a_color=clrNONE)
   {
    bool result=false;
    if(OrderSelect(ticket,SELECT_BY_TICKET))
@@ -437,7 +437,7 @@ bool exit_order(int ticket,double size=-1,color a_color=clrNONE,int exiting_max_
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-bool exit(int ticket,color a_color=clrNONE,int exiting_max_slippage = 50,int retries=3,int sleep=500)
+bool exit(int ticket,color a_color=clrNONE,int exiting_max_slippage=50,int retries=3,int sleep=500)
   {
    bool result=false;
    for(int i=0;i<retries;i++)
@@ -446,7 +446,7 @@ bool exit(int ticket,color a_color=clrNONE,int exiting_max_slippage = 50,int ret
       else if(!IsExpertEnabled()) Print("Experts not enabled in trading platform");
       else if(IsTradeContextBusy()) Print("Trade context is busy");
       else if(!IsTradeAllowed()) Print("Trade is not allowed in trading platform");
-      else result=exit_order(ticket,a_color,exiting_max_slippage);
+      else result=exit_order(ticket,a_color);
       if(result)
          break;
       Print("Closing order# "+DoubleToStr(OrderTicket(),0)+" failed "+DoubleToStr(GetLastError(),0));
@@ -538,38 +538,38 @@ void exit_all_set(ENUM_ORDER_SET type=-1,int magic=-1)
 // the distanceFromCurrentPrice parameter is to specify what type of order you would like to enter
 int send_order(string instrument,int cmd,double lots,int distanceFromCurrentPrice,int entering_max_slippage,int sl,int tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false)
   {
-   double entryPrice = 0; 
-   double price_sl = 0; 
-   double price_tp = 0;
-   double point = MarketInfo(instrument,MODE_POINT); // getting the value of 1 point for the instrument
-   datetime expiry = 0;
-   int order_type = -1;
+   double entryPrice=0; 
+   double price_sl=0; 
+   double price_tp=0;
+   double point=MarketInfo(instrument,MODE_POINT); // getting the value of 1 point for the instrument
+   datetime expiry=0;
+   int order_type=-1;
    RefreshRates();
    //simplifying the arguments for the function by only allowing OP_BUY and OP_SELL 
    if(cmd==OP_BUY)
      {
-      if(distanceFromCurrentPrice>0) order_type = OP_BUYSTOP; // If the distanceFromCurrentPrice is >0 the function enters the order above the current price.
-      else if(distanceFromCurrentPrice<0) order_type = OP_BUYLIMIT;
-      else order_type = OP_BUY;
-      if(order_type == OP_BUY) distanceFromCurrentPrice = 0;
-      entryPrice = MarketInfo(instrument,MODE_ASK)+distanceFromCurrentPrice*point;
+      if(distanceFromCurrentPrice>0) order_type=OP_BUYSTOP; // If the distanceFromCurrentPrice is >0 the function enters the order above the current price.
+      else if(distanceFromCurrentPrice<0) order_type=OP_BUYLIMIT;
+      else order_type=OP_BUY;
+      if(order_type==OP_BUY) distanceFromCurrentPrice=0;
+      entryPrice=MarketInfo(instrument,MODE_ASK)+distanceFromCurrentPrice*point;
       if(!market)
         {
-         if(sl>0) price_sl = entryPrice-sl*point;
-         if(tp>0) price_tp = entryPrice+tp*point;
+         if(sl>0) price_sl=entryPrice-sl*point;
+         if(tp>0) price_tp=entryPrice+tp*point;
         }
      }
-   else if(cmd == OP_SELL)
+   else if(cmd==OP_SELL)
      {
       if(distanceFromCurrentPrice>0) order_type=OP_SELLLIMIT; //If the distanceFromCurrentPrice is >0 the function enters the order below the current price.
       else if(distanceFromCurrentPrice<0) order_type=OP_SELLSTOP;
-      else order_type = OP_SELL;
-      if(order_type == OP_SELL) distanceFromCurrentPrice=0;
+      else order_type=OP_SELL;
+      if(order_type==OP_SELL) distanceFromCurrentPrice=0;
       entryPrice=MarketInfo(instrument,MODE_BID)+distanceFromCurrentPrice*point;
       if(!market)
         {
-         if(sl>0) price_sl = entryPrice+sl*point;
-         if(tp>0) price_tp = entryPrice-tp*point;
+         if(sl>0) price_sl=entryPrice+sl*point;
+         if(tp>0) price_tp=entryPrice-tp*point;
         }
      }
    if(order_type<0) return 0;
@@ -585,13 +585,13 @@ int send_order(string instrument,int cmd,double lots,int distanceFromCurrentPric
            {
             if(cmd==OP_BUY)
               {
-               if(sl>0) price_sl = OrderOpenPrice()-sl*point;
-               if(tp>0) price_tp = OrderOpenPrice()+tp*point;
+               if(sl>0) price_sl=OrderOpenPrice()-sl*point;
+               if(tp>0) price_tp=OrderOpenPrice()+tp*point;
               }
             else if(cmd==OP_SELL)
               {
-               if(sl>0) price_sl = OrderOpenPrice()+sl*point;
-               if(tp>0) price_tp = OrderOpenPrice()-tp*point;
+               if(sl>0) price_sl=OrderOpenPrice()+sl*point;
+               if(tp>0) price_tp=OrderOpenPrice()-tp*point;
               }
             bool result=modify(ticket,price_sl,price_tp);
            }
@@ -638,7 +638,7 @@ bool trailingstop_check_order(int ticket,int trail,int threshold,int step)
       double newsl=OrderClosePrice()-trail*point;
       double activation=OrderOpenPrice()+threshold*point;
       double activation_sl=activation-(trail*point);
-      double step_in_pts= newsl-OrderStopLoss();
+      double step_in_pts=newsl-OrderStopLoss();
       if(OrderStopLoss()==0|| compare_doubles(activation_sl,OrderStopLoss(),digits)>0)
         {
          if(compare_doubles(OrderClosePrice(),activation,digits)>=0)
@@ -654,7 +654,7 @@ bool trailingstop_check_order(int ticket,int trail,int threshold,int step)
       double newsl=OrderClosePrice()+trail*point;
       double activation=OrderOpenPrice()-threshold*point;
       double activation_sl=activation+(trail*point);
-      double step_in_pts= OrderStopLoss()-newsl;
+      double step_in_pts=OrderStopLoss()-newsl;
       if(OrderStopLoss()==0|| compare_doubles(activation_sl,OrderStopLoss(),digits)<0)
         {
          if(compare_doubles(OrderClosePrice(),activation,digits)<=0)
@@ -750,7 +750,7 @@ bool is_new_bar(string instrument,int tf,bool wait=false)
    static double open_price=0;
    datetime current_bar_time=iTime(instrument,tf,0);
    double current_open_price=iOpen(instrument,tf,0);
-   int digits = (int)MarketInfo(instrument,MODE_DIGITS);
+   int digits=(int)MarketInfo(instrument,MODE_DIGITS);
    if(bar_time==0 && open_price==0)
      {
       bar_time=current_bar_time;
@@ -774,7 +774,7 @@ bool is_new_bar(string instrument,int tf,bool wait=false)
 
 int count_orders(ENUM_ORDER_SET type=-1,int magic=-1)
   {
-   int count= 0;
+   int count=0;
    for(int i=OrdersTotal();i>=0;i--)
      {
       if(OrderSelect(i,SELECT_BY_POS))
@@ -849,9 +849,9 @@ bool is_time_in_range(datetime time,int start_hour,int start_min,int end_hour,in
    else if(end_hour<0) end_hour=23+end_hour+1;
    int hour=TimeHour(time);
    int minute=TimeMinute(time);
-   int t = (hour*3600)+(minute*60);
-   int s = (start_hour*3600)+(start_min*60);
-   int e = (end_hour*3600)+(end_min*60);
+   int t=(hour*3600)+(minute*60);
+   int s=(start_hour*3600)+(start_min*60);
+   int e=(end_hour*3600)+(end_min*60);
    if(s==e)
       return true;
    else if(s<e)
