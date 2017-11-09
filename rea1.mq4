@@ -66,7 +66,7 @@ enum MM
 	
 	
 	input bool exit_opposite_signal=false;
-	input int maxtrades=1;
+	input int max_trades=1;
 	input bool entry_new_bar=true;
 	input bool wait_next_bar_on_load=true;
 	input int start_time_hour=22;
@@ -85,17 +85,17 @@ enum MM
 	input bool market_exec=false;
 	input bool long_allowed=true;
 	input bool short_allowed=true;
-	input color arrow_color_short=clrRed;
+	input color arrow_color_short=clrNONE; // you may want to remove all arrow color settings
 	
-	input int exiting_max_slippage=50; // i added this
+	input int exiting_max_slippage=50; // additional argument i added
 
 //????
-	input color arrow_color_long=clrGreen;
+	input color arrow_color_long=clrNONE; // you may want to remove all arrow color settings
 
 
 //calculate_lots
 	input string symbol=NULL;
-	input double lotsize=0.1;
+	input double lot_size=0.1;
 	input int stoploss=0;
 	input MM money_management=MM_FIXED_LOT;
 	input double mm1_risk=0.05;
@@ -156,7 +156,7 @@ int signal_exit()
 
 double calculate_lots()
   {
-   double lots=mm(money_management,symbol,lotsize,stoploss,mm1_risk,mm2_lots,mm2_per,mm3_risk,mm4_risk);
+   double lots=mm(money_management,symbol,lot_size,stoploss,mm1_risk,mm2_lots,mm2_per,mm3_risk,mm4_risk);
    return lots;
   }
 //+------------------------------------------------------------------+
@@ -258,7 +258,7 @@ void OnTick()
          if(exit_opposite_signal)
             exit_all_set(ORDER_SET_SELL,order_magic);
          count_orders=count_orders(-1,order_magic);
-         if(maxtrades>count_orders)
+         if(max_trades>count_orders)
            {
             if(!entry_new_bar || (entry_new_bar && is_new_bar(symbol,timeframe,wait_next_bar_on_load)))
                enter_order(OP_BUY);
@@ -269,7 +269,7 @@ void OnTick()
          if(exit_opposite_signal)
             exit_all_set(ORDER_SET_BUY,order_magic);
          count_orders=count_orders(-1,order_magic);
-         if(maxtrades>count_orders)
+         if(max_trades>count_orders)
            {
             if(!entry_new_bar || (entry_new_bar && is_new_bar(symbol,timeframe,wait_next_bar_on_load)))
                enter_order(OP_SELL);
