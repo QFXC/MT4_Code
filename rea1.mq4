@@ -9,6 +9,8 @@
 #property strict
 //#property show_inputs // This can only be used for scripts. I added this because, by default, it will not show any external inputs. This is to override this behaviour so it deliberately shows the inputs.
 
+// TODO: Always use NormalizeDouble() when computing the price yourself. This is not necessary for internal functions like OrderOPenPrice(), OrderStopLess(),OrderClosePrice(),Bid,Ask
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -319,7 +321,7 @@ void breakeven_check(int threshold,int plus,int magic=-1)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-
+// Checking if the order should be modified. If it should, then the order gets modified. The function returns true when it is done determining if it should modify. It may or may not if it determines it doesn't have to.
 bool modify_order(int ticket,double sl,double tp=-1,double entryPrice=-1,datetime expire=0,color a_color=clrNONE)
   {
    bool result=false;
@@ -327,27 +329,31 @@ bool modify_order(int ticket,double sl,double tp=-1,double entryPrice=-1,datetim
      {
       string instrument=OrderSymbol();
       int digits=(int)MarketInfo(instrument,MODE_DIGITS);
-      if(sl==-1) sl=OrderStopLoss();
+      if(sl==-1) sl=OrderStopLoss(); // if stoploss is not changed from the default set in the argument
       else sl=NormalizeDouble(sl,digits);
-      if(tp==-1) tp=OrderTakeProfit();
-      else tp=NormalizeDouble(tp,digits);
-      if(OrderType()<=1) // if it not a pending order
+      if(tp==-1) tp=OrderTakeProfit(); // if takeprofit is not changed from the default set in the argument
+      else tp=NormalizeDouble(tp,digits); // it needs to be normalized since you calculated it yourself to prevent errors when modifying an order
+      if(OrderType()<=1) // if it IS NOT a pending order
         {
+        // to prevent error code 1, check if there was a change
+        // compare_doubles returns 0 if the doubles are equal
          if(compare_doubles(sl,OrderStopLoss(),digits)==0 && 
             compare_doubles(tp,OrderTakeProfit(),digits)==0)
-            return true;
+            return true; //terminate the function
          entryPrice=OrderOpenPrice();
         }
-      else if(OrderType()>1) // if it is a pending order
+      else if(OrderType()>1) // if it IS a pending order
         {
          if(entryPrice==-1)
             entryPrice=OrderOpenPrice();
-         else entryPrice=NormalizeDouble(entryPrice,digits);
+         else entryPrice=NormalizeDouble(entryPrice,digits); // it needs to be normalized since you calculated it yourself to prevent errors when modifying an order
+         // to prevent error code 1, check if there was a change
+         // compare_doubles returns 0 if the doubles are equal
          if(compare_doubles(entryPrice,OrderOpenPrice(),digits)==0 && 
             compare_doubles(sl,OrderStopLoss(),digits)==0 && 
             compare_doubles(tp,OrderTakeProfit(),digits)==0 && 
             expire==OrderExpiration())
-            return true;
+            return true; //terminate the function
         }
       result=OrderModify(ticket,entryPrice,sl,tp,expire,a_color);
      }
@@ -357,6 +363,7 @@ bool modify_order(int ticket,double sl,double tp=-1,double entryPrice=-1,datetim
 //|                                                                  |
 //+------------------------------------------------------------------+
 
+// check for errors before modifying the order
 bool modify(int ticket,double sl,double tp=-1,double entryPrice=-1,datetime expire=0,color a_color=clrNONE,int retries=3,int sleep=500)
   {
    bool result=false;
