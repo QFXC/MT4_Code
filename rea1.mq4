@@ -7,6 +7,7 @@
 #property link      "https://www.quantfxcapital.com"
 #property version   "1.00"
 #property strict
+//#property show_inputs // This can only be used for scripts. I added this because, by default, it will not show any external inputs. This is to override this behaviour so it deliberately shows the inputs.
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -24,10 +25,10 @@ enum ENUM_TRADE_SIGNAL
 enum ENUM_ORDER_SET
   {
    ORDER_SET_ALL=-1,
-   ORDER_SET_BUY,
-   ORDER_SET_SELL,
-   ORDER_SET_BUY_LIMIT,
-   ORDER_SET_SELL_LIMIT,
+   ORDER_SET_BUY, // =0
+   ORDER_SET_SELL, // =1
+   ORDER_SET_BUY_LIMIT, // =2
+   ORDER_SET_SELL_LIMIT, // =...
    ORDER_SET_BUY_STOP,
    ORDER_SET_SELL_STOP,
    ORDER_SET_LONG,
@@ -40,7 +41,7 @@ enum ENUM_ORDER_SET
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-enum MM
+enum MM // Money Management
   {
    MM_FIXED_LOT,
    MM_RISK_PERCENT,
@@ -48,9 +49,6 @@ enum MM
    MM_FIXED_RISK,
    MM_FIXED_RISK_PER_POINT,
   };
-
-
-
 
 //ontick()
 	input int timeframe=0;
@@ -64,7 +62,6 @@ enum MM
 		input int trail_threshold=500;
 		input int trail_step=20;
 	
-	
 	input bool exit_opposite_signal=false;
 	input int max_trades=1;
 	input bool entry_new_bar=true;
@@ -75,29 +72,11 @@ enum MM
 	input int end_time_minute=0;
 	input int gmt=0;
 
-
-//enter_order
-	input int takeprofit=0;
-	input int entering_max_slippage=5; // the default used to be 50
-	input string order_comment="Relativity EA"; // allows the robot to enter a description for the order. An empty string is a default value.
-	input int order_magic=12345; // An EA can only have one magic number. Used to identify the EA that is managing the order.
-	input int order_expire=0; // The default is 0. The expiration is only needed when opening pending orders. I thought this was supposed to be the datetime type??? An exact date is needed to close the order.
-	input bool market_exec=false;
-	input bool long_allowed=true;
-	input bool short_allowed=true;
-	input color arrow_color_short=clrNONE; // you may want to remove all arrow color settings
-	
-	input int exiting_max_slippage=50; // additional argument i added
-
-//????
-	input color arrow_color_long=clrNONE; // you may want to remove all arrow color settings
-
-
-//calculate_lots
+//calculate_lots variables
 	input string symbol=NULL;
 	input double lot_size=0.1;
 	input int stoploss=0;
-	input MM money_management=MM_FIXED_LOT;
+	extern MM money_management=MM_RISK_PERCENT;
 	input double mm1_risk=0.05;
 	input double mm2_lots=0.1;
 	input double mm2_per=1000;
@@ -106,11 +85,11 @@ enum MM
 
 
 
-//signal_zigzag
-	input int depth=12;
-	input int deviation=5;
-	input int backstep=3;
-	input int shift=1;
+//signal_zigzag variables
+	extern int depth=12;
+	extern int deviation=5;
+	extern int backstep=3;
+	extern int shift=1;
 
 int signal_zigzag()
 {
@@ -170,7 +149,7 @@ void enter_order(ENUM_ORDER_TYPE type)
    if(type==OP_SELL || type==OP_SELLSTOP || type==OP_SELLLIMIT)
       if(!short_allowed) return;
    double lots=calculate_lots();
-   entry(NULL,type,lots,0,stoploss,takeprofit,order_comment,order_magic,order_expire,arrow_color_short,market_exec); // why does it only use the arrow_color_short variable and arrow_color_long is never used?
+   entry(NULL,type,lots,0,stoploss,takeprofit,order_comment,order_magic,order_expire_seconds,arrow_color_short,market_exec); // the 4th argument (distanceFromPrice) is 0 because you will be opening a market order.
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -352,14 +331,14 @@ bool modify_order(int ticket,double sl,double tp=-1,double entryPrice=-1,datetim
       else sl=NormalizeDouble(sl,digits);
       if(tp==-1) tp=OrderTakeProfit();
       else tp=NormalizeDouble(tp,digits);
-      if(OrderType()<=1)
+      if(OrderType()<=1) // if it not a pending order
         {
          if(compare_doubles(sl,OrderStopLoss(),digits)==0 && 
             compare_doubles(tp,OrderTakeProfit(),digits)==0)
             return true;
          entryPrice=OrderOpenPrice();
         }
-      else if(OrderType()>1)
+      else if(OrderType()>1) // if it is a pending order
         {
          if(entryPrice==-1)
             entryPrice=OrderOpenPrice();
@@ -385,17 +364,17 @@ bool modify(int ticket,double sl,double tp=-1,double entryPrice=-1,datetime expi
      {
       for(int i=0;i<retries;i++)
         {
-         if(!IsConnected()) Print("No internet connection");
-         else if(!IsExpertEnabled()) Print("Experts not enabled in trading platform");
-         else if(IsTradeContextBusy()) Print("Trade context is busy");
-         else if(!IsTradeAllowed()) Print("Trade is not allowed in trading platform");
+         if(!IsConnected()) Print("There is no internet connection.");
+         else if(!IsExpertEnabled()) Print("EAs are not enabled in the trading platform.");
+         else if(IsTradeContextBusy()) Print("The trade context is busy.");
+         else if(!IsTradeAllowed()) Print("The trade is not allowed in the trading platform.");
          else result=modify_order(ticket,sl,tp,entryPrice,expire,a_color);
          if(result)
             break;
          Sleep(sleep);
         }
      }
-   else Print("Invalid ticket for modify function");
+   else Print("An invalid ticket was used in the modify function.");
    return result;
   }
 //+------------------------------------------------------------------+
@@ -422,13 +401,13 @@ bool exit_order(int ticket,double size=-1,color a_color=clrNONE)
    bool result=false;
    if(OrderSelect(ticket,SELECT_BY_TICKET))
      {
-      if(OrderType()<=1)
+      if(OrderType()<=1) // if order type is an OP_BUY or OP_SELL (not a pending order). (OrderType() can be successfully called after a successful selection using OrderSelect())
         {
-         result=OrderClose(ticket,OrderLots(),OrderClosePrice(),exiting_max_slippage,a_color);
+         result=OrderClose(ticket,OrderLots(),OrderClosePrice(),exiting_max_slippage,a_color); // current order
         }
-      else if(OrderType()>1)
+      else if(OrderType()>1) // if it is a pending order
         {
-         result=OrderDelete(ticket,a_color);
+         result=OrderDelete(ticket,a_color);  // pending order
         }
      }
    return result;
@@ -442,10 +421,10 @@ bool exit(int ticket,color a_color=clrNONE,int retries=3,int sleep=500)
    bool result=false;
    for(int i=0;i<retries;i++)
      {
-      if(!IsConnected()) Print("No internet connection");
-      else if(!IsExpertEnabled()) Print("Experts not enabled in trading platform");
-      else if(IsTradeContextBusy()) Print("Trade context is busy");
-      else if(!IsTradeAllowed()) Print("Trade is not allowed in trading platform");
+      if(!IsConnected()) Print("There is no internet connection.");
+      else if(!IsExpertEnabled()) Print("EAs are not enabled in the trading platform.");
+      else if(IsTradeContextBusy()) Print("The trade context is busy.");
+      else if(!IsTradeAllowed()) Print("The trade is not allowed in the trading platform.");
       else result=exit_order(ticket,a_color);
       if(result)
          break;
@@ -458,9 +437,13 @@ bool exit(int ticket,color a_color=clrNONE,int retries=3,int sleep=500)
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-void exit_all(int type=-1,int magic=-1)
+// TODO: Create a feature to exit_all at a specific time you have set as a extern variable
+
+
+// By default, if the type and magic number is not supplied it is set to -1 so the function exits all orders (including ones from different EAs). But, there is an option to specify the type of orders when calling the function.
+void exit_all(int type=-1,int magic=-1) 
   {
-   for(int i=OrdersTotal();i>=0;i--)
+   for(int i=OrdersTotal();i>=0;i--) // it has to iterate through the array from the highest to lowest
      {
       if(OrderSelect(i,SELECT_BY_POS))
         {
@@ -535,6 +518,24 @@ void exit_all_set(ENUM_ORDER_SET type=-1,int magic=-1)
 //|                                                                  |
 //+------------------------------------------------------------------+
 
+
+//enter_order
+	input int takeprofit=0;
+	input int entering_max_slippage=5; // the default used to be 50
+	input string order_comment="Relativity EA"; // allows the robot to enter a description for the order. An empty string is a default value.
+	input int order_magic=12345; // An EA can only have one magic number. Used to identify the EA that is managing the order.
+	input int order_expire_seconds=0; // The default is 0. The expiration is only needed when opening pending orders.  An exact date is needed to close the order.
+	input bool market_exec=false;
+	input bool long_allowed=true;
+	input bool short_allowed=true;
+	input color arrow_color_short=clrNONE; // you may want to remove all arrow color settings
+	
+	input int exiting_max_slippage=50; // additional argument i added
+
+//????
+	input color arrow_color_long=clrNONE; // you may want to remove all arrow color settings
+	
+	
 // the distanceFromCurrentPrice parameter is to specify what type of order you would like to enter
 int send_order(string instrument,int cmd,double lots,int distanceFromCurrentPrice,int sl,int tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false)
   {
@@ -542,13 +543,13 @@ int send_order(string instrument,int cmd,double lots,int distanceFromCurrentPric
    double price_sl=0; 
    double price_tp=0;
    double point=MarketInfo(instrument,MODE_POINT); // getting the value of 1 point for the instrument
-   datetime expiry=0;
-   int order_type=-1;
-   RefreshRates();
+   datetime expire_time=0; // 0 means there is no expiration time for a pending order
+   int order_type=-1; // -1 means there is no order because orders are >=0
+   RefreshRates();  // refresh the rates to ensure that you have the most recent price
    //simplifying the arguments for the function by only allowing OP_BUY and OP_SELL 
-   if(cmd==OP_BUY)
+   if(cmd==OP_BUY) // logic for long trades
      {
-      if(distanceFromCurrentPrice>0) order_type=OP_BUYSTOP; // If the distanceFromCurrentPrice is >0 the function enters the order above the current price.
+      if(distanceFromCurrentPrice>0) order_type=OP_BUYSTOP;
       else if(distanceFromCurrentPrice<0) order_type=OP_BUYLIMIT;
       else order_type=OP_BUY;
       if(order_type==OP_BUY) distanceFromCurrentPrice=0;
@@ -559,9 +560,9 @@ int send_order(string instrument,int cmd,double lots,int distanceFromCurrentPric
          if(tp>0) price_tp=entryPrice+tp*point;
         }
      }
-   else if(cmd==OP_SELL)
+   else if(cmd==OP_SELL) // logic for short trades
      {
-      if(distanceFromCurrentPrice>0) order_type=OP_SELLLIMIT; //If the distanceFromCurrentPrice is >0 the function enters the order below the current price.
+      if(distanceFromCurrentPrice>0) order_type=OP_SELLLIMIT;
       else if(distanceFromCurrentPrice<0) order_type=OP_SELLSTOP;
       else order_type=OP_SELL;
       if(order_type==OP_SELL) distanceFromCurrentPrice=0;
@@ -572,14 +573,14 @@ int send_order(string instrument,int cmd,double lots,int distanceFromCurrentPric
          if(tp>0) price_tp=entryPrice-tp*point;
         }
      }
-   if(order_type<0) return 0;
-   else  if(order_type==0 || order_type==1) expiry=0;
-   else if(expire>0)
-      expiry=(datetime)MarketInfo(instrument,MODE_TIME)+expire;
+   if(order_type<0) return 0; // if order_type is not any of the OP_BUY* or OP_SELL*
+   else  if(order_type==0 || order_type==1) expire_time=0; // if its a market order, set the expire_time to 0 because market orders cannot have an expire_time
+   else if(expire>0) // if there is an expiration time set
+      expire_time=(datetime)MarketInfo(instrument,MODE_TIME)+expire; // expiration of the order = current time + expire time
    if(market)
      {
-      int ticket=OrderSend(instrument,order_type,lots,entryPrice,entering_max_slippage,0,0,comment,magic,expiry,a_clr);
-      if(ticket>0)
+      int ticket=OrderSend(instrument,order_type,lots,entryPrice,entering_max_slippage,0,0,comment,magic,expire_time,a_clr);
+      if(ticket>0) // if there is a valid ticket
         {
          if(OrderSelect(ticket,SELECT_BY_TICKET))
            {
@@ -598,7 +599,7 @@ int send_order(string instrument,int cmd,double lots,int distanceFromCurrentPric
         }
       return ticket;
      }
-   return OrderSend(instrument,order_type,lots,entryPrice,entering_max_slippage,price_sl,price_tp,comment,magic,expiry,a_clr);
+   return OrderSend(instrument,order_type,lots,entryPrice,entering_max_slippage,price_sl,price_tp,comment,magic,expire_time,a_clr);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -609,15 +610,15 @@ int entry(string instrument,int cmd,double lots,int distanceFromCurrentPrice,int
    int ticket=0;
    for(int i=0;i<retries;i++)
      {
-      if(IsStopped()) Print("Expert was stopped");
-      else if(!IsConnected()) Print("No internet connection");
-      else if(!IsExpertEnabled()) Print("Experts not enabled in trading platform");
-      else if(IsTradeContextBusy()) Print("Trade context is busy");
-      else if(!IsTradeAllowed()) Print("Trade is not allowed in trading platform");
+      if(IsStopped()) Print("The EA was stopped.");
+      else if(!IsConnected()) Print("There is no internet connection.");
+      else if(!IsExpertEnabled()) Print("EAs are not enabled in trading platform.");
+      else if(IsTradeContextBusy()) Print("The trade context is busy.");
+      else if(!IsTradeAllowed()) Print("The trade is not allowed in trading platform.");
       else ticket=send_order(instrument,cmd,lots,distanceFromCurrentPrice,sl,tp,comment,magic,expire,a_clr,market);
       if(ticket>0)
          break;
-      else Print("Error in sending order ("+IntegerToString(GetLastError(),0)+"), retry: "+IntegerToString(i,0)+"/"+IntegerToString(retries));
+      else Print("There was an error with sending the order. ("+IntegerToString(GetLastError(),0)+"), retry: "+IntegerToString(i,0)+"/"+IntegerToString(retries));
       Sleep(sleep);
      }
    return ticket;
