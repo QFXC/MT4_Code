@@ -45,7 +45,7 @@ enum ENUM_ORDER_SET
 //+------------------------------------------------------------------+
 enum MM // Money Management
   {
-   MM_FIXED_LOT,
+   MM_FIXED_LOT, // 0 by default
    MM_RISK_PERCENT,
    MM_FIXED_RATIO,
    MM_FIXED_RISK,
@@ -159,7 +159,7 @@ void enter_order(ENUM_ORDER_TYPE type)
 
 void close_all()
   {
-   exit_all_set(ORDER_SET_ALL,order_magic);
+   exit_all_trades_set(ORDER_SET_ALL,order_magic);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -167,9 +167,9 @@ void close_all()
 
 void close_all_long()
   {
-   exit_all_set(ORDER_SET_BUY,order_magic);
-//exit_all_set(ORDER_SET_BUY_STOP,order_magic);
-//exit_all_set(ORDER_SET_BUY_LIMIT,order_magic);
+   exit_all_trades_set(ORDER_SET_BUY,order_magic);
+//exit_all_trades_set(ORDER_SET_BUY_STOP,order_magic);
+//exit_all_trades_set(ORDER_SET_BUY_LIMIT,order_magic);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -177,9 +177,9 @@ void close_all_long()
 
 void close_all_short()
   {
-   exit_all_set(ORDER_SET_SELL,order_magic);
-//exit_all_set(ORDER_SET_SELL_STOP,order_magic);
-//exit_all_set(ORDER_SET_SELL_LIMIT,order_magic);
+   exit_all_trades_set(ORDER_SET_SELL,order_magic);
+//exit_all_trades_set(ORDER_SET_SELL_STOP,order_magic);
+//exit_all_trades_set(ORDER_SET_SELL_LIMIT,order_magic);
   }
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -237,7 +237,7 @@ void OnTick()
       if(entry==TRADE_SIGNAL_BUY)
         {
          if(exit_opposite_signal)
-            exit_all_set(ORDER_SET_SELL,order_magic);
+            exit_all_trades_set(ORDER_SET_SELL,order_magic);
          count_orders=count_orders(-1,order_magic);
          if(max_trades>count_orders)
            {
@@ -248,7 +248,7 @@ void OnTick()
       else if(entry==TRADE_SIGNAL_SELL)
         {
          if(exit_opposite_signal)
-            exit_all_set(ORDER_SET_BUY,order_magic);
+            exit_all_trades_set(ORDER_SET_BUY,order_magic);
          count_orders=count_orders(-1,order_magic);
          if(max_trades>count_orders)
            {
@@ -452,7 +452,7 @@ void exit_all(int type=-1,int magic=-1)
   {
    for(int i=OrdersTotal();i>=0;i--) // it has to iterate through the array from the highest to lowest
      {
-      if(OrderSelect(i,SELECT_BY_POS))
+      if(OrderSelect(i,SELECT_BY_POS)) // if an open trade can be found
         {
          if((type==-1 || type==OrderType()) && (magic==-1 || magic==OrderMagicNumber()))
             exit(OrderTicket());
@@ -463,13 +463,14 @@ void exit_all(int type=-1,int magic=-1)
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-void exit_all_set(ENUM_ORDER_SET type=-1,int magic=-1)
+// This is similar to the exit_all function except that it allows you to choose more sets  to close. It will iterate through all open trades and close them based on the order type and magic number
+void exit_all_trades_set(ENUM_ORDER_SET type=-1,int magic=-1)  // -1 means all
   {
    for(int i=OrdersTotal();i>=0;i--)
      {
-      if(OrderSelect(i,SELECT_BY_POS))
+      if(OrderSelect(i,SELECT_BY_POS)) // if an open trade can be found
         {
-         if(magic==-1 || magic==OrderMagicNumber())
+         if(magic==-1 || magic==OrderMagicNumber()) // if the open trade matches the magic number
            {
             int ordertype=OrderType();
             int ticket=OrderTicket();
@@ -780,12 +781,13 @@ bool is_new_bar(string instrument,int tf,bool wait=false)
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-int count_orders(ENUM_ORDER_SET type=-1,int magic=-1)
+// This function solves the problem of an EA on a chart thinking it controls other EAs orders.
+int count_orders(ENUM_ORDER_SET type=-1,int magic=-1,int pool=MODE_TRADES) // With pool, you can define whether to count current orders (MODE_TRADES) or closed and cancelled orders (MODE_HISTORY).
   {
    int count=0;
    for(int i=OrdersTotal();i>=0;i--)
      {
-      if(OrderSelect(i,SELECT_BY_POS))
+      if(OrderSelect(i,SELECT_BY_POS,pool))
         {
          if(magic==-1 || magic==OrderMagicNumber())
            {
