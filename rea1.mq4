@@ -64,12 +64,12 @@ enum MM // Money Management
 //trailing stop variables
 	input int trail_value=20; // TODO: Change to a percent of ADR
 	input int trail_threshold=500; // TODO: Change to a percent of ADR
-	input int trail_step=20; // TODO: Change to a percent of ADR
+	input int trail_step=20; // the minimum difference between the proposed new value of the stoploss to the current stoploss price // TODO: Change to a percent of ADR
 	
 	input bool exit_opposite_signal=false; // Should the EA exit trades when there is a signal in the opposite direction?
 	input int max_trades=1; // How many trades can the EA enter at the same time on the current chart?
 	input bool entry_new_bar=true; // Should you only enter trades when a new bar begins?
-	input bool wait_next_bar_on_load=true; // What for next bar to load before giving the EA the ability to enter a trade?
+	input bool wait_next_bar_on_load=true; // Wait for next bar to load before giving the EA the ability to enter a trade?
 	
 //time filters - only allow EA to enter trades between a range of time in a day
 	input int start_time_hour=22;
@@ -266,10 +266,10 @@ void OnTick()
      }
 
 // Breakeven (comment out if this functionality is not required)
-//if(breakeven_threshold>0) breakeven_check(breakeven_threshold,breakeven_plus,order_magic);
+//if(breakeven_threshold>0) breakeven_check_all_orders(breakeven_threshold,breakeven_plus,order_magic);
 
 // Trailing Stop (comment out of this functinoality is not required)
-//if(trail_value>0) trailingstop_check(trail_value,trail_threshold,trail_step,order_magic);
+//if(trail_value>0) trailingstop_check_all_orders(trail_value,trail_threshold,trail_step,order_magic);
 //   virtualstop_check(virtual_sl,virtual_tp);
   }
 //+------------------------------------------------------------------+
@@ -292,17 +292,17 @@ void signal_manage(ENUM_TRADE_SIGNAL &entry,ENUM_TRADE_SIGNAL &exit) // TODO: Th
 
 bool breakeven_check_order(int ticket,int threshold,int plus) 
   {
-   if(ticket<=0) return true;
-   if(!OrderSelect(ticket,SELECT_BY_TICKET)) return false;
-   int digits=(int)MarketInfo(OrderSymbol(),MODE_DIGITS);
-   double point=MarketInfo(OrderSymbol(),MODE_POINT);
-   bool result=true;
-   if(OrderType()==OP_BUY)
+   if(ticket<=0) return true; // if it is a valid ticket, return true
+   if(!OrderSelect(ticket,SELECT_BY_TICKET)) return false; // if there is no ticket, it cannot be process so return false
+   int digits=(int)MarketInfo(OrderSymbol(),MODE_DIGITS); // how many digit broker
+   double point=MarketInfo(OrderSymbol(),MODE_POINT); // get the point for the instrument
+   bool result=true; // initialize the variable result
+   if(OrderType()==OP_BUY) // if it is a buy order
      {
-      double new_sl=OrderOpenPrice()+plus*point;
-      double profit_in_pts=OrderClosePrice()-OrderOpenPrice();
-      if(OrderStopLoss()==0 || compare_doubles(new_sl,OrderStopLoss(),digits)>0)
-         if(compare_doubles(profit_in_pts,threshold*point,digits)>=0)
+      double new_sl=OrderOpenPrice()+plus*point; // calculate the price of the new stoploss
+      double profit_in_pts=OrderClosePrice()-OrderOpenPrice(); // calculate how many points in profit the trade is in so far
+      if(OrderStopLoss()==0 || compare_doubles(new_sl,OrderStopLoss(),digits)>0) // if there is no stoploss or the potential new stoploss is greater than the current stoploss
+         if(compare_doubles(profit_in_pts,threshold*point,digits)>=0) // if the profit in points so far > provided threshold, then set the order to breakeven
             result=modify(ticket,new_sl);
      }
    else if(OrderType()==OP_SELL)
@@ -319,7 +319,7 @@ bool breakeven_check_order(int ticket,int threshold,int plus)
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-void breakeven_check(int threshold,int plus,int magic=-1)
+void breakeven_check_all_orders(int threshold,int plus,int magic=-1) // a -1 magic number means the there is no magic number in this order or EA
   {
    for(int i=0;i<OrdersTotal();i++)
      {
@@ -338,7 +338,7 @@ bool modify_order(int ticket,double sl,double tp=-1,double entryPrice=-1,datetim
    if(OrderSelect(ticket,SELECT_BY_TICKET))
      {
       string instrument=OrderSymbol();
-      int digits=(int)MarketInfo(instrument,MODE_DIGITS);
+      int digits=(int)MarketInfo(instrument,MODE_DIGITS); // The count of digits after the decimal point.
       if(sl==-1) sl=OrderStopLoss(); // if stoploss is not changed from the default set in the argument
       else sl=NormalizeDouble(sl,digits);
       if(tp==-1) tp=OrderTakeProfit(); // if takeprofit is not changed from the default set in the argument
@@ -398,9 +398,9 @@ bool modify(int ticket,double sl,double tp=-1,double entryPrice=-1,datetime expi
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-int compare_doubles(double var1,double var2,int precision)
+int compare_doubles(double var1,double var2,int precision) // For the precision argument, often it is the number of digits after the decimal point.
   {
-   double point=MathPow(10,-precision); //10^(-precision)
+   double point=MathPow(10,-precision); // 10^(-precision) // MathPow(base, exponent value)
    int var1_int=(int) (var1/point);
    int var2_int=(int) (var2/point);
    if(var1_int>var2_int)
@@ -646,7 +646,7 @@ int entry(string instrument,int cmd,double lots,int distanceFromCurrentPrice,int
 //+------------------------------------------------------------------+
 
 // Checking and moving trailing stop while the order is open
-bool trailingstop_check_order(int ticket,int trail,int threshold,int step)
+bool trailingstop_check_order(int ticket,int trail_pips,int threshold,int step)
   {
    if(ticket<=0) return true;
    if(!OrderSelect(ticket,SELECT_BY_TICKET)) return false;
@@ -655,34 +655,34 @@ bool trailingstop_check_order(int ticket,int trail,int threshold,int step)
    bool result=true;
    if(OrderType()==OP_BUY)
      {
-      double newsl=OrderClosePrice()-trail*point;
-      double activation=OrderOpenPrice()+threshold*point;
-      double activation_sl=activation-(trail*point);
-      double step_in_pts=newsl-OrderStopLoss();
+      double new_moving_sl=OrderClosePrice()-trail_pips*point; // the current price - the trail in pips
+      double threshold_activation_price=OrderOpenPrice()+threshold*point;
+      double activation_sl=threshold_activation_price-(trail_pips*point);
+      double step_in_pts=new_moving_sl-OrderStopLoss(); // keeping track of the distance between the potential stoploss and the current stoploss
       if(OrderStopLoss()==0|| compare_doubles(activation_sl,OrderStopLoss(),digits)>0)
         {
-         if(compare_doubles(OrderClosePrice(),activation,digits)>=0)
+         if(compare_doubles(OrderClosePrice(),threshold_activation_price,digits)>=0) // if price met the threshold, move the stoploss
             result=modify(ticket,activation_sl);
         }
-      else if(compare_doubles(step_in_pts,step*point,digits)>=0)
+      else if(compare_doubles(step_in_pts,step*point,digits)>=0) // if price met the step, move the stoploss
         {
-         result=modify(ticket,newsl);
+         result=modify(ticket,new_moving_sl);
         }
      }
    else if(OrderType()==OP_SELL)
      {
-      double newsl=OrderClosePrice()+trail*point;
-      double activation=OrderOpenPrice()-threshold*point;
-      double activation_sl=activation+(trail*point);
-      double step_in_pts=OrderStopLoss()-newsl;
+      double new_moving_sl=OrderClosePrice()+trail_pips*point;
+      double threshold_activation_price=OrderOpenPrice()-threshold*point;
+      double activation_sl=threshold_activation_price+(trail_pips*point);
+      double step_in_pts=OrderStopLoss()-new_moving_sl;
       if(OrderStopLoss()==0|| compare_doubles(activation_sl,OrderStopLoss(),digits)<0)
         {
-         if(compare_doubles(OrderClosePrice(),activation,digits)<=0)
+         if(compare_doubles(OrderClosePrice(),threshold_activation_price,digits)<=0)
             result=modify(ticket,activation_sl);
         }
       else if(compare_doubles(step_in_pts,step*point,digits)>=0)
         {
-         result=modify(ticket,newsl);
+         result=modify(ticket,new_moving_sl);
         }
      }
    return result;
@@ -691,8 +691,7 @@ bool trailingstop_check_order(int ticket,int trail,int threshold,int step)
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-// Checking the trailing stop for every active order
-void trailingstop_check(int trail,int threshold,int step,int magic=-1)
+void trailingstop_check_all_orders(int trail,int threshold,int step,int magic=-1)
   {
    for(int i=0;i<OrdersTotal();i++)
      {
