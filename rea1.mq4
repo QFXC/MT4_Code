@@ -54,28 +54,32 @@ enum MM // Money Management
 
 //ontick()
 	input int timeframe=0;
-	input int virtual_sl=0;
-	input int virtual_tp=0;
-	input int breakeven_threshold=500;
-	input int breakeven_plus=0;
+	input int virtual_sl=0; // TODO: Change to a percent of ADR
+	input int virtual_tp=0; // TODO: Change to a percent of ADR
+	
+   // Breakeven variables
+	input int breakeven_threshold=500; // TODO: Change this to a percent of ADR. The percent of ADR in profit before setting the stop to breakeven.
+	input int breakeven_plus=0; // plus allows you to move the stoploss +/- from the entry price where 0 is breakeven, <0 loss zone, and >0 profit zone
 	
 //trailing stop variables
-	input int trail_value=20;
-	input int trail_threshold=500;
-	input int trail_step=20;
+	input int trail_value=20; // TODO: Change to a percent of ADR
+	input int trail_threshold=500; // TODO: Change to a percent of ADR
+	input int trail_step=20; // TODO: Change to a percent of ADR
 	
-	input bool exit_opposite_signal=false;
-	input int max_trades=1;
-	input bool entry_new_bar=true;
-	input bool wait_next_bar_on_load=true;
+	input bool exit_opposite_signal=false; // Should the EA exit trades when there is a signal in the opposite direction?
+	input int max_trades=1; // How many trades can the EA enter at the same time on the current chart?
+	input bool entry_new_bar=true; // Should you only enter trades when a new bar begins?
+	input bool wait_next_bar_on_load=true; // What for next bar to load before giving the EA the ability to enter a trade?
+	
+//time filters - only allow EA to enter trades between a range of time in a day
 	input int start_time_hour=22;
 	input int start_time_minute=0;
 	input int end_time_hour=22;
 	input int end_time_minute=0;
-	input int gmt=0;
+	input int gmt=0; // Adjust this if the broker does not use GMT time.
 
 //calculate_lots/mm variables
-	input string symbol=NULL;
+	input string symbol=NULL; // NULL should select the current symbol on the current chart
 	input double lot_size=0.1;
 	input int stoploss=0;
 	input MM money_management=MM_RISK_PERCENT;
@@ -110,6 +114,8 @@ int signal_zigzag()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
+// Checks for the entry of orders
 int signal_entry()
   {
    int signal=TRADE_SIGNAL_NEUTRAL;
@@ -121,6 +127,8 @@ int signal_entry()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
+// Checks for the exit of orders
 int signal_exit()
   {
    int signal=TRADE_SIGNAL_NEUTRAL;
@@ -257,16 +265,19 @@ void OnTick()
         }
      }
 
-/* misc tasks */
+// Breakeven (comment out if this functionality is not required)
 //if(breakeven_threshold>0) breakeven_check(breakeven_threshold,breakeven_plus,order_magic);
+
+// Trailing Stop (comment out of this functinoality is not required)
 //if(trail_value>0) trailingstop_check(trail_value,trail_threshold,trail_step,order_magic);
-   virtualstop_check(virtual_sl,virtual_tp);
+//   virtualstop_check(virtual_sl,virtual_tp);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-void signal_manage(ENUM_TRADE_SIGNAL &entry,ENUM_TRADE_SIGNAL &exit)
+// Handles situations where there is a conflict between the entry and exit signal.
+void signal_manage(ENUM_TRADE_SIGNAL &entry,ENUM_TRADE_SIGNAL &exit) // TODO: This function is not yet being called.
   {
    if(exit==TRADE_SIGNAL_VOID)
       entry=TRADE_SIGNAL_NEUTRAL;
@@ -279,7 +290,7 @@ void signal_manage(ENUM_TRADE_SIGNAL &entry,ENUM_TRADE_SIGNAL &exit)
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-bool breakeven_check_order(int ticket,int threshold,int plus)
+bool breakeven_check_order(int ticket,int threshold,int plus) 
   {
    if(ticket<=0) return true;
    if(!OrderSelect(ticket,SELECT_BY_TICKET)) return false;
@@ -288,19 +299,19 @@ bool breakeven_check_order(int ticket,int threshold,int plus)
    bool result=true;
    if(OrderType()==OP_BUY)
      {
-      double newsl=OrderOpenPrice()+plus*point;
+      double new_sl=OrderOpenPrice()+plus*point;
       double profit_in_pts=OrderClosePrice()-OrderOpenPrice();
-      if(OrderStopLoss()==0 || compare_doubles(newsl,OrderStopLoss(),digits)>0)
+      if(OrderStopLoss()==0 || compare_doubles(new_sl,OrderStopLoss(),digits)>0)
          if(compare_doubles(profit_in_pts,threshold*point,digits)>=0)
-            result=modify(ticket,newsl);
+            result=modify(ticket,new_sl);
      }
    else if(OrderType()==OP_SELL)
      {
-      double newsl=OrderOpenPrice()-plus*point;
+      double new_sl=OrderOpenPrice()-plus*point;
       double profit_in_pts=OrderOpenPrice()-OrderClosePrice();
-      if(OrderStopLoss()==0 || compare_doubles(newsl,OrderStopLoss(),digits)<0)
+      if(OrderStopLoss()==0 || compare_doubles(new_sl,OrderStopLoss(),digits)<0)
          if(compare_doubles(profit_in_pts,threshold*point,digits)>=0)
-            result=modify(ticket,newsl);
+            result=modify(ticket,new_sl);
      }
    return result;
   }
@@ -527,8 +538,8 @@ void exit_all_trades_set(ENUM_ORDER_SET type=-1,int magic=-1)  // -1 means all
 
 
 //enter_order
-	input int takeprofit=0;
-	input int entering_max_slippage=5; // the default used to be 50
+	input int takeprofit=0; // TODO: Change to a percent of ADR
+	input int entering_max_slippage=5; // TODO: Change to a percent of ADR // the default used to be 50 
 	input string order_comment="Relativity EA"; // allows the robot to enter a description for the order. An empty string is a default value.
 	input int order_magic=1; // An EA can only have one magic number. Used to identify the EA that is managing the order.
 	input int order_expire_seconds=0; // The default is 0. The expiration is only needed when opening pending orders.  An exact date is needed to close the order.
@@ -537,7 +548,7 @@ void exit_all_trades_set(ENUM_ORDER_SET type=-1,int magic=-1)  // -1 means all
 	input bool short_allowed=true;
 	input color arrow_color_short=clrNONE; // you may want to remove all arrow color settings
 	
-	input int exiting_max_slippage=50; // additional argument i added
+	input int exiting_max_slippage=50; // TODO: Change to a percent of ADR // additional argument i added
 
 //????
 	input color arrow_color_long=clrNONE; // you may want to remove all arrow color settings
@@ -634,6 +645,7 @@ int entry(string instrument,int cmd,double lots,int distanceFromCurrentPrice,int
 //|                                                                  |
 //+------------------------------------------------------------------+
 
+// Checking and moving trailing stop while the order is open
 bool trailingstop_check_order(int ticket,int trail,int threshold,int step)
   {
    if(ticket<=0) return true;
@@ -679,6 +691,7 @@ bool trailingstop_check_order(int ticket,int trail,int threshold,int step)
 //|                                                                  |
 //+------------------------------------------------------------------+
 
+// Checking the trailing stop for every active order
 void trailingstop_check(int trail,int threshold,int step,int magic=-1)
   {
    for(int i=0;i<OrdersTotal();i++)
@@ -850,7 +863,8 @@ int count_orders(ENUM_ORDER_SET type=-1,int magic=-1,int pool=MODE_TRADES) // Wi
 
 bool is_time_in_range(datetime time,int start_hour,int start_min,int end_hour,int end_min,int gmt_offset=0)
   {
-   if(gmt_offset!=0)
+  // Since a non-zero gmt_offset will make the start and end hour go beyond acceptable paremeters (below 0 or above 24), change the start_hour and end_hour.
+   if(gmt_offset!=0) 
      {
       start_hour+=gmt_offset;
       end_hour+=gmt_offset;
@@ -859,6 +873,7 @@ bool is_time_in_range(datetime time,int start_hour,int start_min,int end_hour,in
    else if(start_hour<0) start_hour=23+start_hour+1;
    if(end_hour>23) end_hour=(end_hour-23)-1;
    else if(end_hour<0) end_hour=23+end_hour+1;
+   
    int hour=TimeHour(time);
    int minute=TimeMinute(time);
    int t=(hour*3600)+(minute*60);
