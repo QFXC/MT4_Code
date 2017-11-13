@@ -14,12 +14,12 @@
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-enum ENUM_TRADE_SIGNAL
+enum ENUM_TRADE_SIGNAL  // since ENUM_ORDER_TYPE is not enough, this enum was created to be able to use neutral and void signals
   {
-   TRADE_SIGNAL_VOID=-1,
-   TRADE_SIGNAL_NEUTRAL,
-   TRADE_SIGNAL_BUY,
-   TRADE_SIGNAL_SELL
+   TRADE_SIGNAL_VOID=-1, // exit all trades
+   TRADE_SIGNAL_NEUTRAL, // no direction is determined. This happens when buy and sell signals are compared with each other.
+   TRADE_SIGNAL_BUY, // buy
+   TRADE_SIGNAL_SELL // sell
   };
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -59,10 +59,10 @@ enum MM // Money Management
 	input int breakeven_threshold=500;
 	input int breakeven_plus=0;
 	
-	//trailing stop variables
-		input int trail_value=20;
-		input int trail_threshold=500;
-		input int trail_step=20;
+//trailing stop variables
+	input int trail_value=20;
+	input int trail_threshold=500;
+	input int trail_step=20;
 	
 	input bool exit_opposite_signal=false;
 	input int max_trades=1;
@@ -74,18 +74,16 @@ enum MM // Money Management
 	input int end_time_minute=0;
 	input int gmt=0;
 
-//calculate_lots variables
+//calculate_lots/mm variables
 	input string symbol=NULL;
 	input double lot_size=0.1;
 	input int stoploss=0;
-	extern MM money_management=MM_RISK_PERCENT;
-	input double mm1_risk=0.05;
+	input MM money_management=MM_RISK_PERCENT;
+	input double mm1_risk=0.05; // percent risked when using MM_RISK_PERCENT money management calculations
 	input double mm2_lots=0.1;
 	input double mm2_per=1000;
 	input double mm3_risk=50;
 	input double mm4_risk=50;
-
-
 
 //signal_zigzag variables
 	extern int depth=12;
@@ -115,9 +113,9 @@ int signal_zigzag()
 int signal_entry()
   {
    int signal=TRADE_SIGNAL_NEUTRAL;
-//add entry signals below
-   signal=signal_add(signal,signal_zigzag());
-//return entry signal
+// Add 1 or more entry signals below. As each signal is compared with the previous signal, the signal variable will change and then get returned.
+   signal=signal_compare(signal,signal_zigzag());
+// Return the entry signal
    return signal;
   }
 //+------------------------------------------------------------------+
@@ -126,9 +124,10 @@ int signal_entry()
 int signal_exit()
   {
    int signal=TRADE_SIGNAL_NEUTRAL;
-//add entry signals below
+// Add exit signals below. As each signal is compared with the previous signal, the signal variable will change and then get returned.
+// The 3rd argument of the signal_compare function should explicitely be set to "true" every time.
 
-//return exit signal
+// Return the exit signal
    return signal;
   }
 //+------------------------------------------------------------------+
@@ -242,7 +241,7 @@ void OnTick()
          if(max_trades>count_orders)
            {
             if(!entry_new_bar || (entry_new_bar && is_new_bar(symbol,timeframe,wait_next_bar_on_load)))
-               enter_order(OP_BUY);
+               enter_order(OP_BUY); // TODO: what about OP_BUYSTOP and OP_BUYLIMIT?
            }
         }
       else if(entry==TRADE_SIGNAL_SELL)
@@ -253,7 +252,7 @@ void OnTick()
          if(max_trades>count_orders)
            {
             if(!entry_new_bar || (entry_new_bar && is_new_bar(symbol,timeframe,wait_next_bar_on_load)))
-               enter_order(OP_SELL);
+               enter_order(OP_SELL); // TODO: what about OP_SELLSTOP and OP_SELLLIMIT?
            }
         }
      }
@@ -335,7 +334,7 @@ bool modify_order(int ticket,double sl,double tp=-1,double entryPrice=-1,datetim
       else tp=NormalizeDouble(tp,digits); // it needs to be normalized since you calculated it yourself to prevent errors when modifying an order
       if(OrderType()<=1) // if it IS NOT a pending order
         {
-        // to prevent error code 1, check if there was a change
+        // to prevent Error Code 1, check if there was a change
         // compare_doubles returns 0 if the doubles are equal
          if(compare_doubles(sl,OrderStopLoss(),digits)==0 && 
             compare_doubles(tp,OrderTakeProfit(),digits)==0)
@@ -531,9 +530,9 @@ void exit_all_trades_set(ENUM_ORDER_SET type=-1,int magic=-1)  // -1 means all
 	input int takeprofit=0;
 	input int entering_max_slippage=5; // the default used to be 50
 	input string order_comment="Relativity EA"; // allows the robot to enter a description for the order. An empty string is a default value.
-	input int order_magic=12345; // An EA can only have one magic number. Used to identify the EA that is managing the order.
+	input int order_magic=1; // An EA can only have one magic number. Used to identify the EA that is managing the order.
 	input int order_expire_seconds=0; // The default is 0. The expiration is only needed when opening pending orders.  An exact date is needed to close the order.
-	input bool market_exec=false;
+	input bool market_exec=false; // False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
 	input bool long_allowed=true;
 	input bool short_allowed=true;
 	input color arrow_color_short=clrNONE; // you may want to remove all arrow color settings
@@ -544,8 +543,8 @@ void exit_all_trades_set(ENUM_ORDER_SET type=-1,int magic=-1)  // -1 means all
 	input color arrow_color_long=clrNONE; // you may want to remove all arrow color settings
 	
 	
-// the distanceFromCurrentPrice parameter is to specify what type of order you would like to enter
-int send_order(string instrument,int cmd,double lots,int distanceFromCurrentPrice,int sl,int tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false)
+// the distanceFromCurrentPrice parameter is used to specify what type of order you would like to enter
+int send_order(string instrument,int cmd,double lots,int distanceFromCurrentPrice,int sl,int tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
   {
    double entryPrice=0; 
    double price_sl=0; 
@@ -562,7 +561,7 @@ int send_order(string instrument,int cmd,double lots,int distanceFromCurrentPric
       else order_type=OP_BUY;
       if(order_type==OP_BUY) distanceFromCurrentPrice=0;
       entryPrice=MarketInfo(instrument,MODE_ASK)+distanceFromCurrentPrice*point;
-      if(!market)
+      if(!market) // if it is market execution there is no point in calculating the takeprofit and stoploss levels
         {
          if(sl>0) price_sl=entryPrice-sl*point;
          if(tp>0) price_tp=entryPrice+tp*point;
@@ -575,7 +574,7 @@ int send_order(string instrument,int cmd,double lots,int distanceFromCurrentPric
       else order_type=OP_SELL;
       if(order_type==OP_SELL) distanceFromCurrentPrice=0;
       entryPrice=MarketInfo(instrument,MODE_BID)+distanceFromCurrentPrice*point;
-      if(!market)
+      if(!market) // if it is market execution there is no point in calculating the takeprofit and stoploss levels
         {
          if(sl>0) price_sl=entryPrice+sl*point;
          if(tp>0) price_tp=entryPrice-tp*point;
@@ -585,7 +584,7 @@ int send_order(string instrument,int cmd,double lots,int distanceFromCurrentPric
    else  if(order_type==0 || order_type==1) expire_time=0; // if its a market order, set the expire_time to 0 because market orders cannot have an expire_time
    else if(expire>0) // if there is an expiration time set
       expire_time=(datetime)MarketInfo(instrument,MODE_TIME)+expire; // expiration of the order = current time + expire time
-   if(market)
+   if(market) // If it is market execution, this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
      {
       int ticket=OrderSend(instrument,order_type,lots,entryPrice,entering_max_slippage,0,0,comment,magic,expire_time,a_clr);
       if(ticket>0) // if there is a valid ticket
@@ -695,19 +694,20 @@ void trailingstop_check(int trail,int threshold,int step,int magic=-1)
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-int signal_add(int current,int add,bool exit=false)
+int signal_compare(int current_signal,int added_signal,bool exit=false) 
   {
-   if(current==TRADE_SIGNAL_VOID)
-      return current;
-   else if(current==TRADE_SIGNAL_NEUTRAL)
-      return add;
+  // signals are evaluated two at a time and the result will be used to compared with other signals until all signals are compared
+   if(current_signal==TRADE_SIGNAL_VOID)
+      return current_signal;
+   else if(current_signal==TRADE_SIGNAL_NEUTRAL)
+      return added_signal;
    else
      {
-      if(add==TRADE_SIGNAL_NEUTRAL)
-         return current;
-      else if(add==TRADE_SIGNAL_VOID)
-         return add;
-      else if(add!=current)
+      if(added_signal==TRADE_SIGNAL_NEUTRAL)
+         return current_signal;
+      else if(added_signal==TRADE_SIGNAL_VOID)
+         return added_signal;
+      else if(added_signal!=current_signal)
         {
          if(exit)
             return TRADE_SIGNAL_VOID;
@@ -715,7 +715,7 @@ int signal_add(int current,int add,bool exit=false)
             return TRADE_SIGNAL_NEUTRAL;
         }
      }
-   return add;
+   return added_signal;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -741,10 +741,12 @@ double mm(MM method,string instrument,double lots,int sl,double risk_mm1,double 
          lots=risk_mm4/tick_value;
          break;
      }
+   // get information from the broker and then Normalize the lots double
    double min_lot=MarketInfo(instrument,MODE_MINLOT);
    double max_lot=MarketInfo(instrument,MODE_MAXLOT);
-   int lot_digits=(int) -MathLog10(MarketInfo(instrument,MODE_LOTSTEP));
+   int lot_digits=(int) -MathLog10(MarketInfo(instrument,MODE_LOTSTEP)); // MathLog10 returns the logarithm of a number (in this case, the MODE_LOTSTEP) base 10. So, this finds out how many digits in the lot the broker accepts.
    lots=NormalizeDouble(lots,lot_digits);
+   // If the lots value is below or above the broker's MODE_MINLOT or MODE_MAXLOT, the lots will be change to one of those lot sizes. This is in order to prevent Error 131 - invalid trade volume error
    if(lots<min_lot) lots=min_lot;
    if(lots>max_lot) lots=max_lot;
    return lots;
