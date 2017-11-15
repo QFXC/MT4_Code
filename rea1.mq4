@@ -67,7 +67,7 @@ enum MM // Money Management
 	input int trail_step=20; // the minimum difference between the proposed new value of the stoploss to the current stoploss price // TODO: Change to a percent of ADR
 	
 	input bool exit_opposite_signal=false; // Should the EA exit trades when there is a signal in the opposite direction?
-	input int max_trades=1; // How many trades can the EA enter at the same time on the current chart?
+	input int max_trades=1; // How many trades can the EA enter at the same time on the current chart? TODO: make sure you can have 1 long and 1 short at the same time.
 	input bool entry_new_bar=true; // Should you only enter trades when a new bar begins?
 	input bool wait_next_bar_on_load=true; // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade?
 	
@@ -78,17 +78,45 @@ enum MM // Money Management
 	input int end_time_minute=0; // 0-59
 	input int gmt=-2; // The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). Adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
 
+//enter_order
+	input double takeprofit_percent=0.3; // TODO: Change to a percent of ADR (What % of ADR should you tarket?)
+   input double stoploss_percent=1.0;
+	input double pullback_percent=0.5;
+	
+	input int entering_max_slippage=5; // TODO: Change to a percent of ADR  // the default used to be 50 
+	input string order_comment="Relativity EA"; // TODO: Add the parameter settings for the order to the message. // allows the robot to enter a description for the order. An empty string is a default value.
+	input int order_magic=1; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
+	input int order_expire=120*60; // In seconds. If none, type 0. The expiration is used for pending orders.
+	input bool market_exec=false; // False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
+	input bool long_allowed=true;
+	input bool short_allowed=true;
+	input color arrow_color_short=clrNONE; // you may want to remove all arrow color settings
+
+//exit_order
+	input int exiting_max_slippage=50; // TODO: Change to a percent of ADR // additional argument i added
+
+//????
+	input color arrow_color_long=clrNONE; // you may want to remove all arrow color settings
+	
 //calculate_lots/mm variables
 	input string symbol=NULL; // A NULL value should select the current symbol on the current chart
 	input double lot_size=0.1;
-	input double stoploss_percent=1.0;
-	input double pullback_percent=0.5;
 	input MM money_management=MM_RISK_PERCENT;
-	input double mm1_risk_percent=0.02; // percent risked when using MM_RISK_PERCENT money management calculations
+	input double mm1_risk_percent=0.02; // percent risked when using the MM_RISK_PERCENT money management calculations
 	input double mm2_lots=0.1;
 	input double mm2_per=1000;
 	input double mm3_risk=50;
 	input double mm4_risk=50;
+	
+// ADR()
+   input double change_ADR_percent=-.25;
+   input int num_ADR_months=2; // How months back should you use to calculate the average ADR? (Divisible by 1) TODO: this is not implemented yet.
+   input double ADR_surpassed_neglect=2; // How much should the ADR be surpassed an a day for it to be neglected from the average calculation? TODO: This is not implemented yet.
+
+
+// Market Trends
+   input int H1s_to_roll=3; // How many hours should you roll to determine a short term market trend? (You are only allowed to input values divisible by 0.5.)
+ 
 /*
 //signal_zigzag variables
 	extern int depth=12;
@@ -118,9 +146,6 @@ int signal_zigzag()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-input double change_ADR_percent=-.25;
-input int num_ADR_months=2; // How months back should you use to calculate the average ADR? (Divisible by 1) TODO: this is not implemented yet.
-input double ADR_surpassed_neglect=2; // How much should the ADR be surpassed an a day for it to be neglected from the average calculation? TODO: This is not implemented yet.
 
 double ADR()
 {
@@ -136,8 +161,7 @@ double ADR()
    return (calculated_adr*change_ADR_percent)+calculated_adr; // return the reduced or increased ADR
 }
 
-input int H1s_to_roll=3; // How many hours should you roll? (You are only allowed to input values divisible by 0.5.)
-   
+  
 int periods_lowest_bar()
 {
    int M5s_to_roll=H1s_to_roll*12;
@@ -225,8 +249,7 @@ int signal_entry()
   {
    int signal=TRADE_SIGNAL_NEUTRAL;
 // Add 1 or more entry signals below. As each signal is compared with the previous signal, the signal variable will change and then the final signal wil get returned.
-//   signal=signal_compare(signal,signal_pullback_after_uptrend_ADR_triggered());
-// Return the entry signal
+   signal=signal_compare(signal,signal_pullback_after_uptrend_ADR_triggered());
    return signal;
   }
 //+------------------------------------------------------------------+
@@ -639,24 +662,6 @@ void exit_all_trades_set(ENUM_ORDER_SET type=-1,int magic=-1)  // -1 means all
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-
-
-//enter_order
-	input double takeprofit_percent=0.3; // TODO: Change to a percent of ADR (What % of ADR should you tarket?)
-	input int entering_max_slippage=5; // TODO: Change to a percent of ADR  // the default used to be 50 
-	input string order_comment="Relativity EA"; // TODO: Add the parameter settings for the order to the message. // allows the robot to enter a description for the order. An empty string is a default value.
-	input int order_magic=1; // An EA can only have one magic number. Used to identify the EA that is managing the order.
-	input int order_expire=120*60; // In seconds. If none, type 0. The expiration is used for pending orders.
-	input bool market_exec=false; // False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
-	input bool long_allowed=true;
-	input bool short_allowed=true;
-	input color arrow_color_short=clrNONE; // you may want to remove all arrow color settings
-	
-	input int exiting_max_slippage=50; // TODO: Change to a percent of ADR // additional argument i added
-
-//????
-	input color arrow_color_long=clrNONE; // you may want to remove all arrow color settings
-	
 	
 // the distanceFromCurrentPrice parameter is used to specify what type of order you would like to enter
 int send_order(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double sl,double tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
