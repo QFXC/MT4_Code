@@ -81,7 +81,8 @@ enum MM // Money Management
 //calculate_lots/mm variables
 	input string symbol=NULL; // NULL should select the current symbol on the current chart
 	input double lot_size=0.1;
-	input double stoploss=0;
+	input double stoploss_percent=0;
+	input double pullback_percent=0.5;
 	input MM money_management=MM_RISK_PERCENT;
 	input double mm1_risk=0.02; // percent risked when using MM_RISK_PERCENT money management calculations
 	input double mm2_lots=0.1;
@@ -122,6 +123,8 @@ int signal_zigzag()
 double ADR()
 {
    //calculate ADR here
+   // you may have to NormalizeDouble()
+   // include the ability to increase\decrease the ADR by a certain percentage
    return 70;
 
 }
@@ -135,8 +138,6 @@ bool is_first_bar_of_period()
    return false;
    }
 
-   
-input double ADR_pips=70;
 input int H1s_to_roll=3; // How many hours should you roll? (You are only allowed to input values divisible by .5.)
    
 int periods_lowest_bar()
@@ -163,7 +164,7 @@ double periods_lowest_price()
 }
 
 
-input double pullback_pips=20;
+
 
 // TODO: If evaluating on Monday, make sure it doesn't take Friday into account
 double uptrend_ADR_triggered_price()
@@ -171,7 +172,7 @@ double uptrend_ADR_triggered_price()
    static double LOP=periods_lowest_price();
    //datetime start_time_of_day; // get the start time of the trading day
    double point=MarketInfo(NULL,MODE_POINT);
-   double pip_move=ADR_pips*point;
+   double pip_move=ADR();
    double current_bid=Bid;
 
 
@@ -196,19 +197,6 @@ double uptrend_ADR_triggered_price()
          return 0;
       }
    }
-   
-double uptrend_pullback_buying_price()
-{
-   return double uptrend_ADR_triggered_price()-pullback_pips*Point;
-}
-
-double uptrend_target_exit_price()
-{
-   return double uptrend_ADR_triggered_price()-pullback_pips*Point;
-}
-
-
-
    
 bool did_downtrend_ADR_trigger()
    {
@@ -262,7 +250,7 @@ int signal_exit()
 
 double calculate_lots()
   {
-   double lots=mm(money_management,symbol,lot_size,stoploss,mm1_risk,mm2_lots,mm2_per,mm3_risk,mm4_risk);
+   double lots=mm(money_management,symbol,lot_size,ADR()*stoploss_percent,mm1_risk,mm2_lots,mm2_per,mm3_risk,mm4_risk);
    return lots;
   }
 //+------------------------------------------------------------------+
@@ -276,7 +264,7 @@ void enter_order(ENUM_ORDER_TYPE type)
    if(type==OP_SELL || type==OP_SELLSTOP || type==OP_SELLLIMIT)
       if(!short_allowed) return;
    double lots=calculate_lots();
-   entry(NULL,type,lots,ADR()*pullback_pips,ADR()*stoploss,ADR()*takeprofit,order_comment,order_magic,order_expire_seconds,arrow_color_short,market_exec); // the 4th argument (distanceFromPrice) is 0 because you will be opening a market order.
+   entry(NULL,type,lots,ADR()*pullback_percent,ADR()*stoploss_percent,ADR()*takeprofit_percent,order_comment,order_magic,order_expire_seconds,arrow_color_short,market_exec); // the 4th argument (distanceFromPrice) is 0 because you will be opening a market order.
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -655,7 +643,7 @@ void exit_all_trades_set(ENUM_ORDER_SET type=-1,int magic=-1)  // -1 means all
 
 
 //enter_order
-	input double takeprofit=0; // TODO: Change to a percent of ADR (What % of ADR should you tarket?)
+	input double takeprofit_percent=0.3; // TODO: Change to a percent of ADR (What % of ADR should you tarket?)
 	input int entering_max_slippage=5; // TODO: Change to a percent of ADR  // the default used to be 50 
 	input string order_comment="Relativity EA"; // TODO: Add the parameter settings for the order to the message. // allows the robot to enter a description for the order. An empty string is a default value.
 	input int order_magic=1; // An EA can only have one magic number. Used to identify the EA that is managing the order.
