@@ -53,7 +53,7 @@ enum MM // Money Management
   };
 
 //ontick()
-	input int timeframe=0;
+	input int charts_timeframe=0;
 	input int virtual_sl=0; // TODO: Change to a percent of ADR
 	input int virtual_tp=0; // TODO: Change to a percent of ADR
 	
@@ -69,21 +69,21 @@ enum MM // Money Management
 	input bool exit_opposite_signal=false; // Should the EA exit trades when there is a signal in the opposite direction?
 	input int max_trades=1; // How many trades can the EA enter at the same time on the current chart?
 	input bool entry_new_bar=true; // Should you only enter trades when a new bar begins?
-	input bool wait_next_bar_on_load=true; // Wait for next bar to load before giving the EA the ability to enter a trade?
+	input bool wait_next_bar_on_load=true; // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade?
 	
 //time filters - only allow EA to enter trades between a range of time in a day
 	input int start_time_hour=22;
 	input int start_time_minute=0;
 	input int end_time_hour=22;
 	input int end_time_minute=0;
-	input int gmt=0; // Adjust this if the broker does not use GMT time.
+	input int gmt=0; // The value of 0 refers to the time zone used by the broker. Adjust this offset hour value if the broker does not use GMT time.
 
 //calculate_lots/mm variables
 	input string symbol=NULL; // NULL should select the current symbol on the current chart
 	input double lot_size=0.1;
-	input int stoploss=0;
+	input double stoploss=0;
 	input MM money_management=MM_RISK_PERCENT;
-	input double mm1_risk=0.05; // percent risked when using MM_RISK_PERCENT money management calculations
+	input double mm1_risk=0.02; // percent risked when using MM_RISK_PERCENT money management calculations
 	input double mm2_lots=0.1;
 	input double mm2_per=1000;
 	input double mm3_risk=50;
@@ -95,6 +95,7 @@ enum MM // Money Management
 	extern int backstep=3;
 	extern int shift=1;
 
+/*
 int signal_zigzag()
 {
    int signal=TRADE_SIGNAL_NEUTRAL;
@@ -111,6 +112,123 @@ int signal_zigzag()
    
    return signal;
 }
+*/
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+
+
+double ADR()
+{
+   //calculate ADR here
+   return 70;
+
+}
+
+
+
+bool is_first_bar_of_period()
+   {
+   
+   
+   return false;
+   }
+
+   
+input double ADR_pips=70;
+input int H1s_to_roll=3; // How many hours should you roll? (You are only allowed to input values divisible by .5.)
+   
+int periods_lowest_bar()
+{
+   int M5s_to_roll=H1s_to_roll*12;
+   int day=DayOfWeek();
+   
+      if(day>1) // if the day is not Sunday (0) or Monday (1)
+      {
+         return M5s_to_roll;
+      }
+      else
+      {
+         int weeksCandleCount=Bars(NULL,PERIOD_M5,start_time_hour,TimeCurrent()); // TODO:test this // count the number of bars from the day's start time till the current time
+   
+         if(weeksCandleCount<M5s_to_roll) return weeksCandleCount; // if there are not enough bars in the week
+         else return M5s_to_roll;
+      }
+}
+
+double periods_lowest_price()
+{
+   return iLow(NULL,PERIOD_M5,iLowest(NULL,PERIOD_M5,MODE_LOW,WHOLE_ARRAY,periods_lowest_bar())); // get the price of the bar that has the lowest price for the determined period
+}
+
+
+input double pullback_pips=20;
+
+// TODO: If evaluating on Monday, make sure it doesn't take Friday into account
+double uptrend_ADR_triggered_price()
+   {
+   static double LOP=periods_lowest_price();
+   //datetime start_time_of_day; // get the start time of the trading day
+   double point=MarketInfo(NULL,MODE_POINT);
+   double pip_move=ADR_pips*point;
+   double current_bid=Bid;
+
+
+      if(current_bid<LOP) // if the low of the range was surpassed, reset the HOP.
+      {
+         // since the bottom of the range was surpassed, you have to reset the LOP. You might as well take this opportunity to take the period into account.
+         LOP=periods_lowest_price();
+         return 0;
+      }
+      
+      else if(current_bid-LOP>=pip_move) // if the distance meets or exceed the ADR_Pips, return true. Note: this will return true over and over again
+      {
+         // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value all the time
+         LOP=periods_lowest_price();
+         
+         if(current_bid-LOP>=pip_move) // check if it is actually true by taking the new calculation of Low Of Period into account
+            return current_bid;
+         return 0;
+      }         
+      else
+      {
+         return 0;
+      }
+   }
+   
+double uptrend_pullback_buying_price()
+{
+   return double uptrend_ADR_triggered_price()-pullback_pips*Point;
+}
+
+double uptrend_target_exit_price()
+{
+   return double uptrend_ADR_triggered_price()-pullback_pips*Point;
+}
+
+
+
+   
+bool did_downtrend_ADR_trigger()
+   {
+   
+   // similar code to did_uptrend_ADR_trigger()
+
+   return false;
+   }
+   
+   
+int signal_pullback_after_uptrend_ADR_triggered()
+   {
+   int signal=TRADE_SIGNAL_NEUTRAL;
+   if(did_uptrend_ADR_trigger())
+   // for a buying signal, take the level that adr was triggered and subtract the pullback_pips to get the pullback_entry_price
+   // if the pullback_entry_price is met or exceeded, signal = TRADE_SIGNAL_BUY
+   return signal=TRADE_SIGNAL_BUY;
+   else
+   return signal;
+   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -120,7 +238,7 @@ int signal_entry()
   {
    int signal=TRADE_SIGNAL_NEUTRAL;
 // Add 1 or more entry signals below. As each signal is compared with the previous signal, the signal variable will change and then get returned.
-   signal=signal_compare(signal,signal_zigzag());
+//   signal=signal_compare(signal,signal_zigzag());
 // Return the entry signal
    return signal;
   }
@@ -158,7 +276,7 @@ void enter_order(ENUM_ORDER_TYPE type)
    if(type==OP_SELL || type==OP_SELLSTOP || type==OP_SELLLIMIT)
       if(!short_allowed) return;
    double lots=calculate_lots();
-   entry(NULL,type,lots,0,stoploss,takeprofit,order_comment,order_magic,order_expire_seconds,arrow_color_short,market_exec); // the 4th argument (distanceFromPrice) is 0 because you will be opening a market order.
+   entry(NULL,type,lots,ADR()*pullback_pips,ADR()*stoploss,ADR()*takeprofit,order_comment,order_magic,order_expire_seconds,arrow_color_short,market_exec); // the 4th argument (distanceFromPrice) is 0 because you will be opening a market order.
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -212,6 +330,7 @@ void OnDeinit(const int reason)
 //| Expert tick function                                             |
 //+------------------------------------------------------------------+
 
+// Runs on every tick
 void OnTick()
   {
 //--- 
@@ -248,8 +367,8 @@ void OnTick()
          count_orders=count_orders(-1,order_magic);
          if(max_trades>count_orders)
            {
-            if(!entry_new_bar || (entry_new_bar && is_new_bar(symbol,timeframe,wait_next_bar_on_load)))
-               enter_order(OP_BUY); // TODO: what about OP_BUYSTOP and OP_BUYLIMIT?
+            if(!entry_new_bar || (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load))) // if 
+               enter_order(OP_BUYLIMIT); // TODO: was originally OP_BUY
            }
         }
       else if(entry==TRADE_SIGNAL_SELL)
@@ -259,8 +378,8 @@ void OnTick()
          count_orders=count_orders(-1,order_magic);
          if(max_trades>count_orders)
            {
-            if(!entry_new_bar || (entry_new_bar && is_new_bar(symbol,timeframe,wait_next_bar_on_load)))
-               enter_order(OP_SELL); // TODO: what about OP_SELLSTOP and OP_SELLLIMIT?
+            if(!entry_new_bar || (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load)))
+               enter_order(OP_SELLLIMIT); // was originally OP_SELL
            }
         }
      }
@@ -276,15 +395,13 @@ void OnTick()
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-// Handles situations where there is a conflict between the entry and exit signal.
-void signal_manage(ENUM_TRADE_SIGNAL &entry,ENUM_TRADE_SIGNAL &exit) // TODO: This function is not yet being called.
+// Neutralizes situations where there is a conflict between the entry and exit signal.
+// TODO: This function is not yet being called. Since the entry and exit signals are passed by reference, these paremeters would need to be prepared in advance and stored in variables prior to calling the function.
+void signal_manage(ENUM_TRADE_SIGNAL &entry,ENUM_TRADE_SIGNAL &exit)
   {
-   if(exit==TRADE_SIGNAL_VOID)
-      entry=TRADE_SIGNAL_NEUTRAL;
-   if(exit==TRADE_SIGNAL_BUY && entry==TRADE_SIGNAL_SELL)
-      entry=TRADE_SIGNAL_NEUTRAL;
-   if(exit==TRADE_SIGNAL_SELL && entry==TRADE_SIGNAL_BUY)
-      entry=TRADE_SIGNAL_NEUTRAL;
+   if(exit==TRADE_SIGNAL_VOID)                              entry=TRADE_SIGNAL_NEUTRAL;
+   if(exit==TRADE_SIGNAL_BUY && entry==TRADE_SIGNAL_SELL)   entry=TRADE_SIGNAL_NEUTRAL;
+   if(exit==TRADE_SIGNAL_SELL && entry==TRADE_SIGNAL_BUY)   entry=TRADE_SIGNAL_NEUTRAL;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -538,9 +655,9 @@ void exit_all_trades_set(ENUM_ORDER_SET type=-1,int magic=-1)  // -1 means all
 
 
 //enter_order
-	input int takeprofit=0; // TODO: Change to a percent of ADR
-	input int entering_max_slippage=5; // TODO: Change to a percent of ADR // the default used to be 50 
-	input string order_comment="Relativity EA"; // allows the robot to enter a description for the order. An empty string is a default value.
+	input double takeprofit=0; // TODO: Change to a percent of ADR (What % of ADR should you tarket?)
+	input int entering_max_slippage=5; // TODO: Change to a percent of ADR  // the default used to be 50 
+	input string order_comment="Relativity EA"; // TODO: Add the parameter settings for the order to the message. // allows the robot to enter a description for the order. An empty string is a default value.
 	input int order_magic=1; // An EA can only have one magic number. Used to identify the EA that is managing the order.
 	input int order_expire_seconds=0; // The default is 0. The expiration is only needed when opening pending orders.  An exact date is needed to close the order.
 	input bool market_exec=false; // False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
@@ -555,7 +672,7 @@ void exit_all_trades_set(ENUM_ORDER_SET type=-1,int magic=-1)  // -1 means all
 	
 	
 // the distanceFromCurrentPrice parameter is used to specify what type of order you would like to enter
-int send_order(string instrument,int cmd,double lots,int distanceFromCurrentPrice,int sl,int tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
+int send_order(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double sl,double tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
   {
    double entryPrice=0; 
    double price_sl=0; 
@@ -623,7 +740,7 @@ int send_order(string instrument,int cmd,double lots,int distanceFromCurrentPric
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-int entry(string instrument,int cmd,double lots,int distanceFromCurrentPrice,int sl,int tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false,int retries=3,int sleep=500)
+int entry(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double sl,double tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false,int retries=3,int sleep=500)
   {
    int ticket=0;
    for(int i=0;i<retries;i++)
@@ -733,7 +850,7 @@ int signal_compare(int current_signal,int added_signal,bool exit=false)
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-double mm(MM method,string instrument,double lots,int sl,double risk_mm1,double lots_mm2,double per_mm2,double risk_mm3,double risk_mm4)
+double mm(MM method,string instrument,double lots,double sl,double risk_mm1,double lots_mm2,double per_mm2,double risk_mm3,double risk_mm4)
   {
    double balance=AccountBalance();
    double tick_value=MarketInfo(instrument,MODE_TICKVALUE);
@@ -767,29 +884,28 @@ double mm(MM method,string instrument,double lots,int sl,double risk_mm1,double 
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-bool is_new_bar(string instrument,int tf,bool wait=false)
+bool is_new_bar(string instrument,int timeframe,bool wait_for_next_bar=false)
   {
    static datetime bar_time=0;
    static double open_price=0;
-   datetime current_bar_time=iTime(instrument,tf,0);
-   double current_open_price=iOpen(instrument,tf,0);
+   datetime current_bar_time=iTime(instrument,timeframe,0);
+   double current_open_price=iOpen(instrument,timeframe,0);
    int digits=(int)MarketInfo(instrument,MODE_DIGITS);
-   if(bar_time==0 && open_price==0)
+   if(bar_time==0 && open_price==0) // If it is the first time the function is called. This could be after the open time (aka in the middle) of a bar.
      {
-      bar_time=current_bar_time;
-      open_price=current_open_price;
-      if(wait)
+      bar_time=current_bar_time; // update the time to the current time
+      open_price=current_open_price; // update the price to the current price
+      if(wait_for_next_bar) // if the parameter is set to wait for the next bar
          return false;
       else return true;
      }
-   else if(current_bar_time>bar_time && 
-      compare_doubles(open_price,current_open_price,digits)!=0)
+   else if(current_bar_time>bar_time && compare_doubles(open_price,current_open_price,digits)!=0) // if it is a new bar (different time and price)
         {
-         bar_time=current_bar_time;
-         open_price=current_open_price;
+         bar_time=current_bar_time; // update the time to the current time
+         open_price=current_open_price; // update the price to the current price
          return true;
         }
-      return false;
+      return false; // if it is not a new bar
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -862,12 +978,12 @@ int count_orders(ENUM_ORDER_SET type=-1,int magic=-1,int pool=MODE_TRADES) // Wi
 
 bool is_time_in_range(datetime time,int start_hour,int start_min,int end_hour,int end_min,int gmt_offset=0)
   {
-  // Since a non-zero gmt_offset will make the start and end hour go beyond acceptable paremeters (below 0 or above 24), change the start_hour and end_hour.
    if(gmt_offset!=0) 
      {
       start_hour+=gmt_offset;
       end_hour+=gmt_offset;
      }
+// Since a non-zero gmt_offset will make the start and end hour go beyond acceptable paremeters (below 0 or above 23), change the start_hour and end_hour to military time.
    if(start_hour>23) start_hour=(start_hour-23)-1;
    else if(start_hour<0) start_hour=23+start_hour+1;
    if(end_hour>23) end_hour=(end_hour-23)-1;
@@ -875,19 +991,19 @@ bool is_time_in_range(datetime time,int start_hour,int start_min,int end_hour,in
    
    int hour=TimeHour(time);
    int minute=TimeMinute(time);
-   int t=(hour*3600)+(minute*60);
-   int s=(start_hour*3600)+(start_min*60);
-   int e=(end_hour*3600)+(end_min*60);
-   if(s==e)
+   int current_time=(hour*3600)+(minute*60);
+   int start_time=(start_hour*3600)+(start_min*60);
+   int end_time=(end_hour*3600)+(end_min*60);
+   if(start_time==end_time) // making sure that the start_time is classified as in the range
       return true;
-   else if(s<e)
+   else if(start_time<end_time) // for the case when the user sets the start time to be less than the end time
      {
-      if(t>=s && t<e)
+      if(current_time>=start_time && current_time<end_time) // if the current time is in the range
          return true;
      }
-   else if(s>e)
+   else if(start_time>end_time) // for the case when the user sets the end time to be greater than the start time
      {
-      if(t>=s || t<e)
+      if(current_time>=start_time || current_time<end_time) // if the current time is in the range
          return true;
      }
    return false;
@@ -929,7 +1045,8 @@ bool virtualstop_check_order(int ticket,int sl,int tp)
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-void virtualstop_check(int sl,int tp,int magic=-1)
+// use this function  in case you do not want the broker to know where your stop is
+void virtualstop_check_all_orders(int sl,int tp,int magic=-1)
   {
    for(int i=0;i<OrdersTotal();i++)
      {
