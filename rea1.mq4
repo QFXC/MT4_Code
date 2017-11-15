@@ -81,9 +81,10 @@ enum MM // Money Management
 //enter_order
 	input double takeprofit_percent=0.3; // Must be a positive number. // TODO: Change to a percent of ADR (What % of ADR should you tarket?)
    input double stoploss_percent=1.0; // Must be a positive number.
-	input double pullback_percent=0.50; //  Must be >=0.
+	input double pullback_percent=-0.50; //  If you want a limit order, it must be negative. If you want a stop order, it must be positive.
 	
-	input int entering_max_slippage=5; // TODO: Change to a percent of ADR  // the default used to be 50 
+	input int entering_max_slippage=5; // TODO: Change to a percent of ADR  // the default used to be 50 // TODO: allow slippage in my favor but not against me
+	//input int unfavorable_slippage=5;
 	input string order_comment="Relativity EA"; // TODO: Add the parameter settings for the order to the message. // allows the robot to enter a description for the order. An empty string is a default value.
 	input int order_magic=1; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
 	input int order_expire=// In seconds. If none, type 0. The expiration countdown is only used for pending orders.
@@ -295,7 +296,7 @@ void enter_order(ENUM_ORDER_TYPE type)
    double distance=0;
    
    if(pullback_percent==0 || pullback_percent==NULL) distance=0;
-   else distance=ADR*-pullback_percent; // TODO: should you NormalizeDouble() for distance?
+   else distance=ADR*pullback_percent; // TODO: should you NormalizeDouble() for distance?
    
    entry(NULL,type,lots,distance,ADR*stoploss_percent,ADR*takeprofit_percent,order_comment,order_magic,order_expire,arrow_color_short,market_exec); // the 4th argument (distanceFromPrice) is 0 because you will be opening a market order.
   }
@@ -683,7 +684,6 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
    double point=MarketInfo(instrument,MODE_POINT); // getting the value of 1 point for the instrument
    datetime expire_time=0; // 0 means there is no expiration time for a pending order
    int order_type=-1; // -1 means there is no order because orders are >=0
-   RefreshRates();  // refresh the rates to ensure that you have the most recent price
    //simplifying the arguments for the function by only allowing OP_BUY and OP_SELL 
    if(cmd==OP_BUY) // logic for long trades
      {
@@ -692,11 +692,12 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
       else order_type=OP_BUY;
       if(order_type==OP_BUYLIMIT || order_type==OP_BUYSTOP)
         {
-         double periods_lowest_price=periods_lowest_price();
-         entryPrice=periods_lowest_price+ADR*point;
+         double LOP=periods_lowest_price(); // TODO: should you really call this function again?
+         entryPrice=LOP+(ADR*point)-(distanceFromCurrentPrice*point);
         }
       else if(order_type==OP_BUY)
         {
+         RefreshRates();
          entryPrice=MarketInfo(instrument,MODE_ASK);
         }
       if(!market) // if the user wants instant execution (where you are allowed to input sl and tp prices)
@@ -712,11 +713,12 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
       else order_type=OP_SELL;
       if(order_type==OP_SELLLIMIT || order_type==OP_SELLSTOP)
         {
-         double periods_highest_price=periods_highest_price();
-         entryPrice=periods_highest_price+ADR*point;        
+         double HOP=periods_highest_price(); // TODO: should you really call this function again?
+         entryPrice=HOP-(ADR*point)+(distanceFromCurrentPrice*point);   
         }
       else if(order_type==OP_SELL)
         {
+         RefreshRates();
          entryPrice=MarketInfo(instrument,MODE_BID);
         }
       if(!market) // if the user wants instant execution (where you are allowed to put in sl and tp prices)
@@ -726,10 +728,10 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
         }
      }
    if(order_type<0) return 0; // if there is no order
-   else  if(order_type==0 || order_type==1) expire_time=0; // if its a market order, set the expire_time to 0 because market orders cannot have an expire_time
+   else if(order_type==0 || order_type==1) expire_time=0; // if it is not a pending order, set the expire_time to 0 because they cannot have an expire_time
    else if(expire>0) // if the user wants pending orders to expire
       expire_time=(datetime)MarketInfo(instrument,MODE_TIME)+expire; // expiration of the order = current time + expire time
-   if(market) // If the user wants market execution (where you are NOT allowed to input sl and tp prices), this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
+   if(market) // If the user wants market execution (which has the the rule stating you are NOT allowed to set the sl and tp prices), this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
      {
       int ticket=OrderSend(instrument,order_type,lots,entryPrice,entering_max_slippage,0,0,comment,magic,expire_time,a_clr);
       if(ticket>0) // if there is a valid ticket
