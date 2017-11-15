@@ -9,7 +9,7 @@
 #property strict
 //#property show_inputs // This can only be used for scripts. I added this because, by default, it will not show any external inputs. This is to override this behaviour so it deliberately shows the inputs.
 
-// TODO: Always use NormalizeDouble() when computing the price yourself. This is not necessary for internal functions like OrderOPenPrice(), OrderStopLess(),OrderClosePrice(),Bid,Ask
+// TODO: Always use NormalizeDouble() when computing the price (or lots?) yourself. This is not necessary for internal functions like OrderOPenPrice(), OrderStopLess(),OrderClosePrice(),Bid,Ask
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -72,19 +72,19 @@ enum MM // Money Management
 	input bool wait_next_bar_on_load=true; // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade?
 	
 //time filters - only allow EA to enter trades between a range of time in a day
-	input int start_time_hour=22;
-	input int start_time_minute=0;
-	input int end_time_hour=22;
+	input int start_time_hour=0; // eligible time to start a trade
+	input int start_time_minute=30;
+	input int end_time_hour=23; // banned time to start a trade
 	input int end_time_minute=0;
-	input int gmt=0; // The value of 0 refers to the time zone used by the broker. Adjust this offset hour value if the broker does not use GMT time.
+	input int gmt=-2; // The value of 0 refers to the time zone used by the broker. Adjust this offset hour value if the broker does not use GMT time.
 
 //calculate_lots/mm variables
 	input string symbol=NULL; // NULL should select the current symbol on the current chart
 	input double lot_size=0.1;
-	input double stoploss_percent=0;
+	input double stoploss_percent=1.0;
 	input double pullback_percent=0.5;
 	input MM money_management=MM_RISK_PERCENT;
-	input double mm1_risk=0.02; // percent risked when using MM_RISK_PERCENT money management calculations
+	input double mm1_risk_percent=0.02; // percent risked when using MM_RISK_PERCENT money management calculations
 	input double mm2_lots=0.1;
 	input double mm2_per=1000;
 	input double mm3_risk=50;
@@ -126,15 +126,10 @@ double ADR()
    // you may have to NormalizeDouble()
    // include the ability to increase\decrease the ADR by a certain percentage
    return 70;
-
 }
-
-
 
 bool is_first_bar_of_period()
    {
-   
-   
    return false;
    }
 
@@ -144,6 +139,7 @@ int periods_lowest_bar()
 {
    int M5s_to_roll=H1s_to_roll*12;
    int day=DayOfWeek();
+   datetime weekStart=iTime(NULL,PERIOD_W1,0); // TODO: this gives you the time that the week is 0:00 on the chart. You may have to shift it with the "gmt" global variable.
    
       if(day>1) // if the day is not Sunday (0) or Monday (1)
       {
@@ -151,7 +147,7 @@ int periods_lowest_bar()
       }
       else
       {
-         int weeksCandleCount=Bars(NULL,PERIOD_M5,start_time_hour,TimeCurrent()); // TODO:test this // count the number of bars from the day's start time till the current time
+         int weeksCandleCount=Bars(NULL,PERIOD_M5,weekStart,TimeCurrent()); // TODO:test this // count the number of bars from the day's start time till the current time
    
          if(weeksCandleCount<M5s_to_roll) return weeksCandleCount; // if there are not enough bars in the week
          else return M5s_to_roll;
@@ -250,7 +246,7 @@ int signal_exit()
 
 double calculate_lots()
   {
-   double lots=mm(money_management,symbol,lot_size,ADR()*stoploss_percent,mm1_risk,mm2_lots,mm2_per,mm3_risk,mm4_risk);
+   double lots=mm(money_management,symbol,lot_size,ADR()*stoploss_percent,mm1_risk_percent,mm2_lots,mm2_per,mm3_risk,mm4_risk);
    return lots;
   }
 //+------------------------------------------------------------------+
@@ -259,9 +255,9 @@ double calculate_lots()
 
 void enter_order(ENUM_ORDER_TYPE type)
   {
-   if(type==OP_BUY || type==OP_BUYSTOP || type==OP_BUYLIMIT)
+   if(type==OP_BUYLIMIT || type==OP_BUYSTOP || type==OP_BUY)
       if(!long_allowed) return;
-   if(type==OP_SELL || type==OP_SELLSTOP || type==OP_SELLLIMIT)
+   if(type==OP_SELLLIMIT || type==OP_SELLSTOP || type==OP_SELL)
       if(!short_allowed) return;
    double lots=calculate_lots();
    entry(NULL,type,lots,ADR()*pullback_percent,ADR()*stoploss_percent,ADR()*takeprofit_percent,order_comment,order_magic,order_expire_seconds,arrow_color_short,market_exec); // the 4th argument (distanceFromPrice) is 0 because you will be opening a market order.
@@ -838,7 +834,7 @@ int signal_compare(int current_signal,int added_signal,bool exit=false)
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-double mm(MM method,string instrument,double lots,double sl,double risk_mm1,double lots_mm2,double per_mm2,double risk_mm3,double risk_mm4)
+double mm(MM method,string instrument,double lots,double sl,double risk_mm1_percent,double lots_mm2,double per_mm2,double risk_mm3,double risk_mm4)
   {
    double balance=AccountBalance();
    double tick_value=MarketInfo(instrument,MODE_TICKVALUE);
@@ -846,7 +842,7 @@ double mm(MM method,string instrument,double lots,double sl,double risk_mm1,doub
    switch(method)
      {
       case MM_RISK_PERCENT:
-         if(sl>0) lots=((balance*risk_mm1)/sl)/tick_value;
+         if(sl>0) lots=((balance*risk_mm1_percent)/sl)/tick_value;
          break;
       case MM_FIXED_RATIO:
          lots=balance*lots_mm2/per_mm2;
