@@ -8,8 +8,8 @@
 #property version   "1.00"
 #property strict
 //#property show_inputs // This can only be used for scripts. I added this because, by default, it will not show any external inputs. This is to override this behaviour so it deliberately shows the inputs.
-
-// TODO: Always use NormalizeDouble() when computing the price (or lots?) yourself. This is not necessary for internal functions like OrderOPenPrice(), OrderStopLess(),OrderClosePrice(),Bid,Ask
+// TODO: When strategy testing, make sure you have all the M5 and W1 data because it is reference in the code.
+// TODO: Always use NormalizeDouble() when computing the price (or lots or ADR?) yourself. This is not necessary for internal functions like OrderOPenPrice(), OrderStopLess(),OrderClosePrice(),Bid,Ask
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -72,14 +72,14 @@ enum MM // Money Management
 	input bool wait_next_bar_on_load=true; // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade?
 	
 //time filters - only allow EA to enter trades between a range of time in a day
-	input int start_time_hour=0; // eligible time to start a trade
-	input int start_time_minute=30;
-	input int end_time_hour=23; // banned time to start a trade
-	input int end_time_minute=0;
-	input int gmt=-2; // The value of 0 refers to the time zone used by the broker. Adjust this offset hour value if the broker does not use GMT time.
+	input int start_time_hour=0; // eligible time to start a trade. 0-23
+	input int start_time_minute=30; // 0-59
+	input int end_time_hour=23; // banned time to start a trade. 0-23
+	input int end_time_minute=0; // 0-59
+	input int gmt=-2; // The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). Adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
 
 //calculate_lots/mm variables
-	input string symbol=NULL; // NULL should select the current symbol on the current chart
+	input string symbol=NULL; // A NULL value should select the current symbol on the current chart
 	input double lot_size=0.1;
 	input double stoploss_percent=1.0;
 	input double pullback_percent=0.5;
@@ -89,14 +89,14 @@ enum MM // Money Management
 	input double mm2_per=1000;
 	input double mm3_risk=50;
 	input double mm4_risk=50;
-
+/*
 //signal_zigzag variables
 	extern int depth=12;
 	extern int deviation=5;
 	extern int backstep=3;
 	extern int shift=1;
 
-/*
+
 int signal_zigzag()
 {
    int signal=TRADE_SIGNAL_NEUTRAL;
@@ -118,49 +118,53 @@ int signal_zigzag()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-
+input double change_ADR_percent=-.25;
+input int num_ADR_months=2; // How months back should you use to calculate the average ADR? (Divisible by 1) TODO: this is not implemented yet.
+input double ADR_surpassed_neglect=2; // How much should the ADR be surpassed an a day for it to be neglected from the average calculation? TODO: This is not implemented yet.
 
 double ADR()
 {
-   //calculate ADR here
-   // you may have to NormalizeDouble()
-   // include the ability to increase\decrease the ADR by a certain percentage
-   return 70;
+   // calculate ADR here
+   // you may have to NormalizeDouble() the ADR
+   // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
+   
+   int num_ADR_days=num_ADR_months*22; // There are about 22 business days a month.
+   double calculated_adr=80.0;
+   
+   if(change_ADR_percent==0 || change_ADR_percent==NULL)
+      return calculated_adr;
+   return (calculated_adr*change_ADR_percent)+calculated_adr; // return the reduced or increased ADR
 }
 
-bool is_first_bar_of_period()
-   {
-   return false;
-   }
-
-input int H1s_to_roll=3; // How many hours should you roll? (You are only allowed to input values divisible by .5.)
+input int H1s_to_roll=3; // How many hours should you roll? (You are only allowed to input values divisible by 0.5.)
    
 int periods_lowest_bar()
 {
    int M5s_to_roll=H1s_to_roll*12;
    int day=DayOfWeek();
-   datetime weekStart=iTime(NULL,PERIOD_W1,0); // TODO: this gives you the time that the week is 0:00 on the chart. You may have to shift it with the "gmt" global variable.
+   datetime weekStart=iTime(NULL,PERIOD_W1,0)+(gmt*3600); // The iTime of the week bar gives you the time that the week is 0:00 on the chart so I shifted the time to start when the markets actually start.
+// TODO: Should weekStart be converted to an hour?
+// Since a non-zero gmt_offset will make the start hour go beyond acceptable paremeters (below 0 or above 23), change the weekStart to military time.
+   if(weekStart>23) weekStart=(weekStart-23)-1;
+   else if(weekStart<0) weekStart=23+weekStart+1;
    
-      if(day>1) // if the day is not Sunday (0) or Monday (1)
-      {
-         return M5s_to_roll;
-      }
-      else
-      {
-         int weeksCandleCount=Bars(NULL,PERIOD_M5,weekStart,TimeCurrent()); // TODO:test this // count the number of bars from the day's start time till the current time
-   
-         if(weeksCandleCount<M5s_to_roll) return weeksCandleCount; // if there are not enough bars in the week
-         else return M5s_to_roll;
-      }
+   if(day>1) // if the day is not Sunday (0) or Monday (1)
+   {
+      return M5s_to_roll;
+   }
+   else
+   {
+      int weeksCandleCount=Bars(NULL,PERIOD_M5,weekStart,TimeCurrent()); // TODO: test this // count the number of bars from the day's start time till the current time
+
+      if(weeksCandleCount<M5s_to_roll) return weeksCandleCount; // if there are not enough bars in the week
+      else return M5s_to_roll;
+   }
 }
 
 double periods_lowest_price()
 {
    return iLow(NULL,PERIOD_M5,iLowest(NULL,PERIOD_M5,MODE_LOW,WHOLE_ARRAY,periods_lowest_bar())); // get the price of the bar that has the lowest price for the determined period
 }
-
-
-
 
 // TODO: If evaluating on Monday, make sure it doesn't take Friday into account
 double uptrend_ADR_triggered_price()
@@ -170,7 +174,6 @@ double uptrend_ADR_triggered_price()
    double point=MarketInfo(NULL,MODE_POINT);
    double pip_move=ADR();
    double current_bid=Bid;
-
 
       if(current_bid<LOP) // if the low of the range was surpassed, reset the HOP.
       {
@@ -194,6 +197,17 @@ double uptrend_ADR_triggered_price()
       }
    }
    
+int signal_pullback_after_uptrend_ADR_triggered()
+   {
+   int signal=TRADE_SIGNAL_NEUTRAL;
+   if(uptrend_ADR_triggered_price()>0)
+   // for a buying signal, take the level that adr was triggered and subtract the pullback_pips to get the pullback_entry_price
+   // if the pullback_entry_price is met or exceeded, signal = TRADE_SIGNAL_BUY
+   return signal=TRADE_SIGNAL_BUY;
+   else
+   return signal;
+   }
+   
 bool did_downtrend_ADR_trigger()
    {
    
@@ -201,18 +215,7 @@ bool did_downtrend_ADR_trigger()
 
    return false;
    }
-   
-   
-int signal_pullback_after_uptrend_ADR_triggered()
-   {
-   int signal=TRADE_SIGNAL_NEUTRAL;
-   if(did_uptrend_ADR_trigger())
-   // for a buying signal, take the level that adr was triggered and subtract the pullback_pips to get the pullback_entry_price
-   // if the pullback_entry_price is met or exceeded, signal = TRADE_SIGNAL_BUY
-   return signal=TRADE_SIGNAL_BUY;
-   else
-   return signal;
-   }
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -221,8 +224,8 @@ int signal_pullback_after_uptrend_ADR_triggered()
 int signal_entry()
   {
    int signal=TRADE_SIGNAL_NEUTRAL;
-// Add 1 or more entry signals below. As each signal is compared with the previous signal, the signal variable will change and then get returned.
-//   signal=signal_compare(signal,signal_zigzag());
+// Add 1 or more entry signals below. As each signal is compared with the previous signal, the signal variable will change and then the final signal wil get returned.
+//   signal=signal_compare(signal,signal_pullback_after_uptrend_ADR_triggered());
 // Return the entry signal
    return signal;
   }
@@ -260,7 +263,7 @@ void enter_order(ENUM_ORDER_TYPE type)
    if(type==OP_SELLLIMIT || type==OP_SELLSTOP || type==OP_SELL)
       if(!short_allowed) return;
    double lots=calculate_lots();
-   entry(NULL,type,lots,ADR()*pullback_percent,ADR()*stoploss_percent,ADR()*takeprofit_percent,order_comment,order_magic,order_expire_seconds,arrow_color_short,market_exec); // the 4th argument (distanceFromPrice) is 0 because you will be opening a market order.
+   entry(NULL,type,lots,ADR()*-pullback_percent,ADR()*stoploss_percent,ADR()*takeprofit_percent,order_comment,order_magic,order_expire,arrow_color_short,market_exec); // the 4th argument (distanceFromPrice) is 0 because you will be opening a market order.
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -293,7 +296,7 @@ void close_all_short()
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
-
+// Runs once when the EA is turned on
 int OnInit()
   {
 //---
@@ -304,7 +307,7 @@ int OnInit()
 //+------------------------------------------------------------------+
 //| Expert deinitialization function                                 |
 //+------------------------------------------------------------------+
-
+// Runs once when the EA is turned off
 void OnDeinit(const int reason)
   {
 //---
@@ -342,7 +345,7 @@ void OnTick()
 
 /* entry */
    int count_orders=0;
-   if(entry>0)
+   if(entry>0) // if there is a signal to enter
      {
       if(entry==TRADE_SIGNAL_BUY)
         {
@@ -352,7 +355,7 @@ void OnTick()
          if(max_trades>count_orders)
            {
             if(!entry_new_bar || (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load))) // if 
-               enter_order(OP_BUYLIMIT); // TODO: was originally OP_BUY
+               enter_order(OP_BUYLIMIT); // was originally OP_BUY
            }
         }
       else if(entry==TRADE_SIGNAL_SELL)
@@ -643,7 +646,7 @@ void exit_all_trades_set(ENUM_ORDER_SET type=-1,int magic=-1)  // -1 means all
 	input int entering_max_slippage=5; // TODO: Change to a percent of ADR  // the default used to be 50 
 	input string order_comment="Relativity EA"; // TODO: Add the parameter settings for the order to the message. // allows the robot to enter a description for the order. An empty string is a default value.
 	input int order_magic=1; // An EA can only have one magic number. Used to identify the EA that is managing the order.
-	input int order_expire_seconds=0; // The default is 0. The expiration is only needed when opening pending orders.  An exact date is needed to close the order.
+	input int order_expire=120*60; // In seconds. If none, type 0. The expiration is used for pending orders.
 	input bool market_exec=false; // False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
 	input bool long_allowed=true;
 	input bool short_allowed=true;
@@ -985,7 +988,7 @@ bool is_time_in_range(datetime time,int start_hour,int start_min,int end_hour,in
       if(current_time>=start_time && current_time<end_time) // if the current time is in the range
          return true;
      }
-   else if(start_time>end_time) // for the case when the user sets the end time to be greater than the start time
+   else if(start_time>end_time) // for the case when the user sets the end time to be greater than the start time. This occurs when the start and end time are not the same day.
      {
       if(current_time>=start_time || current_time<end_time) // if the current time is in the range
          return true;
