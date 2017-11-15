@@ -10,6 +10,7 @@
 //#property show_inputs // This can only be used for scripts. I added this because, by default, it will not show any external inputs. This is to override this behaviour so it deliberately shows the inputs.
 // TODO: When strategy testing, make sure you have all the M5 and W1 data because it is reference in the code.
 // TODO: Always use NormalizeDouble() when computing the price (or lots or ADR?) yourself. This is not necessary for internal functions like OrderOPenPrice(), OrderStopLess(),OrderClosePrice(),Bid,Ask
+// TODO: User the compare_doubles() function to compare two doubles.
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -93,7 +94,7 @@ enum MM // Money Management
 	   /*Seconds in a minute=*/60; 
 	input bool market_exec=false; // False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
 	input bool long_allowed=true;
-	input bool short_allowed=true;
+	input bool short_allowed=false; // TODO: set this back to true once you have all of the shorting code done
 	color arrow_color_short=clrNONE; // you may want to remove all arrow color settings
 
 //exit_order
@@ -183,7 +184,6 @@ int periods_lowest_bar()
    else
      {
       int weeksCandleCount=Bars(NULL,PERIOD_M5,weekStart,TimeCurrent()); // TODO: test this // count the number of bars from the day's start time till the current time
-
       if(weeksCandleCount<M5s_to_roll) return weeksCandleCount; // if there are not enough bars in the week
       else return M5s_to_roll;
      }
@@ -292,7 +292,6 @@ void enter_order(ENUM_ORDER_TYPE type)
    if(type==OP_SELL || type==OP_SELLSTOP || type==OP_SELLLIMIT)
       if(!short_allowed) return;
    double lots=calculate_lots();
-   
    double distance=0;
    
    if(pullback_percent==0 || pullback_percent==NULL) distance=0;
@@ -438,7 +437,7 @@ bool breakeven_check_order(int ticket,int threshold,int plus)
    bool result=true; // initialize the variable result
    if(OrderType()==OP_BUY) // if it is a buy order
      {
-      double new_sl=OrderOpenPrice()+plus*point; // calculate the price of the new stoploss
+      double new_sl=OrderOpenPrice()+(plus*point); // calculate the price of the new stoploss
       double profit_in_pts=OrderClosePrice()-OrderOpenPrice(); // calculate how many points in profit the trade is in so far
       if(OrderStopLoss()==0 || compare_doubles(new_sl,OrderStopLoss(),digits)>0) // if there is no stoploss or the potential new stoploss is greater than the current stoploss
          if(compare_doubles(profit_in_pts,threshold*point,digits)>=0) // if the profit in points so far > provided threshold, then set the order to breakeven
@@ -446,7 +445,7 @@ bool breakeven_check_order(int ticket,int threshold,int plus)
      }
    else if(OrderType()==OP_SELL)
      {
-      double new_sl=OrderOpenPrice()-plus*point;
+      double new_sl=OrderOpenPrice()-(plus*point);
       double profit_in_pts=OrderOpenPrice()-OrderClosePrice();
       if(OrderStopLoss()==0 || compare_doubles(new_sl,OrderStopLoss(),digits)<0)
          if(compare_doubles(profit_in_pts,threshold*point,digits)>=0)
@@ -684,7 +683,7 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
    double point=MarketInfo(instrument,MODE_POINT); // getting the value of 1 point for the instrument
    datetime expire_time=0; // 0 means there is no expiration time for a pending order
    int order_type=-1; // -1 means there is no order because orders are >=0
-   //simplifying the arguments for the function by only allowing OP_BUY and OP_SELL 
+   // simplifying the arguments for the function by only allowing OP_BUY and OP_SELL and letting logic determine if it is a market or pending order based off the distanceFromCurrentPrice variable
    if(cmd==OP_BUY) // logic for long trades
      {
       if(distanceFromCurrentPrice>0) order_type=OP_BUYSTOP;
@@ -693,17 +692,17 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
       if(order_type==OP_BUYLIMIT || order_type==OP_BUYSTOP)
         {
          double LOP=periods_lowest_price(); // TODO: should you really call this function again?
-         entryPrice=LOP+(ADR*point)-(distanceFromCurrentPrice*point);
+         entryPrice=LOP+(ADR*point)-(distanceFromCurrentPrice*point); // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
         }
       else if(order_type==OP_BUY)
         {
          RefreshRates();
          entryPrice=MarketInfo(instrument,MODE_ASK);
         }
-      if(!market) // if the user wants instant execution (where you are allowed to input sl and tp prices)
+      if(!market) // if the user wants instant execution (which the system allows them to input sl and tp prices)
         {
-         if(sl>0) price_sl=entryPrice-sl*point; // check if the stoploss and take profit prices can be determined
-         if(tp>0) price_tp=entryPrice+tp*point;
+         if(sl>0) price_sl=entryPrice-(sl*point); // check if the stoploss and take profit prices can be determined
+         if(tp>0) price_tp=entryPrice+(tp*point);
         }
      }
    else if(cmd==OP_SELL) // logic for short trades
@@ -714,24 +713,24 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
       if(order_type==OP_SELLLIMIT || order_type==OP_SELLSTOP)
         {
          double HOP=periods_highest_price(); // TODO: should you really call this function again?
-         entryPrice=HOP-(ADR*point)+(distanceFromCurrentPrice*point);   
+         entryPrice=HOP-(ADR*point)+(distanceFromCurrentPrice*point); // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
         }
       else if(order_type==OP_SELL)
         {
          RefreshRates();
          entryPrice=MarketInfo(instrument,MODE_BID);
         }
-      if(!market) // if the user wants instant execution (where you are allowed to put in sl and tp prices)
+      if(!market) // if the user wants instant execution (which allows them to input the sl and tp prices)
         {
-         if(sl>0) price_sl=entryPrice+sl*point; // check if the stoploss and take profit prices can be determined
-         if(tp>0) price_tp=entryPrice-tp*point;
+         if(sl>0) price_sl=entryPrice+(sl*point); // check if the stoploss and take profit prices can be determined
+         if(tp>0) price_tp=entryPrice-(tp*point);
         }
      }
    if(order_type<0) return 0; // if there is no order
-   else if(order_type==0 || order_type==1) expire_time=0; // if it is not a pending order, set the expire_time to 0 because they cannot have an expire_time
+   else if(order_type==0 || order_type==1) expire_time=0; // if it is NOT a pending order, set the expire_time to 0 because it cannot have an expire_time
    else if(expire>0) // if the user wants pending orders to expire
       expire_time=(datetime)MarketInfo(instrument,MODE_TIME)+expire; // expiration of the order = current time + expire time
-   if(market) // If the user wants market execution (which has the the rule stating you are NOT allowed to set the sl and tp prices), this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
+   if(market) // If the user wants market execution (which does NOT allow them to input the sl and tp prices), this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
      {
       int ticket=OrderSend(instrument,order_type,lots,entryPrice,entering_max_slippage,0,0,comment,magic,expire_time,a_clr);
       if(ticket>0) // if there is a valid ticket
@@ -740,13 +739,13 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
            {
             if(cmd==OP_BUY)
               {
-               if(sl>0) price_sl=OrderOpenPrice()-sl*point;
-               if(tp>0) price_tp=OrderOpenPrice()+tp*point;
+               if(sl>0) price_sl=OrderOpenPrice()-(sl*point);
+               if(tp>0) price_tp=OrderOpenPrice()+(tp*point);
               }
             else if(cmd==OP_SELL)
               {
-               if(sl>0) price_sl=OrderOpenPrice()+sl*point;
-               if(tp>0) price_tp=OrderOpenPrice()-tp*point;
+               if(sl>0) price_sl=OrderOpenPrice()+(sl*point);
+               if(tp>0) price_tp=OrderOpenPrice()-(tp*point);
               }
             bool result=modify(ticket,price_sl,price_tp);
            }
@@ -791,8 +790,8 @@ bool trailingstop_check_order(int ticket,int trail_pips,int threshold,int step)
    bool result=true;
    if(OrderType()==OP_BUY)
      {
-      double new_moving_sl=OrderClosePrice()-trail_pips*point; // the current price - the trail in pips
-      double threshold_activation_price=OrderOpenPrice()+threshold*point;
+      double new_moving_sl=OrderClosePrice()-(trail_pips*point); // the current price - the trail in pips
+      double threshold_activation_price=OrderOpenPrice()+(threshold*point);
       double activation_sl=threshold_activation_price-(trail_pips*point);
       double step_in_pts=new_moving_sl-OrderStopLoss(); // keeping track of the distance between the potential stoploss and the current stoploss
       if(OrderStopLoss()==0|| compare_doubles(activation_sl,OrderStopLoss(),digits)>0)
@@ -807,8 +806,8 @@ bool trailingstop_check_order(int ticket,int trail_pips,int threshold,int step)
      }
    else if(OrderType()==OP_SELL)
      {
-      double new_moving_sl=OrderClosePrice()+trail_pips*point;
-      double threshold_activation_price=OrderOpenPrice()-threshold*point;
+      double new_moving_sl=OrderClosePrice()+(trail_pips*point);
+      double threshold_activation_price=OrderOpenPrice()-(threshold*point);
       double activation_sl=threshold_activation_price+(trail_pips*point);
       double step_in_pts=OrderStopLoss()-new_moving_sl;
       if(OrderStopLoss()==0|| compare_doubles(activation_sl,OrderStopLoss(),digits)<0)
@@ -1013,6 +1012,7 @@ bool is_time_in_range(datetime time,int start_hour,int start_min,int end_hour,in
    int current_time=(hour*3600)+(minute*60);
    int start_time=(start_hour*3600)+(start_min*60);
    int end_time=(end_hour*3600)+(end_min*60);
+   
    if(start_time==end_time) // making sure that the start_time is classified as in the range
       return true;
    else if(start_time<end_time) // for the case when the user sets the start time to be less than the end time
@@ -1040,8 +1040,8 @@ bool virtualstop_check_order(int ticket,int sl,int tp)
    bool result=true;
    if(OrderType()==OP_BUY)
      {
-      double virtual_stoploss=OrderOpenPrice()-sl*point;
-      double virtual_takeprofit=OrderOpenPrice()+tp*point;
+      double virtual_stoploss=OrderOpenPrice()-(sl*point);
+      double virtual_takeprofit=OrderOpenPrice()+(tp*point);
       if((sl>0 && compare_doubles(OrderClosePrice(),virtual_stoploss,digits)<=0) || 
          (tp>0 && compare_doubles(OrderClosePrice(),virtual_takeprofit,digits)>=0))
         {
@@ -1050,8 +1050,8 @@ bool virtualstop_check_order(int ticket,int sl,int tp)
      }
    else if(OrderType()==OP_SELL)
      {
-      double virtual_stoploss=OrderOpenPrice()+sl*point;
-      double virtual_takeprofit=OrderOpenPrice()-tp*point;
+      double virtual_stoploss=OrderOpenPrice()+(sl*point);
+      double virtual_takeprofit=OrderOpenPrice()-(tp*point);
       if((sl>0 && compare_doubles(OrderClosePrice(),virtual_stoploss,digits)>=0) || 
          (tp>0 && compare_doubles(OrderClosePrice(),virtual_takeprofit,digits)<=0))
         {
