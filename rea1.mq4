@@ -398,7 +398,7 @@ void OnDeinit(const int reason)
 void OnTick()
   {
    datetime current_time=TimeCurrent();
-   int in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);
+   bool in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);
    bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
    
    if(in_time_range) // only enter and exit trades based on the specified time range
@@ -457,7 +457,7 @@ void OnTick()
    //if(trail_value>0) trailingstop_check_all_orders(trail_value,trail_threshold,trail_step,order_magic);
    //   virtualstop_check(virtual_sl,virtual_tp);     
      }
-     else if(time_to_exit) close_all();// this is the special case where you can exit trades based on a specified time (this should have been set to be outside of the trading time range)
+     else if(time_to_exit) close_all(); // this is the special case where you can exit trades based on a specified time (this should have been set to be outside of the trading time range)
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
