@@ -163,7 +163,8 @@ double ADR()
    
    if(change_ADR_percent==0 || change_ADR_percent==NULL)
       return calculated_adr;
-   return (calculated_adr*change_ADR_percent)+calculated_adr; // return the reduced or increased ADR // make sure to not multiply it by Point in the funcion
+   double changed_ADR=(calculated_adr*change_ADR_percent)+calculated_adr; // return the reduced or increased ADR // make sure to not multiply it by Point in the funcion
+   return NormalizeDouble(changed_ADR,2); // NormalizeDouble?
 }
 
   
@@ -278,7 +279,15 @@ double ADR=ADR();
 
 double calculate_lots()
   {
-   double lots=mm(money_management,symbol,lot_size,ADR*stoploss_percent,mm1_risk_percent,mm2_lots,mm2_per,mm3_risk,mm4_risk);
+   double lots=mm(money_management,
+                  symbol,
+                  lot_size,
+                  NormalizeDouble(ADR*stoploss_percent,2),
+                  mm1_risk_percent,
+                  mm2_lots,
+                  mm2_per,
+                  mm3_risk,
+                  mm4_risk);
    return lots;
   }
 //+------------------------------------------------------------------+
@@ -295,9 +304,19 @@ void enter_order(ENUM_ORDER_TYPE type)
    double distance=0;
    
    if(pullback_percent==0 || pullback_percent==NULL) distance=0;
-   else distance=ADR*pullback_percent; // TODO: should you NormalizeDouble() for distance?
+   else distance=NormalizeDouble(ADR*pullback_percent,2); // TODO: should you NormalizeDouble() for distance?
    
-   entry(NULL,type,lots,distance,ADR*stoploss_percent,ADR*takeprofit_percent,order_comment,order_magic,order_expire,arrow_color_short,market_exec); // the 4th argument (distanceFromPrice) is 0 because you will be opening a market order.
+   entry(NULL,
+         type,
+         lots,
+         distance, // This used to be 0 because it was orignally for opening a market order.
+         NormalizeDouble(ADR*stoploss_percent,2),
+         NormalizeDouble(ADR*takeprofit_percent,2),
+         order_comment,
+         order_magic,
+         order_expire,
+         arrow_color_short,
+         market_exec); 
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
