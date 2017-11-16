@@ -79,6 +79,9 @@ enum MM // Money Management
 	input int end_time_minute=0; // 0-59
 	input int gmt_hour_offset=-3; // The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). Adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
 
+   input int exit_time_hour=23; // the exit_time should be after end_time
+   input int exit_time_minute=30;
+   
 //enter_order
 	input double takeprofit_percent=0.3; // Must be a positive number. // TODO: Change to a percent of ADR (What % of ADR should you tarket?)
    input double stoploss_percent=1.0; // Must be a positive number.
@@ -164,7 +167,7 @@ double ADR()
    if(change_ADR_percent==0 || change_ADR_percent==NULL)
       return calculated_adr;
    double changed_ADR=(calculated_adr*change_ADR_percent)+calculated_adr; // return the reduced or increased ADR // make sure to not multiply it by Point in the funcion
-   return NormalizeDouble(changed_ADR,2); // NormalizeDouble?
+   return NormalizeDouble(changed_ADR,2);
 }
 
   
@@ -178,13 +181,13 @@ int periods_lowest_bar()
    if(weekStart>23) weekStart=(weekStart-23)-1;
    else if(weekStart<0) weekStart=23+weekStart+1;
    
-   if(day>1 && H1s_to_roll<24) // If the day is not Sunday (0) or Monday (1) and the roll is 23 hours or less. This means it is safe to not go into calculating the amount of bars since the start of the week.
+   if(day>1 && H1s_to_roll<24) // If the server's day is not Sunday (0) or Monday (1) and the user's roll input is 23 hours or less. This means it is safe to not go into calculating the amount of bars since the start of the week.
      {
       return M5s_to_roll;
      }
    else
      {
-      int weeksCandleCount=Bars(NULL,PERIOD_M5,weekStart,TimeCurrent()); // TODO: test this // count the number of bars from the day's start time till the current time
+      int weeksCandleCount=Bars(NULL,PERIOD_M5,weekStart,TimeCurrent()); // TODO: test this // count the number of bars from the week's start time to the current time
       if(weeksCandleCount<M5s_to_roll) return weeksCandleCount; // if there are not enough bars in the week
       else return M5s_to_roll;
      }
@@ -198,7 +201,6 @@ double periods_lowest_price()
 double uptrend_ADR_triggered_price()
    {
    static double LOP=periods_lowest_price();
-   //datetime start_time_of_day; // get the start time of the trading day
    double point=MarketInfo(NULL,MODE_POINT);
    double pip_move=ADR;
    double current_bid=Bid;
@@ -210,9 +212,9 @@ double uptrend_ADR_triggered_price()
          return 0;
         }
       
-      else if(current_bid-LOP>=pip_move) // if the distance meets or exceed the ADR_Pips, return true. Note: this will return true over and over again
+      else if(current_bid-LOP>=pip_move) // if the pip move meets or exceed the ADR_Pips, return true. Note: this will return true over and over again
         {
-         // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value all the time
+         // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
          LOP=periods_lowest_price();
          
          if(current_bid-LOP>=pip_move) // check if it is actually true by taking the new calculation of Low Of Period into account
@@ -224,12 +226,10 @@ double uptrend_ADR_triggered_price()
          return 0;
         }
    }
-   
-bool prevent_overblown_triggered_price()
-{
-   
-}
-   
+
+
+
+
 int signal_pullback_after_uptrend_ADR_triggered()
    {
    int signal=TRADE_SIGNAL_NEUTRAL;
@@ -239,6 +239,27 @@ int signal_pullback_after_uptrend_ADR_triggered()
    return signal=TRADE_SIGNAL_BUY;
    else return signal;
    }
+   
+bool time_to_exit(datetime time,int hour,int min,int gmt_offset=0) 
+{
+   if(gmt_offset!=0) 
+     {
+      hour+=gmt_offset;
+      hour+=gmt_offset;
+     }
+// Since a non-zero gmt_offset will make the start and end hour go beyond acceptable paremeters (below 0 or above 23), change the start_hour and end_hour to military time.
+   if(hour>23) hour=(hour-23)-1;
+   else if(hour<0) hour=23+hour+1;
+   
+   int timehour=TimeHour(time);
+   int timeminute=TimeMinute(time);
+   int exit_hour=hour*3600;
+   int exit_min=min*60;
+   
+   if(timehour==exit_hour && timeminute==exit_min) // this will only give the signal to exit for 1 minute per day
+      return true;
+   return false;
+}
   
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -268,6 +289,8 @@ int signal_exit()
 // Add exit signals below. As each signal is compared with the previous signal, the signal variable will change and then get returned.
 // The 3rd argument of the signal_compare function should explicitely be set to "true" every time.
 
+
+
 // Return the exit signal
    return signal;
   }
@@ -279,10 +302,11 @@ double ADR=ADR();
 
 double calculate_lots()
   {
+   double stoploss=NormalizeDouble(ADR*stoploss_percent,2);
    double lots=mm(money_management,
                   symbol,
                   lot_size,
-                  NormalizeDouble(ADR*stoploss_percent,2),
+                  stoploss,
                   mm1_risk_percent,
                   mm2_lots,
                   mm2_per,
@@ -304,7 +328,7 @@ void enter_order(ENUM_ORDER_TYPE type)
    double distance=0;
    
    if(pullback_percent==0 || pullback_percent==NULL) distance=0;
-   else distance=NormalizeDouble(ADR*pullback_percent,2); // TODO: should you NormalizeDouble() for distance?
+   else distance=NormalizeDouble(ADR*pullback_percent,2); // NormalizeDouble?
    
    entry(NULL,
          type,
@@ -373,63 +397,67 @@ void OnDeinit(const int reason)
 // Runs on every tick
 void OnTick()
   {
-//--- 
-/* time check */
-   bool time_in_range=is_time_in_range(TimeCurrent(),start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);
-
-/* signals */
-   int entry=0,exit=0;
-   entry=signal_entry();
-   exit=signal_exit();
-
-/* exit */
-   if(exit==TRADE_SIGNAL_BUY)
+   datetime current_time=TimeCurrent();
+   int in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);
+   bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
+   
+   if(in_time_range) // only enter and exit trades based on the specified time range
      {
-      close_all();
-     }
-   else if(exit==TRADE_SIGNAL_SELL)
-     {
-      close_all_long();
-     }
-   else if(exit==TRADE_SIGNAL_VOID)
-     {
-      close_all_short();
-     }
-
-/* entry */
-   int count_orders=0;
-   if(entry>0) // if there is a signal to enter
-     {
-      if(entry==TRADE_SIGNAL_BUY)
+   /* entry and exit signals */
+      int entry=0,exit=0;
+      entry=signal_entry();
+      exit=signal_exit();
+   
+   /* exit logic */
+      if(exit==TRADE_SIGNAL_VOID)
         {
-         if(exit_opposite_signal)
-            exit_all_trades_set(ORDER_SET_SELL,order_magic);
-         count_orders=count_orders(-1,order_magic);
-         if(max_trades>count_orders)
+         close_all();
+        }
+      else if(exit==TRADE_SIGNAL_BUY)
+        {
+         close_all_short();
+        }
+      else if(exit==TRADE_SIGNAL_SELL)
+        {
+         close_all_long();
+        }
+   
+   /* entry logic */
+      int count_orders=0;
+      if(entry>0) // if there is a signal to enter
+        {
+         if(entry==TRADE_SIGNAL_BUY)
            {
-            if(!entry_new_bar || (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load))) // if 
-               enter_order(OP_BUY);
+            if(exit_opposite_signal)
+               exit_all_trades_set(ORDER_SET_SELL,order_magic);
+            count_orders=count_orders(-1,order_magic);
+            if(max_trades>count_orders)
+              {
+               if(!entry_new_bar || (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load))) // if 
+                  enter_order(OP_BUY);
+              }
+           }
+         else if(entry==TRADE_SIGNAL_SELL)
+           {
+            if(exit_opposite_signal)
+               exit_all_trades_set(ORDER_SET_BUY,order_magic);
+            count_orders=count_orders(-1,order_magic);
+            if(max_trades>count_orders)
+              {
+               if(!entry_new_bar || (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load)))
+                  enter_order(OP_SELL);
+              }
            }
         }
-      else if(entry==TRADE_SIGNAL_SELL)
-        {
-         if(exit_opposite_signal)
-            exit_all_trades_set(ORDER_SET_BUY,order_magic);
-         count_orders=count_orders(-1,order_magic);
-         if(max_trades>count_orders)
-           {
-            if(!entry_new_bar || (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load)))
-               enter_order(OP_SELL);
-           }
-        }
+   
+   // Breakeven (comment out if this functionality is not required)
+   //if(breakeven_threshold>0) breakeven_check_all_orders(breakeven_threshold,breakeven_plus,order_magic);
+   
+   // Trailing Stop (comment out of this functinoality is not required)
+   //if(trail_value>0) trailingstop_check_all_orders(trail_value,trail_threshold,trail_step,order_magic);
+   //   virtualstop_check(virtual_sl,virtual_tp);     
      }
-
-// Breakeven (comment out if this functionality is not required)
-//if(breakeven_threshold>0) breakeven_check_all_orders(breakeven_threshold,breakeven_plus,order_magic);
-
-// Trailing Stop (comment out of this functinoality is not required)
-//if(trail_value>0) trailingstop_check_all_orders(trail_value,trail_threshold,trail_step,order_magic);
-//   virtualstop_check(virtual_sl,virtual_tp);
+     else if(time_to_exit) close_all();// this is the special case where you can exit trades based on a specified time (this should have been set to be outside of the trading time range)
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1013,7 +1041,7 @@ int count_orders(ENUM_ORDER_SET type=-1,int magic=-1,int pool=MODE_TRADES) // Wi
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-bool is_time_in_range(datetime time,int start_hour,int start_min,int end_hour,int end_min,int gmt_offset=0)
+bool in_time_range(datetime time,int start_hour,int start_min,int end_hour,int end_min,int gmt_offset=0)
   {
    if(gmt_offset!=0) 
      {
