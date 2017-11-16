@@ -67,9 +67,9 @@ enum MM // Money Management
 	int trail_threshold=500; // TODO: Change to a percent of ADR
 	int trail_step=20; // the minimum difference between the proposed new value of the stoploss to the current stoploss price // TODO: Change to a percent of ADR
 	
-	input bool exit_opposite_signal=false; // Should the EA exit trades when there is a signal in the opposite direction?
-	input int max_trades=1; // How many trades can the EA enter at the same time on the current chart? TODO: make sure you can have 1 long and 1 short at the same time.
-	input bool entry_new_bar=true; // Should you only enter trades when a new bar begins?
+	input bool exit_opposite_signal=true; // Should the EA exit trades when there is a signal in the opposite direction?
+	input int max_directional_trades=1; // How many trades can the EA enter at the same time on the current chart? TODO: make sure you can have 1 long and 1 short at the same time.
+	input bool entry_new_bar=false; // Should you only enter trades when a new bar begins?
 	input bool wait_next_bar_on_load=true; // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade?
 	
 //time filters - only allow EA to enter trades between a range of time in a day
@@ -79,7 +79,7 @@ enum MM // Money Management
 	input int end_time_minute=0; // 0-59
 	input int gmt_hour_offset=-3; // The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). Adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
 
-   input int exit_time_hour=23; // the exit_time should be after end_time
+   input int exit_time_hour=23; // the exit_time should be before the trading range start_time and after trading range end_time
    input int exit_time_minute=30;
    
 //enter_order
@@ -164,8 +164,7 @@ double ADR()
    int num_ADR_days=num_ADR_months*22; // There are about 22 business days a month.
    double calculated_adr=80.0;
    
-   if(change_ADR_percent==0 || change_ADR_percent==NULL)
-      return calculated_adr;
+   if(change_ADR_percent==0 || change_ADR_percent==NULL) return calculated_adr;
    double changed_ADR=(calculated_adr*change_ADR_percent)+calculated_adr; // return the reduced or increased ADR // make sure to not multiply it by Point in the funcion
    return NormalizeDouble(changed_ADR,2);
 }
@@ -226,9 +225,6 @@ double uptrend_ADR_triggered_price()
          return 0;
         }
    }
-
-
-
 
 int signal_pullback_after_uptrend_ADR_triggered()
    {
@@ -356,7 +352,7 @@ void close_all()
 
 void close_all_long()
   {
-   exit_all_trades_set(ORDER_SET_BUY,order_magic);
+   exit_all_trades_set(ORDER_SET_BUY,order_magic); // ORDER_SET_BUY includes everything (pending and active) orders related to buying
 //exit_all_trades_set(ORDER_SET_BUY_STOP,order_magic);
 //exit_all_trades_set(ORDER_SET_BUY_LIMIT,order_magic);
   }
@@ -366,7 +362,7 @@ void close_all_long()
 
 void close_all_short()
   {
-   exit_all_trades_set(ORDER_SET_SELL,order_magic);
+   exit_all_trades_set(ORDER_SET_SELL,order_magic); // ORDER_SET_SELL includes everything (pending and active) orders related to selling
 //exit_all_trades_set(ORDER_SET_SELL_STOP,order_magic);
 //exit_all_trades_set(ORDER_SET_SELL_LIMIT,order_magic);
   }
@@ -376,10 +372,20 @@ void close_all_short()
 // Runs once when the EA is turned on
 int OnInit()
   {
-//---
+   int range_start_time=(start_time_hour*3600)+(start_time_minute*60);
+   int range_end_time=(end_time_hour*3600)+(end_time_minute*60);
+   int exit_time=(exit_time_hour*3600)+(exit_time_minute*60);
+      if(exit_time>range_start_time && exit_time<range_end_time)
+        {
+         Alert("Make sure that the trade exit_time_hour and exit_time_minute combination does not fall within the trading range start and end times or else there will be trouble!");
+         return(INIT_FAILED);
+        }
 
-//---
-   return(INIT_SUCCEEDED);
+      else 
+        {
+         Alert("The initialization succeeded.");
+         return(INIT_SUCCEEDED);
+        }
   }
 //+------------------------------------------------------------------+
 //| Expert deinitialization function                                 |
@@ -387,7 +393,6 @@ int OnInit()
 // Runs once when the EA is turned off
 void OnDeinit(const int reason)
   {
-//---
 
   }
 //+------------------------------------------------------------------+
@@ -400,18 +405,19 @@ void OnTick()
    datetime current_time=TimeCurrent();
    bool in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);
    bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
+   int max_trades=max_directional_trades;
    
    if(in_time_range) // only enter and exit trades based on the specified time range
      {
-   /* entry and exit signals */
+      // entry and exit signals
       int entry=0,exit=0;
       entry=signal_entry();
       exit=signal_exit();
    
-   /* exit logic */
+      // exit signal logic
       if(exit==TRADE_SIGNAL_VOID)
         {
-         close_all();
+         close_all(); // close all pending and orders for the specific EAs orders
         }
       else if(exit==TRADE_SIGNAL_BUY)
         {
@@ -422,30 +428,30 @@ void OnTick()
          close_all_long();
         }
    
-   /* entry logic */
-      int count_orders=0;
-      if(entry>0) // if there is a signal to enter
+      // entry signal logic
+      int long_order_count=0, short_order_count=0;
+      if(entry>0) // if there is a signal to enter a trade
         {
          if(entry==TRADE_SIGNAL_BUY)
            {
-            if(exit_opposite_signal)
-               exit_all_trades_set(ORDER_SET_SELL,order_magic);
-            count_orders=count_orders(-1,order_magic);
-            if(max_trades>count_orders)
+            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_SELL,order_magic);
+            long_order_count=count_orders(ORDER_SET_LONG,order_magic); // counts all long (active and pending) orders for the current EA
+            if(long_order_count<max_trades) // if you have not yet reached your maximum allowed long trades
               {
-               if(!entry_new_bar || (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load))) // if 
-                  enter_order(OP_BUY);
+               if(!entry_new_bar || 
+                  (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load)))
+                     enter_order(OP_BUY);
               }
            }
          else if(entry==TRADE_SIGNAL_SELL)
            {
-            if(exit_opposite_signal)
-               exit_all_trades_set(ORDER_SET_BUY,order_magic);
-            count_orders=count_orders(-1,order_magic);
-            if(max_trades>count_orders)
+            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_BUY,order_magic);
+            short_order_count=count_orders(ORDER_SET_SHORT,order_magic); // counts all short (active and pending) orders for the current EA
+            if(short_order_count<max_trades) // if you have not yet reached your maximum allowed short trades
               {
-               if(!entry_new_bar || (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load)))
-                  enter_order(OP_SELL);
+               if(!entry_new_bar || 
+                  (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load)))
+                     enter_order(OP_SELL);
               }
            }
         }
@@ -457,7 +463,7 @@ void OnTick()
    //if(trail_value>0) trailingstop_check_all_orders(trail_value,trail_threshold,trail_step,order_magic);
    //   virtualstop_check(virtual_sl,virtual_tp);     
      }
-     else if(time_to_exit) close_all(); // this is the special case where you can exit trades based on a specified time (this should have been set to be outside of the trading time range)
+     else if(time_to_exit) close_all(); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -665,7 +671,7 @@ void exit_all_trades_set(ENUM_ORDER_SET type=-1,int magic=-1)  // -1 means all
      {
       if(OrderSelect(i,SELECT_BY_POS)) // if an open trade can be found
         {
-         if(magic==-1 || magic==OrderMagicNumber()) // if the open trade matches the magic number
+         if(magic==OrderMagicNumber() || magic==-1) // if the open trade matches the magic number
            {
             int ordertype=OrderType();
             int ticket=OrderTicket();
