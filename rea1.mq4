@@ -11,7 +11,7 @@
 // TODO: When strategy testing, make sure you have all the M5, D1, and W1 data because it is reference in the code.
 // TODO: Always use NormalizeDouble() when computing the price (or lots or ADR?) yourself. This is not necessary for internal functions like OrderOPenPrice(), OrderStopLess(),OrderClosePrice(),Bid,Ask
 // TODO: User the compare_doubles() function to compare two doubles.
-
+// Remember: It has to be for a broker that will give you D1 data for at least around 6 months in order to calculate the ADR.
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -129,7 +129,7 @@ enum MM // Money Management
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-double calculate_ADR()
+int ADR_calculation()
 {
    int six_mnth_num_days=6*22+1; // There are about 22 business days a month.   
    int six_mnth_sunday_count=0;
@@ -158,7 +158,7 @@ double calculate_ADR()
          six_mnth_non_sunday_count++;
         }
    }
-   double six_mnth_ADR_avg=six_month_non_sunday_ADR_sum/six_mnth_non_sunday_count;
+   double six_mnth_ADR_avg=six_month_non_sunday_ADR_sum/six_mnth_non_sunday_count; // TODO: What type of decimal is this returning? Can it be compared with the input variables?
    int two_mnth_num_days=num_ADR_months*22; // There are about 22 business days a month.
    int two_mnth_adjusted_num_days=(int)((avg_sunday_per_day*two_mnth_num_days)+two_mnth_num_days); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
    
@@ -184,30 +184,30 @@ double calculate_ADR()
         }
      }
 
-   double adr=two_mnth_non_sunday_ADR_sum/two_mnth_non_sunday_count;
+   int adr=(int)((two_mnth_non_sunday_ADR_sum/two_mnth_non_sunday_count)/Point);
   // double adr=80;
 
-   if(change_ADR_percent==0 || change_ADR_percent==NULL) return NormalizeDouble(adr,2);
+   if(change_ADR_percent==0 || change_ADR_percent==NULL) return adr;
 
-   else return NormalizeDouble((adr*change_ADR_percent)+adr,2); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
+   else return (int)((adr*change_ADR_percent)+adr); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
 }
 
 
-double ADR()
+int get_ADR()
 {
-   static double adr=0;
+   static int adr=0;
    bool is_new_bar=is_new_bar(NULL,PERIOD_D1,false);
    
    if(adr==0) // if it is the first time the function is called
      {
-     double calculated_adr=calculate_ADR();
+     int calculated_adr=ADR_calculation();
      adr=calculated_adr; // make the function remember the calculation the next time it is called
      return adr;
      }
-   if(is_new_bar)
+   if(is_new_bar) // if it is a fresh new bar
      {
-      double fresh_calculated_adr=calculate_ADR();
-      adr=fresh_calculated_adr; // make the function remember the calculation the next time it is called
+      int freshly_calculated_adr=ADR_calculation();
+      adr=freshly_calculated_adr; // make the function remember the calculation the next time it is called
      }
    return adr; // if it is or isn't a fresh new bar, return the static adr
 }
@@ -336,8 +336,6 @@ int signal_exit()
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-double ADR=ADR();
-
 double calculate_lots()
   {
    double stoploss=NormalizeDouble(ADR*stoploss_percent,2);
@@ -412,8 +410,12 @@ void close_all_short()
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 // Runs once when the EA is turned on
+
+static int ADR; // TODO: make sure this maintains the value that was generated OnInit()
+
 int OnInit()
   {
+   ADR=get_ADR(); // TODO: should this belong here?
    int range_start_time=(start_time_hour*3600)+(start_time_minute*60);
    int range_end_time=(end_time_hour*3600)+(end_time_minute*60);
    int exit_time=(exit_time_hour*3600)+(exit_time_minute*60);
@@ -631,7 +633,7 @@ bool modify(int ticket,double sl,double tp=-1,double entryPrice=-1,datetime expi
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-int compare_doubles(double var1,double var2,int precision) // For the precision argument, often it is the number of digits after the decimal point.
+int compare_doubles(double var1,double var2,int precision) // For the precision argument, often it is the number of digits after the price's decimal point.
   {
    double point=MathPow(10,-precision); // 10^(-precision) // MathPow(base, exponent value)
    int var1_int=(int) (var1/point);
