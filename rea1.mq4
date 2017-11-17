@@ -8,7 +8,7 @@
 #property version   "2.00"
 #property strict
 //#property show_inputs // This can only be used for scripts. I added this because, by default, it will not show any external inputs. This is to override this behaviour so it deliberately shows the inputs.
-// TODO: When strategy testing, make sure you have all the M5 and W1 data because it is reference in the code.
+// TODO: When strategy testing, make sure you have all the M5, D1, and W1 data because it is reference in the code.
 // TODO: Always use NormalizeDouble() when computing the price (or lots or ADR?) yourself. This is not necessary for internal functions like OrderOPenPrice(), OrderStopLess(),OrderClosePrice(),Bid,Ask
 // TODO: User the compare_doubles() function to compare two doubles.
 
@@ -54,7 +54,7 @@ enum MM // Money Management
   };
 
 //ontick()
-	int charts_timeframe=0;
+	int charts_timeframe=PERIOD_M5;
 	int virtual_sl=0; // TODO: Change to a percent of ADR
 	int virtual_tp=0; // TODO: Change to a percent of ADR
 	
@@ -154,15 +154,15 @@ double calculate_ADR()
         {
          double HOD=iHigh(NULL,PERIOD_D1,i);
          double LOD=iLow(NULL,PERIOD_D1,i);
-         six_month_non_sunday_ADR_sum+=(HOD-LOD)/Point; // TODO: should it be divided by Point?
+         six_month_non_sunday_ADR_sum+=(HOD-LOD); // TODO: should it be divided by Point?
          six_mnth_non_sunday_count++;
         }
    }
-   double six_month_ADR_avg=six_month_non_sunday_ADR_sum/six_mnth_non_sunday_count;
+   double six_mnth_ADR_avg=six_month_non_sunday_ADR_sum/six_mnth_non_sunday_count;
    int two_mnth_num_days=num_ADR_months*22; // There are about 22 business days a month.
    int two_mnth_adjusted_num_days=(int)((avg_sunday_per_day*two_mnth_num_days)+two_mnth_num_days); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
    
-   double two_month_non_sunday_ADR_sum=0;
+   double two_mnth_non_sunday_ADR_sum=0;
    int two_mnth_non_sunday_count=0;
    
    for(int i=two_mnth_adjusted_num_days;i>0;i--) // find the counts of all days that are significantly below or above ADR
@@ -173,19 +173,18 @@ double calculate_ADR()
         {
          double HOD=iHigh(NULL,PERIOD_D1,i);
          double LOD=iLow(NULL,PERIOD_D1,i);
-         double days_range=(HOD-LOD)/Point; // TODO: should it be divided by Point?
+         double days_range=(HOD-LOD); // TODO: should it be divided by Point?
+         double ADR_ratio=days_range/six_mnth_ADR_avg;
          
-         double ADR_ratio=days_range/six_month_ADR_avg;
-         
-         if(ADR_ratio>below_ADR_outlier_percent && ADR_ratio<above_ADR_outlier_percent)
+         if(compare_doubles(ADR_ratio,below_ADR_outlier_percent,2)==1 && compare_doubles(ADR_ratio,above_ADR_outlier_percent,2)==-1) // filtering out outliers
            {
-            two_month_non_sunday_ADR_sum+=days_range;
+            two_mnth_non_sunday_ADR_sum+=days_range;
             two_mnth_non_sunday_count++;
            }
         }
      }
 
-   double adr=two_month_non_sunday_ADR_sum/two_mnth_non_sunday_count;
+   double adr=two_mnth_non_sunday_ADR_sum/two_mnth_non_sunday_count;
   // double adr=80;
 
    if(change_ADR_percent==0 || change_ADR_percent==NULL) return NormalizeDouble(adr,2);
@@ -535,7 +534,7 @@ bool breakeven_check_order(int ticket,int threshold,int plus)
      {
       double new_sl=OrderOpenPrice()+(plus*point); // calculate the price of the new stoploss
       double profit_in_pts=OrderClosePrice()-OrderOpenPrice(); // calculate how many points in profit the trade is in so far
-      if(OrderStopLoss()==0 || compare_doubles(new_sl,OrderStopLoss(),digits)>0) // if there is no stoploss or the potential new stoploss is greater than the current stoploss
+      if(OrderStopLoss()==0 || compare_doubles(new_sl,OrderStopLoss(),digits)==1) // if there is no stoploss or the potential new stoploss is greater than the current stoploss
          if(compare_doubles(profit_in_pts,threshold*point,digits)>=0) // if the profit in points so far > provided threshold, then set the order to breakeven
             result=modify(ticket,new_sl);
      }
@@ -543,7 +542,7 @@ bool breakeven_check_order(int ticket,int threshold,int plus)
      {
       double new_sl=OrderOpenPrice()-(plus*point);
       double profit_in_pts=OrderOpenPrice()-OrderClosePrice();
-      if(OrderStopLoss()==0 || compare_doubles(new_sl,OrderStopLoss(),digits)<0)
+      if(OrderStopLoss()==0 || compare_doubles(new_sl,OrderStopLoss(),digits)==-1)
          if(compare_doubles(profit_in_pts,threshold*point,digits)>=0)
             result=modify(ticket,new_sl);
      }
@@ -890,7 +889,7 @@ bool trailingstop_check_order(int ticket,int trail_pips,int threshold,int step)
       double threshold_activation_price=OrderOpenPrice()+(threshold*point);
       double activation_sl=threshold_activation_price-(trail_pips*point);
       double step_in_pts=new_moving_sl-OrderStopLoss(); // keeping track of the distance between the potential stoploss and the current stoploss
-      if(OrderStopLoss()==0|| compare_doubles(activation_sl,OrderStopLoss(),digits)>0)
+      if(OrderStopLoss()==0|| compare_doubles(activation_sl,OrderStopLoss(),digits)==1)
         {
          if(compare_doubles(OrderClosePrice(),threshold_activation_price,digits)>=0) // if price met the threshold, move the stoploss
             result=modify(ticket,activation_sl);
@@ -906,7 +905,7 @@ bool trailingstop_check_order(int ticket,int trail_pips,int threshold,int step)
       double threshold_activation_price=OrderOpenPrice()-(threshold*point);
       double activation_sl=threshold_activation_price+(trail_pips*point);
       double step_in_pts=OrderStopLoss()-new_moving_sl;
-      if(OrderStopLoss()==0|| compare_doubles(activation_sl,OrderStopLoss(),digits)<0)
+      if(OrderStopLoss()==0|| compare_doubles(activation_sl,OrderStopLoss(),digits)==-1)
         {
          if(compare_doubles(OrderClosePrice(),threshold_activation_price,digits)<=0)
             result=modify(ticket,activation_sl);
