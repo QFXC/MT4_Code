@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Quant FX Capital"
 #property link      "https://www.quantfxcapital.com"
-#property version   "2.00"
+#property version   "3.00"
 #property strict
 //#property show_inputs // This can only be used for scripts. I added this because, by default, it will not show any external inputs. This is to override this behaviour so it deliberately shows the inputs.
 // TODO: When strategy testing, make sure you have all the M5, D1, and W1 data because it is reference in the code.
@@ -86,7 +86,7 @@ enum MM // Money Management
 	input double takeprofit_percent=0.3; // Must be a positive number. // TODO: Change to a percent of ADR (What % of ADR should you tarket?)
    input double stoploss_percent=1.0; // Must be a positive number.
 	input double pullback_percent=-0.50; //  If you want a limit order, it must be negative. If you want a stop order, it must be positive.
-	input double max_spread_percent=.04; // Must be [positive. What percent of ADR should the spread be less than?
+	input double max_spread_percent=.04; // Must be positive. What percent of ADR should the spread be less than? (Only for immediate orders and not pending.)
 	
 	input int entering_max_slippage=5; // TODO: Change to a percent of ADR  // the default used to be 50 // TODO: allow slippage in my favor but not against me
 	//input int unfavorable_slippage=5;
@@ -184,15 +184,12 @@ int ADR_calculation()
            }
         }
      }
-
+   // adr doesn't need to be Normalized because it has been converted into an int.
    int adr=(int)((two_mnth_non_sunday_ADR_sum/two_mnth_non_sunday_count)/Point);
-  // double adr=80;
-
+   // int adr=80;
    if(change_ADR_percent==0 || change_ADR_percent==NULL) return adr;
-
    else return (int)((adr*change_ADR_percent)+adr); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
 }
-
 
 int get_ADR() // Average Daily Range
 {
@@ -213,7 +210,7 @@ int get_ADR() // Average Daily Range
    return adr; // if it is or isn't a fresh new bar, return the static adr
 }
   
-int periods_lowest_bar()
+int get_week_start_bar()
 {
    int M5s_to_roll=H1s_to_roll*12;
    int day=DayOfWeek();
@@ -237,7 +234,25 @@ int periods_lowest_bar()
 
 double periods_lowest_price()
 {
-   return iLow(NULL,PERIOD_M5,iLowest(NULL,PERIOD_M5,MODE_LOW,WHOLE_ARRAY,periods_lowest_bar())); // get the price of the bar that has the lowest price for the determined period
+/*
+// TODO: determine where you want to start the calculation from
+// calculate the weekend gap
+
+   if(a user setting==true)
+     {
+      int week_start_bar=get_week_start_bar();
+     }
+   else if(weekend_gap<ADR*max_weekend_gap)
+     {
+      int week_start_bar=H1s_to_roll*12;
+     }
+*/
+   return iLow(NULL,PERIOD_M5,iLowest(NULL,PERIOD_M5,MODE_LOW,WHOLE_ARRAY,get_week_start_bar())); // get the price of the bar that has the lowest price for the determined period
+}
+
+double periods_highest_price()
+{
+   return iHigh(NULL,PERIOD_M5,iHighest(NULL,PERIOD_M5,MODE_HIGH,WHOLE_ARRAY,get_week_start_bar())); // get the price of the bar that has the highest price for the determined period
 }
 
 double uptrend_ADR_triggered_price()
@@ -772,7 +787,16 @@ void exit_all_trades_set(ENUM_ORDER_SET type=-1,int magic=-1)  // -1 means all
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-	
+
+bool acceptable_spread()
+{
+   RefreshRates();
+   double spread=MarketInfo(NULL,MODE_SPREAD); // already normalized. I put this check here because the rates were just refereshed.
+   if(compare_doubles(spread,ADR*max_spread_percent,1)<=0) return true; // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+   else return false;
+}
+
+
 // the distanceFromCurrentPrice parameter is used to specify what type of order you would like to enter
 int send_order(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double sl,double tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
   {
@@ -795,8 +819,8 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
         }
       else if(order_type==OP_BUY)
         {
-         RefreshRates();
-         entryPrice=MarketInfo(instrument,MODE_ASK);
+         if(acceptable_spread()) entryPrice=MarketInfo(instrument,MODE_ASK);// Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+         else return 0;
         }
       if(!market) // if the user wants instant execution (which the system allows them to input sl and tp prices)
         {
@@ -816,8 +840,8 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
         }
       else if(order_type==OP_SELL)
         {
-         RefreshRates();
-         entryPrice=MarketInfo(instrument,MODE_BID);
+         if(acceptable_spread()) entryPrice=MarketInfo(instrument,MODE_BID); // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+         else return 0;
         }
       if(!market) // if the user wants instant execution (which allows them to input the sl and tp prices)
         {
@@ -828,36 +852,30 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
    if(order_type<0) return 0; // if there is no order
    else if(order_type==0 || order_type==1) expire_time=0; // if it is NOT a pending order, set the expire_time to 0 because it cannot have an expire_time
    else if(expire>0) // if the user wants pending orders to expire
-      expire_time=(datetime)MarketInfo(instrument,MODE_TIME)+expire; // expiration of the order = current time + expire time
-
-   double spread=MarketInfo(NULL,MODE_SPREAD); // already normalized. I put this check here because the rates were just refereshed.
-   if(compare_doubles(spread,ADR*max_spread_percent,1)<=0) // Keeps you from entering trades when the spread is too wide. Note:It may never enter on exotic currencies (which is good automation).
+   expire_time=(datetime)MarketInfo(instrument,MODE_TIME)+expire; // expiration of the order = current time + expire time
+   if(market) // If the user wants market execution (which does NOT allow them to input the sl and tp prices), this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
      {
-      if(market) // If the user wants market execution (which does NOT allow them to input the sl and tp prices), this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
+      int ticket=OrderSend(instrument,order_type,lots,entryPrice,entering_max_slippage,0,0,comment,magic,expire_time,a_clr);
+      if(ticket>0) // if there is a valid ticket
         {
-         int ticket=OrderSend(instrument,order_type,lots,entryPrice,entering_max_slippage,0,0,comment,magic,expire_time,a_clr);
-         if(ticket>0) // if there is a valid ticket
+         if(OrderSelect(ticket,SELECT_BY_TICKET))
            {
-            if(OrderSelect(ticket,SELECT_BY_TICKET))
+            if(cmd==OP_BUY)
               {
-               if(cmd==OP_BUY)
-                 {
-                  if(sl>0) price_sl=OrderOpenPrice()-(sl*point);
-                  if(tp>0) price_tp=OrderOpenPrice()+(tp*point);
-                 }
-               else if(cmd==OP_SELL)
-                 {
-                  if(sl>0) price_sl=OrderOpenPrice()+(sl*point);
-                  if(tp>0) price_tp=OrderOpenPrice()-(tp*point);
-                 }
-               bool result=modify(ticket,price_sl,price_tp);
+               if(sl>0) price_sl=OrderOpenPrice()-(sl*point);
+               if(tp>0) price_tp=OrderOpenPrice()+(tp*point);
               }
+            else if(cmd==OP_SELL)
+              {
+               if(sl>0) price_sl=OrderOpenPrice()+(sl*point);
+               if(tp>0) price_tp=OrderOpenPrice()-(tp*point);
+              }
+            bool result=modify(ticket,price_sl,price_tp);
            }
-         return ticket;
         }
-      return OrderSend(instrument,order_type,lots,entryPrice,entering_max_slippage,price_sl,price_tp,comment,magic,expire_time,a_clr);
+      return ticket;
      }
-    return 0;
+   return OrderSend(instrument,order_type,lots,entryPrice,entering_max_slippage,price_sl,price_tp,comment,magic,expire_time,a_clr);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
