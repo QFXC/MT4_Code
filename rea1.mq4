@@ -86,6 +86,7 @@ enum MM // Money Management
 	input double takeprofit_percent=0.3; // Must be a positive number. // TODO: Change to a percent of ADR (What % of ADR should you tarket?)
    input double stoploss_percent=1.0; // Must be a positive number.
 	input double pullback_percent=-0.50; //  If you want a limit order, it must be negative. If you want a stop order, it must be positive.
+	input double max_spread_percent=.04; // Must be [positive. What percent of ADR should the spread be less than?
 	
 	input int entering_max_slippage=5; // TODO: Change to a percent of ADR  // the default used to be 50 // TODO: allow slippage in my favor but not against me
 	//input int unfavorable_slippage=5;
@@ -193,7 +194,7 @@ int ADR_calculation()
 }
 
 
-int get_ADR()
+int get_ADR() // Average Daily Range
 {
    static int adr=0;
    bool is_new_bar=is_new_bar(NULL,PERIOD_D1,false);
@@ -455,7 +456,8 @@ void OnTick()
       // entry and exit signals
       int max_trades=max_directional_trades;
       int entry=0,exit=0;
-      entry=signal_entry();
+      
+      entry=signal_entry();  
       exit=signal_exit();
    
       // exit signal logic
@@ -827,29 +829,35 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
    else if(order_type==0 || order_type==1) expire_time=0; // if it is NOT a pending order, set the expire_time to 0 because it cannot have an expire_time
    else if(expire>0) // if the user wants pending orders to expire
       expire_time=(datetime)MarketInfo(instrument,MODE_TIME)+expire; // expiration of the order = current time + expire time
-   if(market) // If the user wants market execution (which does NOT allow them to input the sl and tp prices), this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
+
+   double spread=MarketInfo(NULL,MODE_SPREAD); // already normalized. I put this check here because the rates were just refereshed.
+   if(compare_doubles(spread,ADR*max_spread_percent,1)<=0) // Keeps you from entering trades when the spread is too wide. Note:It may never enter on exotic currencies (which is good automation).
      {
-      int ticket=OrderSend(instrument,order_type,lots,entryPrice,entering_max_slippage,0,0,comment,magic,expire_time,a_clr);
-      if(ticket>0) // if there is a valid ticket
+      if(market) // If the user wants market execution (which does NOT allow them to input the sl and tp prices), this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
         {
-         if(OrderSelect(ticket,SELECT_BY_TICKET))
+         int ticket=OrderSend(instrument,order_type,lots,entryPrice,entering_max_slippage,0,0,comment,magic,expire_time,a_clr);
+         if(ticket>0) // if there is a valid ticket
            {
-            if(cmd==OP_BUY)
+            if(OrderSelect(ticket,SELECT_BY_TICKET))
               {
-               if(sl>0) price_sl=OrderOpenPrice()-(sl*point);
-               if(tp>0) price_tp=OrderOpenPrice()+(tp*point);
+               if(cmd==OP_BUY)
+                 {
+                  if(sl>0) price_sl=OrderOpenPrice()-(sl*point);
+                  if(tp>0) price_tp=OrderOpenPrice()+(tp*point);
+                 }
+               else if(cmd==OP_SELL)
+                 {
+                  if(sl>0) price_sl=OrderOpenPrice()+(sl*point);
+                  if(tp>0) price_tp=OrderOpenPrice()-(tp*point);
+                 }
+               bool result=modify(ticket,price_sl,price_tp);
               }
-            else if(cmd==OP_SELL)
-              {
-               if(sl>0) price_sl=OrderOpenPrice()+(sl*point);
-               if(tp>0) price_tp=OrderOpenPrice()-(tp*point);
-              }
-            bool result=modify(ticket,price_sl,price_tp);
            }
+         return ticket;
         }
-      return ticket;
+      return OrderSend(instrument,order_type,lots,entryPrice,entering_max_slippage,price_sl,price_tp,comment,magic,expire_time,a_clr);
      }
-   return OrderSend(instrument,order_type,lots,entryPrice,entering_max_slippage,price_sl,price_tp,comment,magic,expire_time,a_clr);
+    return 0;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
