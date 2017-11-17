@@ -119,56 +119,99 @@ enum MM // Money Management
 // ADR()
    input double change_ADR_percent=-.25;
    input int num_ADR_months=2; // How months back should you use to calculate the average ADR? (Divisible by 1) TODO: this is not implemented yet.
-   input double ADR_outlier_percent=2; // How much should the ADR be surpassed an a day for it to be neglected from the average calculation? TODO: This is not implemented yet.
-
+   input double above_ADR_outlier_percent=2; // How much should the ADR be surpassed an a day for it to be neglected from the average calculation? TODO: This is not implemented yet.
+   input double below_ADR_outlier_percent=.25;
 
 // Market Trends
    input int H1s_to_roll=3; // How many hours should you roll to determine a short term market trend? (You are only allowed to input values divisible by 0.5.)
- 
-/*
-//signal_zigzag variables
-	extern int depth=12;
-	extern int deviation=5;
-	extern int backstep=3;
-	extern int shift=1;
-
-
-int signal_zigzag()
-{
-   int signal=TRADE_SIGNAL_NEUTRAL;
-   double zigzag=iCustom(NULL,0,"ZigZag",depth,deviation,backstep,0,shift);
-   double open=iOpen(NULL,0,shift);
-   
-   if (zigzag>0 && zigzag<EMPTY_VALUE)
-   {
-      if (zigzag>open)
-         signal=TRADE_SIGNAL_SELL;
-      else if (zigzag<open)
-         signal=TRADE_SIGNAL_BUY;
-   }
-   
-   return signal;
-}
-*/
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-double ADR()
+double calculate_ADR()
 {
-   // calculate ADR here
-   // you may have to NormalizeDouble() the ADR
-   // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
+   int six_mnth_num_days=6*22+1; // There are about 22 business days a month.   
+   int six_mnth_sunday_count=0;
+   for(int i=six_mnth_num_days;i>0;i--) // count the number of Sundays in the past 6 months
+      {
+         int day=DayOfWeek();
+         if(day==0) // count Sundays
+           {
+            six_mnth_sunday_count++;
+           }
+      }
+   double avg_sunday_per_day=six_mnth_sunday_count/six_mnth_num_days;
    
-   int num_ADR_days=num_ADR_months*22; // There are about 22 business days a month.
-   double calculated_adr=80.0;
+   int six_mnth_adjusted_num_days=(int)((avg_sunday_per_day*six_mnth_num_days)+six_mnth_num_days); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
+   int six_mnth_non_sunday_count=0;
+   double six_month_non_sunday_ADR_sum=0;
+   for(int i=six_mnth_adjusted_num_days;i>0;i--) // get the raw ADR (outliers are included but not Sunday's outliers) for the approximate past 6 months
+   {
+      int day=DayOfWeek();
+      
+      if(day>0) // if the day of week is not sunday
+        {
+         double HOD=iHigh(NULL,PERIOD_D1,i);
+         double LOD=iLow(NULL,PERIOD_D1,i);
+         six_month_non_sunday_ADR_sum+=(HOD-LOD)/Point; // TODO: should it be divided by Point?
+         six_mnth_non_sunday_count++;
+        }
+   }
+   double six_month_ADR_avg=six_month_non_sunday_ADR_sum/six_mnth_non_sunday_count;
+   int two_mnth_num_days=num_ADR_months*22; // There are about 22 business days a month.
+   int two_mnth_adjusted_num_days=(int)((avg_sunday_per_day*two_mnth_num_days)+two_mnth_num_days); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
    
-   if(change_ADR_percent==0 || change_ADR_percent==NULL) return calculated_adr;
-   double changed_ADR=(calculated_adr*change_ADR_percent)+calculated_adr; // return the reduced or increased ADR // make sure to not multiply it by Point in the funcion
-   return NormalizeDouble(changed_ADR,2);
+   double two_month_non_sunday_ADR_sum=0;
+   int two_mnth_non_sunday_count=0;
+   
+   for(int i=two_mnth_adjusted_num_days;i>0;i--) // find the counts of all days that are significantly below or above ADR
+     {
+      int day=DayOfWeek();
+      
+      if(day>0) // if the day of week is not sunday
+        {
+         double HOD=iHigh(NULL,PERIOD_D1,i);
+         double LOD=iLow(NULL,PERIOD_D1,i);
+         double days_range=(HOD-LOD)/Point; // TODO: should it be divided by Point?
+         
+         double ADR_ratio=days_range/six_month_ADR_avg;
+         
+         if(ADR_ratio>below_ADR_outlier_percent && ADR_ratio<above_ADR_outlier_percent)
+           {
+            two_month_non_sunday_ADR_sum+=days_range;
+            two_mnth_non_sunday_count++;
+           }
+        }
+     }
+
+   double adr=two_month_non_sunday_ADR_sum/two_mnth_non_sunday_count;
+  // double adr=80;
+
+   if(change_ADR_percent==0 || change_ADR_percent==NULL) return NormalizeDouble(adr,2);
+
+   else return NormalizeDouble((adr*change_ADR_percent)+adr,2); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
 }
 
+
+double ADR()
+{
+   static double adr=0;
+   bool is_new_bar=is_new_bar(NULL,PERIOD_D1,false);
+   
+   if(adr==0) // if it is the first time the function is called
+     {
+     double calculated_adr=calculate_ADR();
+     adr=calculated_adr; // make the function remember the calculation the next time it is called
+     return adr;
+     }
+   if(is_new_bar)
+     {
+      double fresh_calculated_adr=calculate_ADR();
+      adr=fresh_calculated_adr; // make the function remember the calculation the next time it is called
+     }
+   return adr; // if it is or isn't a fresh new bar, return the static adr
+}
   
 int periods_lowest_bar()
 {
@@ -405,11 +448,11 @@ void OnTick()
    datetime current_time=TimeCurrent();
    bool in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);
    bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
-   int max_trades=max_directional_trades;
-   
+
    if(in_time_range) // only enter and exit trades based on the specified time range
      {
       // entry and exit signals
+      int max_trades=max_directional_trades;
       int entry=0,exit=0;
       entry=signal_entry();
       exit=signal_exit();
@@ -436,7 +479,7 @@ void OnTick()
            {
             if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_SELL,order_magic);
             long_order_count=count_orders(ORDER_SET_LONG,order_magic); // counts all long (active and pending) orders for the current EA
-            if(long_order_count<max_trades) // if you have not yet reached your maximum allowed long trades
+            if(long_order_count<max_trades) // if you have not yet reached the user's maximum allowed long trades
               {
                if(!entry_new_bar || 
                   (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load)))
@@ -447,7 +490,7 @@ void OnTick()
            {
             if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_BUY,order_magic);
             short_order_count=count_orders(ORDER_SET_SHORT,order_magic); // counts all short (active and pending) orders for the current EA
-            if(short_order_count<max_trades) // if you have not yet reached your maximum allowed short trades
+            if(short_order_count<max_trades) // if you have not yet reached the user's maximum allowed short trades
               {
                if(!entry_new_bar || 
                   (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load)))
@@ -961,16 +1004,16 @@ bool is_new_bar(string instrument,int timeframe,bool wait_for_next_bar=false)
    static double open_price=0;
    datetime current_bar_time=iTime(instrument,timeframe,0);
    double current_open_price=iOpen(instrument,timeframe,0);
-   int digits=(int)MarketInfo(instrument,MODE_DIGITS);
-   if(bar_time==0 && open_price==0) // If it is the first time the function is called. This could be after the open time (aka in the middle) of a bar.
+   int digits=(int)MarketInfo(instrument,MODE_DIGITS);  // TODO: why are the digits being converted to an int?
+   if(bar_time==0 && open_price==0) // If it is the first time the function is called or it is the start of a new bar. This could be after the open time (aka in the middle) of a bar.
      {
       bar_time=current_bar_time; // update the time to the current time
       open_price=current_open_price; // update the price to the current price
-      if(wait_for_next_bar) // if the parameter is set to wait for the next bar
+      if(wait_for_next_bar) // after loading the EA for the first time, if the user wants to wait for the next bar for the bar to be considered new
          return false;
       else return true;
      }
-   else if(current_bar_time>bar_time && compare_doubles(open_price,current_open_price,digits)!=0) // if it is a new bar (different time and price)
+   else if(current_bar_time>bar_time && compare_doubles(open_price,current_open_price,digits)!=0) // determine if the opening time and price of this bar is different than the previous one
         {
          bar_time=current_bar_time; // update the time to the current time
          open_price=current_open_price; // update the price to the current price
