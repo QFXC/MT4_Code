@@ -136,9 +136,14 @@ int ADR_calculation()
 {
    int six_mnth_num_days=6*22+1; // There are about 22 business days a month.   
    int six_mnth_sunday_count=0;
+   int day;
+   double HOD; // High Of Day
+   double LOD; // Low Of Day
+   
    for(int i=six_mnth_num_days;i>0;i--) // count the number of Sundays in the past 6 months
       {
-      int day=DayOfWeek();
+      day=DayOfWeek();
+      
       if(day==0) // count Sundays
         {
          six_mnth_sunday_count++;
@@ -151,33 +156,34 @@ int ADR_calculation()
    double six_month_non_sunday_ADR_sum=0;
    for(int i=six_mnth_adjusted_num_days;i>0;i--) // get the raw ADR (outliers are included but not Sunday's outliers) for the approximate past 6 months
    {
-      int day=DayOfWeek();
+      day=DayOfWeek();
       
-      if(day>0) // if the day of week is not sunday
+      if(day>0) // if the day of week is not Sunday
         {
-         double HOD=iHigh(NULL,PERIOD_D1,i);
-         double LOD=iLow(NULL,PERIOD_D1,i);
+         HOD=iHigh(NULL,PERIOD_D1,i);
+         LOD=iLow(NULL,PERIOD_D1,i);
          six_month_non_sunday_ADR_sum+=(HOD-LOD); // TODO: should it be divided by Point?
          six_mnth_non_sunday_count++;
         }
    }
-   double six_mnth_ADR_avg=six_month_non_sunday_ADR_sum/six_mnth_non_sunday_count; // TODO: What type of decimal is this returning? Can it be compared with the input variables?
+   double six_mnth_ADR_avg=NormalizeDouble(six_month_non_sunday_ADR_sum/six_mnth_non_sunday_count,Digits); // TODO: What type of decimal is this returning? Can it be compared with the input variables?
+   double two_mnth_non_sunday_ADR_sum=0;
+   int two_mnth_non_sunday_count=0;
+   double days_range;
+   double ADR_ratio;
    int two_mnth_num_days=num_ADR_months*22; // There are about 22 business days a month.
    int two_mnth_adjusted_num_days=(int)((avg_sunday_per_day*two_mnth_num_days)+two_mnth_num_days); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
    
-   double two_mnth_non_sunday_ADR_sum=0;
-   int two_mnth_non_sunday_count=0;
-   
    for(int i=two_mnth_adjusted_num_days;i>0;i--) // find the counts of all days that are significantly below or above ADR
      {
-      int day=DayOfWeek();
-      
-      if(day>0) // if the day of week is not sunday
+      day=DayOfWeek();
+           
+      if(day>0) // if the day of week is not Sunday
         {
-         double HOD=iHigh(NULL,PERIOD_D1,i);
-         double LOD=iLow(NULL,PERIOD_D1,i);
-         double days_range=(HOD-LOD); // TODO: should it be divided by Point?
-         double ADR_ratio=days_range/six_mnth_ADR_avg;
+         HOD=iHigh(NULL,PERIOD_D1,i);
+         LOD=iLow(NULL,PERIOD_D1,i);
+         days_range=(HOD-LOD); // TODO: should it be divided by Point?
+         ADR_ratio=NormalizeDouble(days_range/six_mnth_ADR_avg,2);
          
          if(compare_doubles(ADR_ratio,below_ADR_outlier_percent,2)==1 && compare_doubles(ADR_ratio,above_ADR_outlier_percent,2)==-1) // filtering out outliers
            {
@@ -187,7 +193,7 @@ int ADR_calculation()
         }
      }
    // adr doesn't need to be Normalized because it has been converted into an int.
-   int adr=(int)((two_mnth_non_sunday_ADR_sum/two_mnth_non_sunday_count)/Point);
+   int adr=(int)((two_mnth_non_sunday_ADR_sum/Point)/two_mnth_non_sunday_count);
    // int adr=80;
    if(change_ADR_percent==0 || change_ADR_percent==NULL) return adr;
    else return (int)((adr*change_ADR_percent)+adr); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
@@ -224,10 +230,8 @@ int get_rolling_start_bar()
      }
    else if(include_last_week)
      {
-      double last_weeks_close_price=iClose(NULL,PERIOD_W1,1);
-      double this_weeks_open_price=iOpen(NULL,PERIOD_W1,0);
-      double weekend_gap_pips=MathAbs(last_weeks_close_price-this_weeks_open_price)/Point;
-      double max_weekend_gap_pips=NormalizeDouble(ADR*max_weekend_gap_percent,1);
+      double weekend_gap_pips=MathAbs(iClose(NULL,PERIOD_W1,1)-iOpen(NULL,PERIOD_W1,0))/Point;
+      double max_weekend_gap_pips=NormalizeDouble(ADR_pips*max_weekend_gap_percent,1);
       
       if(weekend_gap_pips>max_weekend_gap_pips) return weekStart_bar;
       else return bars_to_roll;
@@ -250,7 +254,7 @@ double uptrend_ADR_triggered_price()
    {
    static double LOP=periods_pivot_price("Buying");
    double point=MarketInfo(NULL,MODE_POINT);
-   double pip_move=ADR;
+   double pip_move=ADR_pips;
    double current_bid=Bid;
    
    if(LOP>0)
@@ -349,7 +353,7 @@ int signal_exit()
 
 double calculate_lots()
   {
-   double stoploss=NormalizeDouble(ADR*stoploss_percent,2);
+   double stoploss=NormalizeDouble(ADR_pips*stoploss_percent,2);
    double lots=mm(money_management,
                   symbol,
                   lot_size,
@@ -375,14 +379,14 @@ void enter_order(ENUM_ORDER_TYPE type)
    double distance=0;
    
    if(pullback_percent==0 || pullback_percent==NULL) distance=0;
-   else distance=NormalizeDouble(ADR*pullback_percent,2); // NormalizeDouble?
+   else distance=NormalizeDouble(ADR_pips*pullback_percent,2); // NormalizeDouble?
    
    entry(NULL,
          type,
          lots,
          distance, // This used to be 0 because it was orignally for opening a market order.
-         NormalizeDouble(ADR*stoploss_percent,2),
-         NormalizeDouble(ADR*takeprofit_percent,2),
+         NormalizeDouble(ADR_pips*stoploss_percent,2),
+         NormalizeDouble(ADR_pips*takeprofit_percent,2),
          order_comment,
          order_magic,
          order_expire,
@@ -422,11 +426,11 @@ void close_all_short()
 //+------------------------------------------------------------------+
 // Runs once when the EA is turned on
 
-static int ADR; // TODO: make sure this maintains the value that was generated OnInit()
+static int ADR_pips; // TODO: make sure this maintains the value that was generated OnInit()
 
 int OnInit()
   {
-   ADR=get_ADR(); // TODO: should this belong here?
+   ADR_pips=get_ADR(); // TODO: should this belong here?
    int range_start_time=(start_time_hour*3600)+(start_time_minute*60);
    int range_end_time=(end_time_hour*3600)+(end_time_minute*60);
    int exit_time=(exit_time_hour*3600)+(exit_time_minute*60);
@@ -584,8 +588,7 @@ bool modify_order(int ticket,double sl,double tp=-1,double entryPrice=-1,datetim
    bool result=false;
    if(OrderSelect(ticket,SELECT_BY_TICKET))
      {
-      string instrument=OrderSymbol();
-      int digits=(int)MarketInfo(instrument,MODE_DIGITS); // The count of digits after the decimal point.
+      int digits=(int)MarketInfo(OrderSymbol(),MODE_DIGITS); // The count of digits after the decimal point.
       if(sl==-1) sl=OrderStopLoss(); // if stoploss is not changed from the default set in the argument
       else sl=NormalizeDouble(sl,digits);
       if(tp==-1) tp=OrderTakeProfit(); // if takeprofit is not changed from the default set in the argument
@@ -723,14 +726,16 @@ void exit_all(int type=-1,int magic=-1)
 // This is similar to the exit_all function except that it allows you to choose more sets  to close. It will iterate through all open trades and close them based on the order type and magic number
 void exit_all_trades_set(ENUM_ORDER_SET type=-1,int magic=-1)  // -1 means all
   {
+  int ordertype;
+  int ticket;
    for(int i=OrdersTotal();i>=0;i--)
      {
       if(OrderSelect(i,SELECT_BY_POS)) // if an open trade can be found
         {
          if(magic==OrderMagicNumber() || magic==-1) // if the open trade matches the magic number
            {
-            int ordertype=OrderType();
-            int ticket=OrderTicket();
+            ordertype=OrderType();
+            ticket=OrderTicket();
             switch(type)
               {
                case ORDER_SET_BUY:
@@ -783,11 +788,11 @@ void exit_all_trades_set(ENUM_ORDER_SET type=-1,int magic=-1)  // -1 means all
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-bool acceptable_spread()
+bool acceptable_spread(string instrument)
 {
    RefreshRates();
-   double spread=MarketInfo(NULL,MODE_SPREAD); // already normalized. I put this check here because the rates were just refereshed.
-   if(compare_doubles(spread,ADR*max_spread_percent,1)<=0) return true; // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+   double spread=MarketInfo(instrument,MODE_SPREAD); // already normalized. I put this check here because the rates were just refereshed.
+   if(compare_doubles(spread,ADR_pips*max_spread_percent,1)<=0) return true; // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
    else return false;
 }
 
@@ -809,11 +814,11 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
       if(order_type==OP_BUYLIMIT || order_type==OP_BUYSTOP)
         {
          double LOP=periods_pivot_price("Buying"); // TODO: should you really call this function again?
-         entryPrice=LOP+(ADR*point)-(distanceFromCurrentPrice*point); // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
+         entryPrice=LOP+(ADR_pips*point)-(distanceFromCurrentPrice*point); // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
         }
       else if(order_type==OP_BUY)
         {
-         if(acceptable_spread()) entryPrice=MarketInfo(instrument,MODE_ASK);// Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+         if(acceptable_spread(instrument)) entryPrice=MarketInfo(instrument,MODE_ASK);// Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
          // TODO: create an alert informing the user that the trade was not executed because of the spread being too wide
          else return 0;
         }
@@ -831,11 +836,11 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
       if(order_type==OP_SELLLIMIT || order_type==OP_SELLSTOP)
         {
          double HOP=periods_pivot_price("Selling"); // TODO: should you really call this function again?
-         entryPrice=HOP-(ADR*point)+(distanceFromCurrentPrice*point); // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
+         entryPrice=HOP-(ADR_pips*point)+(distanceFromCurrentPrice*point); // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
         }
       else if(order_type==OP_SELL)
         {
-         if(acceptable_spread()) entryPrice=MarketInfo(instrument,MODE_BID); // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+         if(acceptable_spread(instrument)) entryPrice=MarketInfo(instrument,MODE_BID); // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
          // TODO: create an alert informing the user that the trade was not executed because of the spread being too wide         
          else return 0;
         }
@@ -1052,14 +1057,16 @@ bool is_new_bar(string instrument,int timeframe,bool wait_for_next_bar=false)
 int count_orders(ENUM_ORDER_SET type=-1,int magic=-1,int pool=MODE_TRADES) // With pool, you can define whether to count current orders (MODE_TRADES) or closed and cancelled orders (MODE_HISTORY).
   {
    int count=0;
+   int ordertype;
+   int ticket;
    for(int i=OrdersTotal();i>=0;i--)
      {
       if(OrderSelect(i,SELECT_BY_POS,pool))
         {
          if(magic==-1 || magic==OrderMagicNumber())
            {
-            int ordertype=OrderType();
-            int ticket=OrderTicket();
+            ordertype=OrderType();
+            ticket=OrderTicket();
             switch(type)
               {
                case ORDER_SET_BUY:
