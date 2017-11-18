@@ -259,10 +259,10 @@ int ADR_calculation()
         }
       }
    double avg_sunday_per_day=six_mnth_sunday_count/six_mnth_num_days;
-   
    int six_mnth_adjusted_num_days=(int)((avg_sunday_per_day*six_mnth_num_days)+six_mnth_num_days); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
    int six_mnth_non_sunday_count=0;
-   double six_month_non_sunday_ADR_sum=0;
+   double six_mnth_non_sunday_ADR_sum=0;
+   
    for(int i=six_mnth_adjusted_num_days;i>0;i--) // get the raw ADR (outliers are included but not Sunday's outliers) for the approximate past 6 months
    {
     int day=DayOfWeek();
@@ -271,12 +271,35 @@ int ADR_calculation()
       {
        double HOD=iHigh(NULL,PERIOD_D1,i);
        double LOD=iLow(NULL,PERIOD_D1,i);
-       six_month_non_sunday_ADR_sum+=HOD-LOD;
+       six_mnth_non_sunday_ADR_sum+=HOD-LOD;
        six_mnth_non_sunday_count++;
       }
    }
+   
    int digits=(int)MarketInfo(NULL,MODE_DIGITS);
-   double six_mnth_ADR_avg=NormalizeDouble(six_month_non_sunday_ADR_sum/six_mnth_non_sunday_count,digits); // TODO: What type of decimal is this returning? Can it be compared with the input variables?
+   double six_mnth_ADR_avg=NormalizeDouble(six_mnth_non_sunday_ADR_sum/six_mnth_non_sunday_count,digits); // the first time getting the ADR average
+   six_mnth_non_sunday_ADR_sum=0;
+   six_mnth_non_sunday_count=0;
+   
+   for(int i=six_mnth_adjusted_num_days;i>0;i--) // refine the ADR (outliers and Sundays are NOT included) for the approximate past 6 months
+     {
+      int day=DayOfWeek();
+           
+      if(day>0) // if the day of week is not Sunday
+        {
+         double HOD=iHigh(NULL,PERIOD_D1,i);
+         double LOD=iLow(NULL,PERIOD_D1,i);
+         double days_range=HOD-LOD;
+         double ADR_ratio=NormalizeDouble(days_range/six_mnth_ADR_avg,2); // ratio for comparing the current iteration with the 6 month average
+         
+         if(compare_doubles(ADR_ratio,below_ADR_outlier_percent,2)==1 && compare_doubles(ADR_ratio,above_ADR_outlier_percent,2)==-1) // filtering out outliers
+           {
+            six_mnth_non_sunday_ADR_sum+=days_range;
+            six_mnth_non_sunday_count++;
+           }
+        }
+     }
+   six_mnth_ADR_avg=NormalizeDouble(six_mnth_non_sunday_ADR_sum/six_mnth_non_sunday_count,digits); // the second time getting an ADR average but this time it is MORE REFINED
    double two_mnth_non_sunday_ADR_sum=0;
    int two_mnth_non_sunday_count=0;
    int two_mnth_num_days=num_ADR_months*22; // There are about 22 business days a month.
@@ -302,7 +325,7 @@ int ADR_calculation()
      }
    // adr doesn't need to be Normalized because it has been converted into an int.
    int adr=(int)((two_mnth_non_sunday_ADR_sum/Point)/two_mnth_non_sunday_count); // converting it away from points to more human understandable numbers
-   // int adr=80;
+   // int adr=.0080;
    if(change_ADR_percent==0 || change_ADR_percent==NULL) return adr;
    else return (int)((adr*change_ADR_percent)+adr); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
 }
