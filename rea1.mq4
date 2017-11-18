@@ -636,7 +636,12 @@ bool modify(int ticket,double sl,double tp=-1,double entryPrice=-1,datetime expi
          Sleep(sleep);
         }
      }
-   else Print("An invalid ticket was used in the modify function.");
+   else
+   {   
+     // TODO: setup an email and SMS alert.
+     Print(instrument," , ",order_comment,", An order was attempted to be modified but it did not succeed. (",IntegerToString(GetLastError(),0),"), Retry: "+IntegerToString(i,0),"/"+IntegerToString(retries));
+     Alert(instrument," , ",order_comment,", An order was attempted to be modified but it did not succeed. Check the Journal tab of the Navigator window for errors.");
+   }
    return result;
   }
 //+------------------------------------------------------------------+
@@ -690,6 +695,7 @@ bool exit(int ticket,color a_color=clrNONE,int retries=3,int sleep=500)
       else result=exit_order(ticket,a_color);
       if(result)
          break;
+      // TODO: setup an email and SMS alert.
       Print("Closing order# "+DoubleToStr(OrderTicket(),0)+" failed "+DoubleToStr(GetLastError(),0));
       Sleep(sleep);
      }
@@ -790,7 +796,7 @@ bool acceptable_spread(string instrument)
 }
 
 // the distanceFromCurrentPrice parameter is used to specify what type of order you would like to enter
-int send_order(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double sl,double tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
+int send_and_get_order_ticket(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double sl,double tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
   {
    double entryPrice=0; 
    double price_sl=0; 
@@ -886,11 +892,16 @@ int check_for_error(string instrument,int cmd,double lots,double distanceFromCur
       else if(!IsConnected()) Print("There is no internet connection.");
       else if(!IsExpertEnabled()) Print("EAs are not enabled in trading platform.");
       else if(IsTradeContextBusy()) Print("The trade context is busy.");
-      else if(!IsTradeAllowed()) Print("The trade is not allowed in trading platform.");
-      else ticket=send_order(instrument,cmd,lots,distanceFromCurrentPrice,sl,tp,comment,magic,expire,a_clr,market);
+      else if(!IsTradeAllowed()) Print("The trade is not allowed in the trading platform.");
+      else ticket=send_and_get_order_ticket(instrument,cmd,lots,distanceFromCurrentPrice,sl,tp,comment,magic,expire,a_clr,market);
       if(ticket>0)
          break;
-      else Print("There was an error with sending the order. ("+IntegerToString(GetLastError(),0)+"), retry: "+IntegerToString(i,0)+"/"+IntegerToString(retries));
+      else
+      { 
+        // TODO: setup an email and SMS alert.
+        Print(instrument," , ",order_comment,": An order was attempted but it did not succeed. If there are no errors here, market factors may not have met the code's requirements within the send_and_get_order_ticket function. (",IntegerToString(GetLastError(),0),"), Retry: "+IntegerToString(i,0),"/"+IntegerToString(retries));
+        Alert(instrument," , ",order_comment,": An order was attempted but it did not succeed. Check the Journal tab of the Navigator window for errors.");
+      }
       Sleep(sleep);
      }
    return ticket;
