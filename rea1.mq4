@@ -350,7 +350,7 @@ int get_ADR() // Average Daily Range
    return adr; // if it is or isn't a fresh new bar, return the static adr
 }
   
-int get_rolling_start_bar()
+int get_start_bar()
 {
    datetime week_start=iTime(NULL,PERIOD_W1,0)+(gmt_hour_offset*3600); // The iTime of the week bar gives you the time that the week is 0:00 on the chart so I shifted the time to start when the markets actually start.
    int week_start_bar=iBarShift(NULL,PERIOD_M5,week_start,false);
@@ -376,8 +376,8 @@ int get_rolling_start_bar()
 
 double periods_pivot_price(string mode)
 {
-   if(mode=="Buying") return iLow(NULL,PERIOD_M5,iLowest(NULL,PERIOD_M5,MODE_LOW,WHOLE_ARRAY,get_rolling_start_bar())); // get the price of the bar that has the lowest price for the determined period
-   else if(mode=="Selling") return iHigh(NULL,PERIOD_M5,iHighest(NULL,PERIOD_M5,MODE_HIGH,WHOLE_ARRAY,get_rolling_start_bar())); // get the price of the bar that has the highest price for the determined period
+   if(mode=="Buying") return iLow(NULL,PERIOD_M5,iLowest(NULL,PERIOD_M5,MODE_LOW,WHOLE_ARRAY,get_start_bar())); // get the price of the bar that has the lowest price for the determined period
+   else if(mode=="Selling") return iHigh(NULL,PERIOD_M5,iHighest(NULL,PERIOD_M5,MODE_HIGH,WHOLE_ARRAY,get_start_bar())); // get the price of the bar that has the highest price for the determined period
    else return -1;
 }
 
@@ -409,14 +409,43 @@ double uptrend_ADR_triggered_price()
    else return -1;
 }
 
+double downtrend_ADR_triggered_price()
+{
+   static double HOP=periods_pivot_price("Selling");
+   double point=MarketInfo(NULL,MODE_POINT);
+   double pip_move_threshold=ADR_pips*Point;
+   double current_bid=Bid;
+   
+   if(HOP==-1) // this part is necessary in case periods_pivot_price ever returns 0
+     {
+       return -1;
+     }
+   else if(current_bid>HOP) // if the low of the range was surpassed
+     {
+       // since the bottom of the range was surpassed, you have to reset the LOP. You might as well take this opportunity to take the period into account.
+       HOP=periods_pivot_price("Selling");
+       return -1;
+     } 
+   else if(HOP-current_bid>=pip_move_threshold) // if the pip move meets or exceed the ADR_Pips in points, return the current bid. Note: this will return true over and over again
+     {
+       // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
+       HOP=periods_pivot_price("Selling");
+       if(HOP-current_bid>=pip_move_threshold) return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
+       else return -1;
+     }         
+   else return -1;
+}
 
-int signal_pullback_after_uptrend_ADR_triggered()
+
+int signal_pullback_after_ADR_triggered()
    {
    int signal=TRADE_SIGNAL_NEUTRAL;
-   if(uptrend_ADR_triggered_price()>0)
+   if(uptrend_ADR_triggered_price()>0) return signal=TRADE_SIGNAL_BUY;
    // for a buying signal, take the level that adr was triggered and subtract the pullback_pips to get the pullback_entry_price
    // if the pullback_entry_price is met or exceeded, signal = TRADE_SIGNAL_BUY
-   return signal=TRADE_SIGNAL_BUY;
+   
+   else if(downtrend_ADR_triggered_price()>0) return signal=TRADE_SIGNAL_SELL;
+   
    else return signal;
    }
    
@@ -451,10 +480,10 @@ int signal_entry() // gets called for every tick
    
 /* Add 1 or more entry signals below. 
    With more than 1 signal, you would follow this code using the signal_compare function. 
-   "signal=signal_compare(signal,signal_pullback_after_uptrend_ADR_triggered());"
+   "signal=signal_compare(signal,signal_pullback_after_ADR_triggered());"
    As each signal is compared with the previous signal, the signal variable will change and then the final signal wil get returned.
 */ 
-   signal=signal_pullback_after_uptrend_ADR_triggered();
+   signal=signal_pullback_after_ADR_triggered();
    return signal;
   }
 //+------------------------------------------------------------------+
