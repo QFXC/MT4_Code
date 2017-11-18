@@ -290,8 +290,8 @@ int ADR_calculation()
         {
          double HOD=iHigh(NULL,PERIOD_D1,i);
          double LOD=iLow(NULL,PERIOD_D1,i);
-         double days_range=(HOD-LOD); // TODO: should it be divided by Point?
-         double ADR_ratio=NormalizeDouble(days_range/six_mnth_ADR_avg,2);
+         double days_range=(HOD-LOD);
+         double ADR_ratio=NormalizeDouble(days_range/six_mnth_ADR_avg,2); // ratio for comparing the current iteration with the 6 month average
          
          if(compare_doubles(ADR_ratio,below_ADR_outlier_percent,2)==1 && compare_doubles(ADR_ratio,above_ADR_outlier_percent,2)==-1) // filtering out outliers
            {
@@ -301,7 +301,7 @@ int ADR_calculation()
         }
      }
    // adr doesn't need to be Normalized because it has been converted into an int.
-   int adr=(int)((two_mnth_non_sunday_ADR_sum/Point)/two_mnth_non_sunday_count);
+   int adr=(int)((two_mnth_non_sunday_ADR_sum/Point)/two_mnth_non_sunday_count); // converting it away from points to more human understandable numbers
    // int adr=80;
    if(change_ADR_percent==0 || change_ADR_percent==NULL) return adr;
    else return (int)((adr*change_ADR_percent)+adr); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
