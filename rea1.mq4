@@ -246,7 +246,7 @@ void OnTick()
 
 int ADR_calculation()
 {
-   int six_mnth_num_days=6*22+1; // There are about 22 business days a month.   
+   int six_mnth_num_days=6*22; // There are about 22 business days a month.   
    int six_mnth_sunday_count=0;
    
    for(int i=six_mnth_num_days;i>0;i--) // count the number of Sundays in the past 6 months
@@ -271,7 +271,7 @@ int ADR_calculation()
       {
        double HOD=iHigh(NULL,PERIOD_D1,i);
        double LOD=iLow(NULL,PERIOD_D1,i);
-       six_month_non_sunday_ADR_sum+=(HOD-LOD); // TODO: should it be divided by Point?
+       six_month_non_sunday_ADR_sum+=HOD-LOD;
        six_mnth_non_sunday_count++;
       }
    }
@@ -290,7 +290,7 @@ int ADR_calculation()
         {
          double HOD=iHigh(NULL,PERIOD_D1,i);
          double LOD=iLow(NULL,PERIOD_D1,i);
-         double days_range=(HOD-LOD);
+         double days_range=HOD-LOD;
          double ADR_ratio=NormalizeDouble(days_range/six_mnth_ADR_avg,2); // ratio for comparing the current iteration with the 6 month average
          
          if(compare_doubles(ADR_ratio,below_ADR_outlier_percent,2)==1 && compare_doubles(ADR_ratio,above_ADR_outlier_percent,2)==-1) // filtering out outliers
@@ -455,11 +455,11 @@ int signal_exit()
 
 double calculate_lots()
   {
-   double stoploss=NormalizeDouble(ADR_pips*stoploss_percent,2);
+   double stoploss_pips=NormalizeDouble(ADR_pips*stoploss_percent,2);
    double lots=mm(money_management,
                   symbol,
                   lot_size,
-                  stoploss,
+                  stoploss_pips,
                   mm1_risk_percent,
                   mm2_lots,
                   mm2_per,
@@ -1000,7 +1000,7 @@ int signal_compare(int current_signal,int added_signal,bool exit=false)
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-double mm(MM method,string instrument,double lots,double sl,double risk_mm1_percent,double lots_mm2,double per_mm2,double risk_mm3,double risk_mm4)
+double mm(MM method,string instrument,double lots,double sl_pips,double risk_mm1_percent,double lots_mm2,double per_mm2,double risk_mm3,double risk_mm4)
   {
    double balance=AccountBalance();
    double tick_value=MarketInfo(instrument,MODE_TICKVALUE);
@@ -1008,13 +1008,13 @@ double mm(MM method,string instrument,double lots,double sl,double risk_mm1_perc
    switch(method)
      {
       case MM_RISK_PERCENT:
-         if(sl>0) lots=((balance*risk_mm1_percent)/sl)/tick_value;
+         if(sl_pips>0) lots=((balance*risk_mm1_percent)/sl_pips)/tick_value;
          break;
       case MM_FIXED_RATIO:
          lots=balance*lots_mm2/per_mm2;
          break;
       case MM_FIXED_RISK:
-         if(sl>0) lots=(risk_mm3/tick_value)/sl;
+         if(sl_pips>0) lots=(risk_mm3/tick_value)/sl_pips;
          break;
       case MM_FIXED_RISK_PER_POINT:
          lots=risk_mm4/tick_value;
