@@ -91,7 +91,6 @@ enum MM // Money Management
 	input int entering_max_slippage=5; // TODO: Change to a percent of ADR  // the default used to be 50 // TODO: allow slippage in my favor but not against me
 	//input int unfavorable_slippage=5;
 	input string order_comment="Relativity EA"; // TODO: Add the parameter settings for the order to the message. // allows the robot to enter a description for the order. An empty string is a default value.
-	input int order_magic=1; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
 	input int order_expire=// In seconds. If none, type 0. The expiration countdown is only used for pending orders.
 	   /*Minutes=**/120
 	   *
@@ -138,10 +137,29 @@ enum MM // Money Management
 // Runs once when the EA is turned on
 
 static int ADR_pips; // TODO: make sure this maintains the value that was generated OnInit()
+static int order_magic; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
 
+int generate_magic()
+{
+   MathSrand(1);
+   int large_random_num=MathRand()*MathRand();
+   
+   while(magic_num_in_use(large_random_num))
+   {
+     large_random_num=MathRand()*MathRand(); // from 1 through 1,073,676,289
+   }
+   return large_random_num;
+}
+
+bool magic_num_in_use(int num)
+{
+
+   return false;
+}
 int OnInit()
   {
    ADR_pips=get_ADR(); // TODO: should this belong here?
+   order_magic=generate_magic();
    int range_start_time=(start_time_hour*3600)+(start_time_minute*60);
    int range_end_time=(end_time_hour*3600)+(end_time_minute*60);
    int exit_time=(exit_time_hour*3600)+(exit_time_minute*60);
@@ -150,7 +168,6 @@ int OnInit()
          Alert("Make sure that the trade exit_time_hour and exit_time_minute combination does not fall within the trading range start and end times or else there will be trouble!");
          return(INIT_FAILED);
         }
-
       else 
         {
          Alert("The initialization succeeded.");
@@ -532,7 +549,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type)
    else distance_pips=NormalizeDouble(ADR_pips*pullback_percent,2); // NormalizeDouble?
    
    if(type==OP_BUY /*|| type==OP_BUYSTOP || type==OP_BUYLIMIT*/) // TODO: what is the point of checking if it is a buystop or sellstop if the only type that gets sent to this function is OP_BUY?
-      distance_pips=distance_pips*-1;
+      distance_pips=distance_pips*-1; // there are times this can be 0*-1=0
       if(!long_allowed) return;
    if(type==OP_SELL /*|| type==OP_SELLSTOP || type==OP_SELLLIMIT*/)
       if(!short_allowed) return;
