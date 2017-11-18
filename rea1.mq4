@@ -158,7 +158,6 @@ bool magic_num_in_use(int num)
 }
 int OnInit()
   {
-   ADR_pips=get_ADR(); // TODO: should this belong here?
    order_magic=generate_magic();
    int range_start_time=(start_time_hour*3600)+(start_time_minute*60);
    int range_end_time=(end_time_hour*3600)+(end_time_minute*60);
@@ -180,7 +179,12 @@ int OnInit()
 // Runs once when the EA is turned off
 void OnDeinit(const int reason)
   {
-
+    return;
+  }
+  
+double OnTester()
+  {
+    return 0;
   }
 //+------------------------------------------------------------------+
 //| Expert tick function                                             |
@@ -191,9 +195,17 @@ void OnTick()
   {
    datetime current_time=TimeCurrent();
    bool in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);
+   static bool generated_ADR=false;
 
    if(in_time_range) // only enter and exit trades based on the specified time range
      {
+      if(!generated_ADR)
+      {
+         ADR_pips=get_ADR();
+         if(ADR_pips>0) generated_ADR=true;
+         else return;
+      }
+      
       // entry and exit signals
       int max_trades=max_directional_trades;
       int enter_signal=0,exit_signal=0;
@@ -253,9 +265,10 @@ void OnTick()
      
     else
      {
+       generated_ADR=false;
        bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
        if(time_to_exit) close_all(); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
-     }
+     } 
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
