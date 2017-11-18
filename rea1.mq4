@@ -331,7 +331,7 @@ int ADR_calculation()
    else return (int)((adr*change_ADR_percent)+adr); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
 }
 
-int get_ADR() // Average Daily Range
+int get_ADR() // get the Average Daily Range
 {
    static int adr=0;
    bool is_new_bar=is_new_bar(NULL,PERIOD_D1,false);
@@ -347,7 +347,7 @@ int get_ADR() // Average Daily Range
       int freshly_calculated_adr=ADR_calculation();
       adr=freshly_calculated_adr; // make the function remember the calculation the next time it is called
      }
-   return adr; // if it is or isn't a fresh new bar, return the static adr
+   return adr; // if it is not the first time the function is called it is the middle of a bar, return the static adr
 }
   
 int get_start_bar()
@@ -526,20 +526,22 @@ double calculate_lots()
 
 void try_to_enter_order(ENUM_ORDER_TYPE type)
   {
-   if(type==OP_BUY || type==OP_BUYSTOP || type==OP_BUYLIMIT) // TODO: what is the point of checking if it is a buystop or sellstop if the only type that gets sent to this function is OP_BUY?
+   double distance_pips=0;
+   
+   if(pullback_percent==0 || pullback_percent==NULL) distance_pips=0;
+   else distance_pips=NormalizeDouble(ADR_pips*pullback_percent,2); // NormalizeDouble?
+   
+   if(type==OP_BUY /*|| type==OP_BUYSTOP || type==OP_BUYLIMIT*/) // TODO: what is the point of checking if it is a buystop or sellstop if the only type that gets sent to this function is OP_BUY?
+      distance_pips=distance_pips*-1;
       if(!long_allowed) return;
-   if(type==OP_SELL || type==OP_SELLSTOP || type==OP_SELLLIMIT)
+   if(type==OP_SELL /*|| type==OP_SELLSTOP || type==OP_SELLLIMIT*/)
       if(!short_allowed) return;
    double lots=calculate_lots();
-   double distance=0;
-   
-   if(pullback_percent==0 || pullback_percent==NULL) distance=0;
-   else distance=NormalizeDouble(ADR_pips*pullback_percent,2); // NormalizeDouble?
-   
-   check_for_error(NULL,
+
+   check_for_entry_error(NULL,
                type,
                lots,
-               distance, // This used to be 0 because it was orignally for opening a market order.
+               distance_pips, // This used to be 0 because it was originally for opening a market order.
                NormalizeDouble(ADR_pips*stoploss_percent,2),
                NormalizeDouble(ADR_pips*takeprofit_percent,2),
                order_comment,
@@ -862,14 +864,14 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
    // simplifying the arguments for the function by only allowing OP_BUY and OP_SELL and letting logic determine if it is a market or pending order based off the distanceFromCurrentPrice variable
    if(cmd==OP_BUY) // logic for long trades
      {
-      if(distanceFromCurrentPrice>0) order_type=OP_BUYSTOP;
-      else if(distanceFromCurrentPrice<0) order_type=OP_BUYLIMIT;
-      else order_type=OP_BUY;
-      if(order_type==OP_BUYLIMIT || order_type==OP_BUYSTOP)
+      if(distanceFromCurrentPrice<0) order_type=OP_BUYLIMIT;
+      else if(distanceFromCurrentPrice==0) order_type=OP_BUY;
+      else if(distanceFromCurrentPrice>0) /*order_type=OP_BUYSTOP*/ return 0;
+      if(order_type==OP_BUYLIMIT /*|| order_type==OP_BUYSTOP*/)
         {
          double LOP=periods_pivot_price("Buying"); // TODO: should you really call this function again?
          if(LOP<0) return 0;
-         entryPrice=LOP+(ADR_pips*point)-(distanceFromCurrentPrice*point); // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
+         entryPrice=LOP+(ADR_pips*point)+(distanceFromCurrentPrice*point); // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
         }
       else if(order_type==OP_BUY)
         {
@@ -886,9 +888,9 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
    else if(cmd==OP_SELL) // logic for short trades
      {
       if(distanceFromCurrentPrice>0) order_type=OP_SELLLIMIT;
-      else if(distanceFromCurrentPrice<0) order_type=OP_SELLSTOP;
-      else order_type=OP_SELL;
-      if(order_type==OP_SELLLIMIT || order_type==OP_SELLSTOP)
+      else if(distanceFromCurrentPrice==0) order_type=OP_SELL;
+      else if(distanceFromCurrentPrice<0) /*order_type=OP_SELLSTOP*/ return 0;
+      if(order_type==OP_SELLLIMIT /*|| order_type==OP_SELLSTOP*/)
         {
          double HOP=periods_pivot_price("Selling"); // TODO: should you really call this function again?
          if(HOP<0) return 0;
@@ -938,7 +940,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-int check_for_error(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double sl,double tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false,int retries=3,int sleep=500)
+int check_for_entry_error(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double sl,double tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false,int retries=3,int sleep=500)
   {
    int ticket=0;
    for(int i=0;i<retries;i++)
