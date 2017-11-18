@@ -125,6 +125,8 @@ enum MM // Money Management
 
 // Market Trends
    input int H1s_to_roll=3; // How many hours should you roll to determine a short term market trend? (You are only allowed to input values divisible by 0.5.)
+   input double max_weekend_gap_percent=.1; // What is the maximum weekend gap (as a percent of ADR) for H1s_to_roll to not take the previous week into account?
+   input bool include_last_week=true; // Should the EA take Friday's moves into account when starting to determine length of the current move?
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -136,11 +138,11 @@ int ADR_calculation()
    int six_mnth_sunday_count=0;
    for(int i=six_mnth_num_days;i>0;i--) // count the number of Sundays in the past 6 months
       {
-         int day=DayOfWeek();
-         if(day==0) // count Sundays
-           {
-            six_mnth_sunday_count++;
-           }
+      int day=DayOfWeek();
+      if(day==0) // count Sundays
+        {
+         six_mnth_sunday_count++;
+        }
       }
    double avg_sunday_per_day=six_mnth_sunday_count/six_mnth_num_days;
    
@@ -210,69 +212,60 @@ int get_ADR() // Average Daily Range
    return adr; // if it is or isn't a fresh new bar, return the static adr
 }
   
-int get_week_start_bar()
+int get_rolling_start_bar()
 {
-   int M5s_to_roll=H1s_to_roll*12;
-   int day=DayOfWeek();
+   int bars_to_roll=H1s_to_roll*12;
    datetime weekStart=iTime(NULL,PERIOD_W1,0)+(gmt_hour_offset*3600); // The iTime of the week bar gives you the time that the week is 0:00 on the chart so I shifted the time to start when the markets actually start.
-// TODO: Should weekStart be converted to an hour?
-// Since a non-zero gmt_offset will make the start hour go beyond acceptable paremeters (below 0 or above 23), change the weekStart to military time.
-   if(weekStart>23) weekStart=(weekStart-23)-1;
-   else if(weekStart<0) weekStart=23+weekStart+1;
+   int weekStart_bar=iBarShift(NULL,PERIOD_M5,weekStart,false);
    
-   if(day>1 && H1s_to_roll<24) // If the server's day is not Sunday (0) or Monday (1) and the user's roll input is 23 hours or less. This means it is safe to not go into calculating the amount of bars since the start of the week.
+   if(bars_to_roll<=weekStart_bar)
      {
-      return M5s_to_roll;
+      return bars_to_roll;
+     }
+   else if(include_last_week)
+     {
+      double last_weeks_close_price=iClose(NULL,PERIOD_W1,1);
+      double this_weeks_open_price=iOpen(NULL,PERIOD_W1,0);
+      double weekend_gap_pips=MathAbs(last_weeks_close_price-this_weeks_open_price)/Point;
+      double max_weekend_gap_pips=NormalizeDouble(ADR*max_weekend_gap_percent,1);
+      
+      if(weekend_gap_pips>max_weekend_gap_pips) return weekStart_bar;
+      else return bars_to_roll;
      }
    else
      {
-      int weeksCandleCount=Bars(NULL,PERIOD_M5,weekStart,TimeCurrent()); // TODO: test this // count the number of bars from the week's start time to the current time
-      if(weeksCandleCount<M5s_to_roll) return weeksCandleCount; // if there are not enough bars in the week
-      else return M5s_to_roll;
+      return weekStart_bar;
      }
 }
 
-double periods_lowest_price()
+double periods_pivot_price(string mode)
 {
-/*
-// TODO: determine where you want to start the calculation from
-// calculate the weekend gap
-
-   if(a user setting==true)
-     {
-      int week_start_bar=get_week_start_bar();
-     }
-   else if(weekend_gap<ADR*max_weekend_gap)
-     {
-      int week_start_bar=H1s_to_roll*12;
-     }
-*/
-   return iLow(NULL,PERIOD_M5,iLowest(NULL,PERIOD_M5,MODE_LOW,WHOLE_ARRAY,get_week_start_bar())); // get the price of the bar that has the lowest price for the determined period
+   if(mode=="Buying") return iLow(NULL,PERIOD_M5,iLowest(NULL,PERIOD_M5,MODE_LOW,WHOLE_ARRAY,get_rolling_start_bar())); // get the price of the bar that has the lowest price for the determined period
+   else if(mode=="Selling") return iHigh(NULL,PERIOD_M5,iHighest(NULL,PERIOD_M5,MODE_HIGH,WHOLE_ARRAY,get_rolling_start_bar())); // get the price of the bar that has the highest price for the determined period
+   else return -1;
 }
 
-double periods_highest_price()
-{
-   return iHigh(NULL,PERIOD_M5,iHighest(NULL,PERIOD_M5,MODE_HIGH,WHOLE_ARRAY,get_week_start_bar())); // get the price of the bar that has the highest price for the determined period
-}
 
 double uptrend_ADR_triggered_price()
    {
-   static double LOP=periods_lowest_price();
+   static double LOP=periods_pivot_price("Buying");
    double point=MarketInfo(NULL,MODE_POINT);
    double pip_move=ADR;
    double current_bid=Bid;
-
+   
+   if(LOP>0)
+     {
       if(current_bid<LOP) // if the low of the range was surpassed, reset the HOP.
         {
          // since the bottom of the range was surpassed, you have to reset the LOP. You might as well take this opportunity to take the period into account.
-         LOP=periods_lowest_price();
+         LOP=periods_pivot_price("Buying");
          return 0;
         }
       
       else if(current_bid-LOP>=pip_move) // if the pip move meets or exceed the ADR_Pips, return true. Note: this will return true over and over again
         {
          // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
-         LOP=periods_lowest_price();
+         LOP=periods_pivot_price("Buying");
          
          if(current_bid-LOP>=pip_move) // check if it is actually true by taking the new calculation of Low Of Period into account
             return current_bid;
@@ -282,6 +275,8 @@ double uptrend_ADR_triggered_price()
         {
          return 0;
         }
+      }
+     return 0;
    }
 
 int signal_pullback_after_uptrend_ADR_triggered()
@@ -796,7 +791,6 @@ bool acceptable_spread()
    else return false;
 }
 
-
 // the distanceFromCurrentPrice parameter is used to specify what type of order you would like to enter
 int send_order(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double sl,double tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
   {
@@ -805,7 +799,7 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
    double price_tp=0;
    double point=MarketInfo(instrument,MODE_POINT); // getting the value of 1 point for the instrument
    datetime expire_time=0; // 0 means there is no expiration time for a pending order
-   int order_type=-1; // -1 means there is no order because orders are >=0
+   int order_type=-1; // -1 means there is no order because actual orders are >=0
    // simplifying the arguments for the function by only allowing OP_BUY and OP_SELL and letting logic determine if it is a market or pending order based off the distanceFromCurrentPrice variable
    if(cmd==OP_BUY) // logic for long trades
      {
@@ -814,12 +808,13 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
       else order_type=OP_BUY;
       if(order_type==OP_BUYLIMIT || order_type==OP_BUYSTOP)
         {
-         double LOP=periods_lowest_price(); // TODO: should you really call this function again?
+         double LOP=periods_pivot_price("Buying"); // TODO: should you really call this function again?
          entryPrice=LOP+(ADR*point)-(distanceFromCurrentPrice*point); // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
         }
       else if(order_type==OP_BUY)
         {
          if(acceptable_spread()) entryPrice=MarketInfo(instrument,MODE_ASK);// Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+         // TODO: create an alert informing the user that the trade was not executed because of the spread being too wide
          else return 0;
         }
       if(!market) // if the user wants instant execution (which the system allows them to input sl and tp prices)
@@ -835,12 +830,13 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
       else order_type=OP_SELL;
       if(order_type==OP_SELLLIMIT || order_type==OP_SELLSTOP)
         {
-         double HOP=periods_highest_price(); // TODO: should you really call this function again?
+         double HOP=periods_pivot_price("Selling"); // TODO: should you really call this function again?
          entryPrice=HOP-(ADR*point)+(distanceFromCurrentPrice*point); // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
         }
       else if(order_type==OP_SELL)
         {
          if(acceptable_spread()) entryPrice=MarketInfo(instrument,MODE_BID); // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+         // TODO: create an alert informing the user that the trade was not executed because of the spread being too wide         
          else return 0;
         }
       if(!market) // if the user wants instant execution (which allows them to input the sl and tp prices)
