@@ -246,20 +246,21 @@ void OnTick()
 
 int ADR_calculation()
 {
-   int six_mnth_num_days=6*22; // There are about 22 business days a month.   
-   int six_mnth_sunday_count=0;
+//   int six_mnth_num_days=6*22; 
+   int three_mnth_sunday_count=0;
+   int three_mnth_num_days=3*22; // There are about 22 business days a month.   
    
-   for(int i=six_mnth_num_days;i>0;i--) // count the number of Sundays in the past 6 months
+   for(int i=three_mnth_num_days;i>0;i--) // count the number of Sundays in the past 6 months
       {
       int day=DayOfWeek();
       
       if(day==0) // count Sundays
         {
-         six_mnth_sunday_count++;
+         three_mnth_sunday_count++;
         }
       }
-   double avg_sunday_per_day=six_mnth_sunday_count/six_mnth_num_days;
-   int six_mnth_adjusted_num_days=(int)((avg_sunday_per_day*six_mnth_num_days)+six_mnth_num_days); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
+   double avg_sunday_per_day=three_mnth_sunday_count/three_mnth_num_days;
+   int six_mnth_adjusted_num_days=(int)(((avg_sunday_per_day*three_mnth_num_days)+three_mnth_num_days)*2); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
    int six_mnth_non_sunday_count=0;
    double six_mnth_non_sunday_ADR_sum=0;
    
@@ -300,12 +301,12 @@ int ADR_calculation()
         }
      }
    six_mnth_ADR_avg=NormalizeDouble(six_mnth_non_sunday_ADR_sum/six_mnth_non_sunday_count,digits); // the second time getting an ADR average but this time it is MORE REFINED
-   double two_mnth_non_sunday_ADR_sum=0;
-   int two_mnth_non_sunday_count=0;
-   int two_mnth_num_days=num_ADR_months*22; // There are about 22 business days a month.
-   int two_mnth_adjusted_num_days=(int)((avg_sunday_per_day*two_mnth_num_days)+two_mnth_num_days); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
+   double x_mnth_non_sunday_ADR_sum=0;
+   int x_mnth_non_sunday_count=0;
+   int x_mnth_num_days=num_ADR_months*22; // There are about 22 business days a month.
+   int x_mnth_adjusted_num_days=(int)((avg_sunday_per_day*x_mnth_num_days)+x_mnth_num_days); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
    
-   for(int i=two_mnth_adjusted_num_days;i>0;i--) // find the counts of all days that are significantly below or above ADR
+   for(int i=x_mnth_adjusted_num_days;i>0;i--) // find the counts of all days that are significantly below or above ADR
      {
       int day=DayOfWeek();
            
@@ -318,13 +319,13 @@ int ADR_calculation()
          
          if(compare_doubles(ADR_ratio,below_ADR_outlier_percent,2)==1 && compare_doubles(ADR_ratio,above_ADR_outlier_percent,2)==-1) // filtering out outliers
            {
-            two_mnth_non_sunday_ADR_sum+=days_range;
-            two_mnth_non_sunday_count++;
+            x_mnth_non_sunday_ADR_sum+=days_range;
+            x_mnth_non_sunday_count++;
            }
         }
      }
    // adr doesn't need to be Normalized because it has been converted into an int.
-   int adr=(int)((two_mnth_non_sunday_ADR_sum/Point)/two_mnth_non_sunday_count); // converting it away from points to more human understandable numbers
+   int adr=(int)((x_mnth_non_sunday_ADR_sum/Point)/x_mnth_non_sunday_count); // converting it away from points to more human understandable numbers
    // int adr=.0080;
    if(change_ADR_percent==0 || change_ADR_percent==NULL) return adr;
    else return (int)((adr*change_ADR_percent)+adr); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
