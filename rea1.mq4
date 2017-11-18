@@ -362,23 +362,27 @@ double uptrend_ADR_triggered_price()
 {
    static double LOP=periods_pivot_price("Buying");
    double point=MarketInfo(NULL,MODE_POINT);
-   double pip_move=ADR_pips*Point;
+   double pip_move_threshold=ADR_pips*Point;
    double current_bid=Bid;   
    
-   if(current_bid<LOP) // if the low of the range was surpassed, reset the HOP.
+   if(LOP==-1) // this part is necessary in case periods_pivot_price ever returns 0
+     {
+       return -1;
+     }
+   else if(current_bid<LOP) // if the low of the range was surpassed
      {
        // since the bottom of the range was surpassed, you have to reset the LOP. You might as well take this opportunity to take the period into account.
        LOP=periods_pivot_price("Buying");
-       return 0;
+       return -1;
      } 
-   else if(current_bid-LOP>=pip_move) // if the pip move meets or exceed the ADR_Pips, return true. Note: this will return true over and over again
+   else if(current_bid-LOP>=pip_move_threshold) // if the pip move meets or exceed the ADR_Pips in points, return the current bid. Note: this will return true over and over again
      {
        // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
        LOP=periods_pivot_price("Buying");
-       if(current_bid-LOP>=pip_move) return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
-       else return 0;
+       if(current_bid-LOP>=pip_move_threshold) return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
+       else return -1;
      }         
-   else return 0;
+   else return -1;
 }
 
 
@@ -803,6 +807,7 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
       if(order_type==OP_BUYLIMIT || order_type==OP_BUYSTOP)
         {
          double LOP=periods_pivot_price("Buying"); // TODO: should you really call this function again?
+         if(LOP<0) return 0;
          entryPrice=LOP+(ADR_pips*point)-(distanceFromCurrentPrice*point); // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
         }
       else if(order_type==OP_BUY)
@@ -825,6 +830,7 @@ int send_order(string instrument,int cmd,double lots,double distanceFromCurrentP
       if(order_type==OP_SELLLIMIT || order_type==OP_SELLSTOP)
         {
          double HOP=periods_pivot_price("Selling"); // TODO: should you really call this function again?
+         if(HOP<0) return 0;
          entryPrice=HOP-(ADR_pips*point)+(distanceFromCurrentPrice*point); // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
         }
       else if(order_type==OP_SELL)
