@@ -338,10 +338,10 @@ int get_rolling_start_bar()
      }
    else if(include_last_week)
      {
-      double weekend_gap_pips=MathAbs(iClose(NULL,PERIOD_W1,1)-iOpen(NULL,PERIOD_W1,0))/Point;
-      double max_weekend_gap_pips=NormalizeDouble(ADR_pips*max_weekend_gap_percent,1); // TODO: this may not need to be normalized
+      double weekend_gap_points=MathAbs(iClose(NULL,PERIOD_W1,1)-iOpen(NULL,PERIOD_W1,0));
+      double max_weekend_gap_points=NormalizeDouble((ADR_pips*Point)*max_weekend_gap_percent,Digits); // TODO: this may not need to be normalized
       
-      if(weekend_gap_pips>max_weekend_gap_pips) return weekStart_bar;
+      if(weekend_gap_points>max_weekend_gap_points) return weekStart_bar;
       else return bars_to_roll;
      }
    else
@@ -543,11 +543,12 @@ bool breakeven_check_order(int ticket,int threshold,int plus)
    int digits=(int)MarketInfo(OrderSymbol(),MODE_DIGITS); // how many digit broker
    double point=MarketInfo(OrderSymbol(),MODE_POINT); // get the point for the instrument
    bool result=true; // initialize the variable result
+   double order_sl=OrderStopLoss();
    if(OrderType()==OP_BUY) // if it is a buy order
      {
       double new_sl=OrderOpenPrice()+(plus*point); // calculate the price of the new stoploss
       double profit_in_pts=OrderClosePrice()-OrderOpenPrice(); // calculate how many points in profit the trade is in so far
-      if(OrderStopLoss()==0 || compare_doubles(new_sl,OrderStopLoss(),digits)==1) // if there is no stoploss or the potential new stoploss is greater than the current stoploss
+      if(order_sl==0 || compare_doubles(new_sl,order_sl,digits)==1) // if there is no stoploss or the potential new stoploss is greater than the current stoploss
          if(compare_doubles(profit_in_pts,threshold*point,digits)>=0) // if the profit in points so far > provided threshold, then set the order to breakeven
             result=modify(ticket,new_sl);
      }
@@ -555,7 +556,7 @@ bool breakeven_check_order(int ticket,int threshold,int plus)
      {
       double new_sl=OrderOpenPrice()-(plus*point);
       double profit_in_pts=OrderOpenPrice()-OrderClosePrice();
-      if(OrderStopLoss()==0 || compare_doubles(new_sl,OrderStopLoss(),digits)==-1)
+      if(order_sl==0 || compare_doubles(new_sl,order_sl,digits)==-1)
          if(compare_doubles(profit_in_pts,threshold*point,digits)>=0)
             result=modify(ticket,new_sl);
      }
@@ -634,13 +635,14 @@ bool modify(int ticket,double sl,double tp=-1,double entryPrice=-1,datetime expi
          if(result)
             break;
          Sleep(sleep);
+      // TODO: setup an email and SMS alert.
+     Print(Symbol()," , ",order_comment,", An order was attempted to be modified but it did not succeed. (",IntegerToString(GetLastError(),0),"), Retry: "+IntegerToString(i,0),"/"+IntegerToString(retries));
+     Alert(Symbol()," , ",order_comment,", An order was attempted to be modified but it did not succeed. Check the Journal tab of the Navigator window for errors.");
         }
      }
    else
    {   
-     // TODO: setup an email and SMS alert.
-     Print(instrument," , ",order_comment,", An order was attempted to be modified but it did not succeed. (",IntegerToString(GetLastError(),0),"), Retry: "+IntegerToString(i,0),"/"+IntegerToString(retries));
-     Alert(instrument," , ",order_comment,", An order was attempted to be modified but it did not succeed. Check the Journal tab of the Navigator window for errors.");
+      Print(Symbol()," , ",order_comment,"Modifying the order was not successfull. The ticket couldn't be selected.");
    }
    return result;
   }
