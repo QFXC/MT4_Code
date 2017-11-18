@@ -352,25 +352,25 @@ int get_ADR() // Average Daily Range
   
 int get_rolling_start_bar()
 {
-   int bars_to_roll=H1s_to_roll*12;
-   datetime weekStart=iTime(NULL,PERIOD_W1,0)+(gmt_hour_offset*3600); // The iTime of the week bar gives you the time that the week is 0:00 on the chart so I shifted the time to start when the markets actually start.
-   int weekStart_bar=iBarShift(NULL,PERIOD_M5,weekStart,false);
-   
-   if(bars_to_roll<=weekStart_bar)
+   datetime week_start=iTime(NULL,PERIOD_W1,0)+(gmt_hour_offset*3600); // The iTime of the week bar gives you the time that the week is 0:00 on the chart so I shifted the time to start when the markets actually start.
+   int week_start_bar=iBarShift(NULL,PERIOD_M5,week_start,false);
+   int move_start_bar=H1s_to_roll*12;
+      
+   if(move_start_bar<=week_start_bar)
      {
-      return bars_to_roll;
+      return move_start_bar;
      }
    else if(include_last_week)
      {
       double weekend_gap_points=MathAbs(iClose(NULL,PERIOD_W1,1)-iOpen(NULL,PERIOD_W1,0));
       double max_weekend_gap_points=NormalizeDouble((ADR_pips*Point)*max_weekend_gap_percent,Digits); // TODO: this may not need to be normalized
       
-      if(weekend_gap_points>max_weekend_gap_points) return weekStart_bar;
-      else return bars_to_roll;
+      if(weekend_gap_points>=max_weekend_gap_points) return week_start_bar;
+      else return move_start_bar;
      }
    else
      {
-      return weekStart_bar;
+      return week_start_bar;
      }
 }
 
