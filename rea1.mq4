@@ -107,7 +107,6 @@ enum MM // Money Management
 	color arrow_color_long=clrNONE; // you may want to remove all arrow color settings
 	
 //calculate_lots/mm variables
-	input string symbol=NULL; // A NULL value should select the current symbol on the current chart
 	input double lot_size=0.1;
 	MM money_management=MM_RISK_PERCENT;
 	double mm1_risk_percent=0.02; // percent risked when using the MM_RISK_PERCENT money management calculations
@@ -195,19 +194,19 @@ void OnTick()
   {
    static bool adr_generated=false;
    static bool in_time_range=false;
-   bool is_new_M5_bar=is_new_bar(NULL,PERIOD_M5,false); // this will run on every tick
+   bool is_new_M5_bar=is_new_bar(NULL,PERIOD_M5,wait_next_bar_on_load); // this will run on every tick
    datetime current_time=TimeCurrent();
 
       if(is_new_M5_bar) // only check if it is in the time range once the EA is loaded and then every 5 minutes afterward
         {
          in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);  
          
-         if(in_time_range && !adr_generated) // On the first tick that reaches this code, the ADR will generate and won't generate again until after the cycle of not being in the time range completes
+         if(in_time_range && !adr_generated) 
            {
             ADR_pips=get_ADR();
             if(ADR_pips>0) 
               {
-               adr_generated=true;
+               adr_generated=true; // the ADR will generate and won't generate again until after the cycle of not being in the time range completes
               }
             else 
               {
@@ -251,7 +250,7 @@ void OnTick()
                if(long_order_count<max_trades) // if you have not yet reached the user's maximum allowed long trades
                  {
                   if(!entry_new_bar || 
-                     (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load)))
+                     (entry_new_bar && is_new_M5_bar))
                         try_to_enter_order(OP_BUY);
                  }
               }
@@ -262,7 +261,7 @@ void OnTick()
                if(short_order_count<max_trades) // if you have not yet reached the user's maximum allowed short trades
                  {
                   if(!entry_new_bar || 
-                     (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load)))
+                     (entry_new_bar && is_new_M5_bar))
                         try_to_enter_order(OP_SELL);
                  }
               }
@@ -278,7 +277,7 @@ void OnTick()
         
        else
         {
-          adr_generated=false; // making sure to set it to false so when time is within the time range again, the ADR can get generated.
+          adr_generated=false; // making sure to set it to false so when the time is within the time range again, the ADR can get generated.
           bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
           if(time_to_exit) close_all(); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
         } 
@@ -554,7 +553,7 @@ double calculate_lots()
   {
    double stoploss_pips=NormalizeDouble(ADR_pips*stoploss_percent,2);
    double lots=mm(money_management,
-                  symbol,
+                  NULL,
                   lot_size,
                   stoploss_pips,
                   mm1_risk_percent,
