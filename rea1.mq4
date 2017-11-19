@@ -195,29 +195,31 @@ void OnTick()
   {
 
    static bool adr_generated=false;
-   static bool in_time_range=true;
+   static bool in_time_range=false;
    bool is_new_M5_bar=is_new_bar(NULL,PERIOD_M5,false); // this will run on every tick
    datetime current_time=TimeCurrent();
 
       if(is_new_M5_bar) // only check if it is in the time range once the EA is loaded and then every 5 minutes afterward
         {
-          in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);    
-        }
- 
-      else if(in_time_range) // a trade will never be executed on the first tick of a new bar
-        {
-         if(!adr_generated) // On the first tick that reaches this code, the ADR will generate and won't generate again until after the cycle of not being in the time range completes
-         {
+         in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);  
+         
+         if(in_time_range && !adr_generated) // On the first tick that reaches this code, the ADR will generate and won't generate again until after the cycle of not being in the time range completes
+           {
             ADR_pips=get_ADR();
             if(ADR_pips>0) 
               {
               adr_generated=true;
-              in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);
-              if(!in_time_range) return; // prevent the code from going forward if the check for the time range is false
               }
-            else return;
-         }
-         
+            else 
+              {
+               adr_generated=false;
+               return;
+              }
+           }
+        }
+ 
+      if(in_time_range && adr_generated) // a trade will never be executed on the first tick of a new bar
+        {
          // entry and exit signals
          int max_trades=max_directional_trades;
          int enter_signal=0,exit_signal=0;
