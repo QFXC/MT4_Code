@@ -193,82 +193,95 @@ double OnTester()
 // Runs on every tick
 void OnTick()
   {
-   datetime current_time=TimeCurrent();
-   bool in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);
-   static bool generated_ADR=false;
 
-   if(in_time_range) // only enter and exit trades based on the specified time range
-     {
-      if(!generated_ADR)
-      {
-         ADR_pips=get_ADR();
-         if(ADR_pips>0) generated_ADR=true;
-         else return;
-      }
-      
-      // entry and exit signals
-      int max_trades=max_directional_trades;
-      int enter_signal=0,exit_signal=0;
-      
-      enter_signal=signal_entry();  
-      exit_signal=signal_exit();
-   
-      // exit signal logic
-      if(exit_signal==TRADE_SIGNAL_VOID)
+   static bool adr_generated=false;
+   static bool in_time_range=true;
+   bool is_new_M5_bar=is_new_bar(NULL,PERIOD_M5,false); // this will run on every tick
+   datetime current_time=TimeCurrent();
+
+      if(is_new_M5_bar) // only check if it is in the time range once the EA is loaded and then every 5 minutes afterward
         {
-         close_all(); // close all pending and orders for the specific EAs orders
+          in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);    
         }
-      else if(exit_signal==TRADE_SIGNAL_BUY)
+ 
+      else if(in_time_range) // a trade will never be executed on the first tick of a new bar
         {
-         close_all_short();
-        }
-      else if(exit_signal==TRADE_SIGNAL_SELL)
-        {
-         close_all_long();
-        }
-   
-      // entry signal logic
-      int long_order_count=0, short_order_count=0;
-      if(enter_signal>0) // if there is a signal to enter a trade
-        {
-         if(enter_signal==TRADE_SIGNAL_BUY)
-           {
-            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_SELL,order_magic);
-            long_order_count=count_orders(ORDER_SET_LONG,order_magic); // counts all long (active and pending) orders for the current EA
-            if(long_order_count<max_trades) // if you have not yet reached the user's maximum allowed long trades
+         if(!adr_generated) // On the first tick that reaches this code, the ADR will generate and won't generate again until after the cycle of not being in the time range completes
+         {
+            ADR_pips=get_ADR();
+            if(ADR_pips>0) 
               {
-               if(!entry_new_bar || 
-                  (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load)))
-                     try_to_enter_order(OP_BUY);
+              adr_generated=true;
+              in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);
+              if(!in_time_range) return; // prevent the code from going forward if the check for the time range is false
+              }
+            else return;
+         }
+         
+         // entry and exit signals
+         int max_trades=max_directional_trades;
+         int enter_signal=0,exit_signal=0;
+         
+         enter_signal=signal_entry();  
+         exit_signal=signal_exit();
+      
+         // exit signal logic
+         if(exit_signal==TRADE_SIGNAL_VOID)
+           {
+            close_all(); // close all pending and orders for the specific EAs orders
+           }
+         else if(exit_signal==TRADE_SIGNAL_BUY)
+           {
+            close_all_short();
+           }
+         else if(exit_signal==TRADE_SIGNAL_SELL)
+           {
+            close_all_long();
+           }
+      
+         // entry signal logic
+         int long_order_count=0, short_order_count=0;
+         if(enter_signal>0) // if there is a signal to enter a trade
+           {
+            if(enter_signal==TRADE_SIGNAL_BUY)
+              {
+               if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_SELL,order_magic);
+               long_order_count=count_orders(ORDER_SET_LONG,order_magic); // counts all long (active and pending) orders for the current EA
+               if(long_order_count<max_trades) // if you have not yet reached the user's maximum allowed long trades
+                 {
+                  if(!entry_new_bar || 
+                     (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load)))
+                        try_to_enter_order(OP_BUY);
+                 }
+              }
+            else if(enter_signal==TRADE_SIGNAL_SELL)
+              {
+               if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_BUY,order_magic);
+               short_order_count=count_orders(ORDER_SET_SHORT,order_magic); // counts all short (active and pending) orders for the current EA
+               if(short_order_count<max_trades) // if you have not yet reached the user's maximum allowed short trades
+                 {
+                  if(!entry_new_bar || 
+                     (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load)))
+                        try_to_enter_order(OP_SELL);
+                 }
               }
            }
-         else if(enter_signal==TRADE_SIGNAL_SELL)
-           {
-            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_BUY,order_magic);
-            short_order_count=count_orders(ORDER_SET_SHORT,order_magic); // counts all short (active and pending) orders for the current EA
-            if(short_order_count<max_trades) // if you have not yet reached the user's maximum allowed short trades
-              {
-               if(!entry_new_bar || 
-                  (entry_new_bar && is_new_bar(symbol,charts_timeframe,wait_next_bar_on_load)))
-                     try_to_enter_order(OP_SELL);
-              }
-           }
+      
+      // Breakeven (comment out if this functionality is not required)
+      //if(breakeven_threshold>0) breakeven_check_all_orders(breakeven_threshold,breakeven_plus,order_magic);
+      
+      // Trailing Stop (comment out of this functinoality is not required)
+      //if(trail_value>0) trailingstop_check_all_orders(trail_value,trail_threshold,trail_step,order_magic);
+      //   virtualstop_check(virtual_sl,virtual_tp);     
         }
-   
-   // Breakeven (comment out if this functionality is not required)
-   //if(breakeven_threshold>0) breakeven_check_all_orders(breakeven_threshold,breakeven_plus,order_magic);
-   
-   // Trailing Stop (comment out of this functinoality is not required)
-   //if(trail_value>0) trailingstop_check_all_orders(trail_value,trail_threshold,trail_step,order_magic);
-   //   virtualstop_check(virtual_sl,virtual_tp);     
-     }
-     
-    else
-     {
-       generated_ADR=false;
-       bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
-       if(time_to_exit) close_all(); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
-     } 
+        
+       else
+        {
+          adr_generated=false; // making sure to set it to false so when time is within the time range again, the ADR can get generated.
+          bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
+          if(time_to_exit) close_all(); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
+        } 
+    
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -364,7 +377,7 @@ int ADR_calculation()
 int get_ADR() // get the Average Daily Range
 {
    static int adr=0;
-   bool is_new_bar=is_new_bar(NULL,PERIOD_D1,false);
+   bool is_new_D1_bar=is_new_bar(NULL,PERIOD_D1,false);
    
    if(adr==0) // if it is the first time the function is called
      {
@@ -372,7 +385,7 @@ int get_ADR() // get the Average Daily Range
      adr=calculated_adr; // make the function remember the calculation the next time it is called
      return adr;
      }
-   if(is_new_bar) // if it is a fresh new bar
+   if(is_new_D1_bar) // if it is a fresh new bar
      {
       int freshly_calculated_adr=ADR_calculation();
       adr=freshly_calculated_adr; // make the function remember the calculation the next time it is called
