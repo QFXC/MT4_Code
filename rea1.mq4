@@ -15,6 +15,13 @@
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+enum DIRECTIONAL_MODE
+  {
+   MODE_BUYING,
+   MODE_SELLING
+  };
+
+
 enum ENUM_TRADE_SIGNAL  // since ENUM_ORDER_TYPE is not enough, this enum was created to be able to use neutral and void signals
   {
    TRADE_SIGNAL_VOID=-1, // exit all trades
@@ -417,17 +424,17 @@ int get_moves_start_bar()
      }
 }
 
-double periods_pivot_price(string mode)
+double periods_pivot_price(DIRECTIONAL_MODE mode)
 {
-   if(mode=="Buying") return iLow(symbol,PERIOD_M5,iLowest(symbol,PERIOD_M5,MODE_LOW,WHOLE_ARRAY,get_moves_start_bar())); // get the price of the bar that has the lowest price for the determined period
-   else if(mode=="Selling") return iHigh(symbol,PERIOD_M5,iHighest(symbol,PERIOD_M5,MODE_HIGH,WHOLE_ARRAY,get_moves_start_bar())); // get the price of the bar that has the highest price for the determined period
+   if(mode==MODE_BUYING) return iLow(symbol,PERIOD_M5,iLowest(symbol,PERIOD_M5,MODE_LOW,WHOLE_ARRAY,get_moves_start_bar())); // get the price of the bar that has the lowest price for the determined period
+   else if(mode==MODE_SELLING) return iHigh(symbol,PERIOD_M5,iHighest(symbol,PERIOD_M5,MODE_HIGH,WHOLE_ARRAY,get_moves_start_bar())); // get the price of the bar that has the highest price for the determined period
    else return -1;
 }
 
 
 double uptrend_ADR_triggered_price()
 {
-   static double LOP=periods_pivot_price("Buying");
+   static double LOP=periods_pivot_price(MODE_BUYING);
    double point=MarketInfo(symbol,MODE_POINT);
    double pip_move_threshold=ADR_pips*point;
    double current_bid=Bid;
@@ -439,13 +446,13 @@ double uptrend_ADR_triggered_price()
    else if(current_bid<LOP) // if the low of the range was surpassed
      {
        // since the bottom of the range was surpassed, you have to reset the LOP. You might as well take this opportunity to take the period into account.
-       LOP=periods_pivot_price("Buying");
+       LOP=periods_pivot_price(MODE_BUYING);
        return -1;
      } 
    else if(current_bid-LOP>=pip_move_threshold) // if the pip move meets or exceed the ADR_Pips in points, return the current bid. Note: this will return true over and over again
      {
        // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
-       LOP=periods_pivot_price("Buying");
+       LOP=periods_pivot_price(MODE_BUYING);
        if(current_bid-LOP>=pip_move_threshold) return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
        else return -1;
      }         
@@ -454,7 +461,7 @@ double uptrend_ADR_triggered_price()
 
 double downtrend_ADR_triggered_price()
 {
-   static double HOP=periods_pivot_price("Selling");
+   static double HOP=periods_pivot_price(MODE_SELLING);
    double point=MarketInfo(symbol,MODE_POINT);
    double pip_move_threshold=ADR_pips*point;
    double current_bid=Bid;
@@ -466,13 +473,13 @@ double downtrend_ADR_triggered_price()
    else if(current_bid>HOP) // if the low of the range was surpassed
      {
        // since the bottom of the range was surpassed, you have to reset the LOP. You might as well take this opportunity to take the period into account.
-       HOP=periods_pivot_price("Selling");
+       HOP=periods_pivot_price(MODE_SELLING);
        return -1;
      } 
    else if(HOP-current_bid>=pip_move_threshold) // if the pip move meets or exceed the ADR_Pips in points, return the current bid. Note: this will return true over and over again
      {
        // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
-       HOP=periods_pivot_price("Selling");
+       HOP=periods_pivot_price(MODE_SELLING);
        if(HOP-current_bid>=pip_move_threshold) return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
        else return -1;
      }         
@@ -666,7 +673,7 @@ bool breakeven_check_order(int ticket,int threshold,int plus)
       double profit_in_pts=OrderOpenPrice()-OrderClosePrice();
       if(order_sl==0 || compare_doubles(new_sl,order_sl,digits)==-1)
          if(compare_doubles(profit_in_pts,threshold*point,digits)>=0)
-            result=modify(ticket,new_sl);
+            result=modify(ticket,new_sl); 
      }
    return result;
   }
@@ -708,7 +715,7 @@ bool modify_order(int ticket,double sl,double tp=-1,double entryPrice=-1,datetim
         }
       else if(OrderType()>1) // if it IS a pending order
         {
-         if(entryPrice==-1)
+         if(entryPrice==-1) // it is -1 if there was not entryPrice sent to this function (the 4th parameter)
             entryPrice=OrderOpenPrice();
          else entryPrice=NormalizeDouble(entryPrice,digits); // it needs to be normalized since you calculated it yourself to prevent errors when modifying an order
          // to prevent error code 1, check if there was a change
@@ -728,7 +735,7 @@ bool modify_order(int ticket,double sl,double tp=-1,double entryPrice=-1,datetim
 //+------------------------------------------------------------------+
 
 // check for errors before modifying the order
-bool modify(int ticket,double sl,double tp=-1,double entryPrice=-1,datetime expire=0,color a_color=clrNONE,int retries=3,int sleep=500)
+bool modify(int ticket,double sl,double tp=-1,double entryPrice=-1,datetime expire=0,color a_color=clrNONE,int retries=3,int sleep_milisec=500)
   {
    bool result=false;
    if(ticket>0)
@@ -739,10 +746,10 @@ bool modify(int ticket,double sl,double tp=-1,double entryPrice=-1,datetime expi
          else if(!IsExpertEnabled()) Print("EAs are not enabled in the trading platform.");
          else if(IsTradeContextBusy()) Print("The trade context is busy.");
          else if(!IsTradeAllowed()) Print("The trade is not allowed in the trading platform.");
-         else result=modify_order(ticket,sl,tp,entryPrice,expire,a_color);
+         else result=modify_order(ticket,sl,tp,entryPrice,expire,a_color); // entryPrice could be -1 if there was no entryPrice sent to this function
          if(result)
             break;
-         Sleep(sleep);
+         Sleep(sleep_milisec);
       // TODO: setup an email and SMS alert.
      Print(OrderSymbol()," , ",order_comment,", An order was attempted to be modified but it did not succeed. (",IntegerToString(GetLastError(),0),"), Retry: "+IntegerToString(i,0),"/"+IntegerToString(retries));
      Alert(OrderSymbol()," , ",order_comment,", An order was attempted to be modified but it did not succeed. Check the Journal tab of the Navigator window for errors.");
@@ -793,7 +800,7 @@ bool exit_order(int ticket,color a_color=clrNONE)
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-bool exit(int ticket,color a_color=clrNONE,int retries=3,int sleep=500)
+bool exit(int ticket,color a_color=clrNONE,int retries=3,int sleep_milisec=500)
   {
    bool result=false;
    for(int i=0;i<retries;i++)
@@ -807,8 +814,8 @@ bool exit(int ticket,color a_color=clrNONE,int retries=3,int sleep=500)
          break;
       // TODO: setup an email and SMS alert.
       // Make sure to use OrderSymbol() instead of symbol to get the instrument of the order.
-      Print("Closing order# "+DoubleToStr(OrderTicket(),0)+" failed "+DoubleToStr(GetLastError(),0));
-      Sleep(sleep);
+      Print("Closing order# ",DoubleToStr(OrderTicket(),0)," failed "+DoubleToStr(GetLastError(),0));
+      Sleep(sleep_milisec);
      }
    return result;
   }
@@ -924,7 +931,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
       else if(distanceFromCurrentPrice>0) /*order_type=OP_BUYSTOP*/ return 0;
       if(order_type==OP_BUYLIMIT /*|| order_type==OP_BUYSTOP*/)
         {
-         double LOP=periods_pivot_price("Buying"); // TODO: should you really call this function again?
+         double LOP=periods_pivot_price(MODE_BUYING); // TODO: should you really call this function again?
          if(LOP<0) return 0;
          entryPrice=LOP+(ADR_pips*point)+(distanceFromCurrentPrice*point); // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
         }
@@ -947,7 +954,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
       else if(distanceFromCurrentPrice<0) /*order_type=OP_SELLSTOP*/ return 0;
       if(order_type==OP_SELLLIMIT /*|| order_type==OP_SELLSTOP*/)
         {
-         double HOP=periods_pivot_price("Selling"); // TODO: should you really call this function again?
+         double HOP=periods_pivot_price(MODE_SELLING); // TODO: should you really call this function again?
          if(HOP<0) return 0;
          entryPrice=HOP-(ADR_pips*point)+(distanceFromCurrentPrice*point); // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
         }
@@ -995,7 +1002,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-int check_for_entry_errors(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double sl,double tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false,int retries=3,int sleep=500)
+int check_for_entry_errors(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double sl,double tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false,int retries=3,int sleep_milisec=500)
   {
    int ticket=0;
    for(int i=0;i<retries;i++)
@@ -1014,7 +1021,7 @@ int check_for_entry_errors(string instrument,int cmd,double lots,double distance
         Print(instrument," , ",order_comment,": An order was attempted but it did not succeed. If there are no errors here, market factors may not have met the code's requirements within the send_and_get_order_ticket function. (",IntegerToString(GetLastError(),0),"), Retry: "+IntegerToString(i,0),"/"+IntegerToString(retries));
         Alert(instrument," , ",order_comment,": An order was attempted but it did not succeed. Check the Journal tab of the Navigator window for errors.");
       }
-      Sleep(sleep);
+      Sleep(sleep_milisec);
      }
    return ticket;
   }
