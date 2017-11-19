@@ -393,7 +393,7 @@ int get_ADR() // get the Average Daily Range
    return adr; // if it is not the first time the function is called it is the middle of a bar, return the static adr
 }
   
-int get_start_bar()
+int get_moves_start_bar()
 {
    datetime week_start_open_time=iTime(symbol,PERIOD_W1,0)+(gmt_hour_offset*3600); // The iTime of the week bar gives you the time that the week is 0:00 on the chart so I shifted the time to start when the markets actually start.
    int week_start_bar=iBarShift(symbol,PERIOD_M5,week_start_open_time,false);
@@ -419,8 +419,8 @@ int get_start_bar()
 
 double periods_pivot_price(string mode)
 {
-   if(mode=="Buying") return iLow(symbol,PERIOD_M5,iLowest(symbol,PERIOD_M5,MODE_LOW,WHOLE_ARRAY,get_start_bar())); // get the price of the bar that has the lowest price for the determined period
-   else if(mode=="Selling") return iHigh(symbol,PERIOD_M5,iHighest(symbol,PERIOD_M5,MODE_HIGH,WHOLE_ARRAY,get_start_bar())); // get the price of the bar that has the highest price for the determined period
+   if(mode=="Buying") return iLow(symbol,PERIOD_M5,iLowest(symbol,PERIOD_M5,MODE_LOW,WHOLE_ARRAY,get_moves_start_bar())); // get the price of the bar that has the lowest price for the determined period
+   else if(mode=="Selling") return iHigh(symbol,PERIOD_M5,iHighest(symbol,PERIOD_M5,MODE_HIGH,WHOLE_ARRAY,get_moves_start_bar())); // get the price of the bar that has the highest price for the determined period
    else return -1;
 }
 
@@ -429,8 +429,8 @@ double uptrend_ADR_triggered_price()
 {
    static double LOP=periods_pivot_price("Buying");
    double point=MarketInfo(symbol,MODE_POINT);
-   double pip_move_threshold=ADR_pips*Point;
-   double current_bid=Bid;   
+   double pip_move_threshold=ADR_pips*point;
+   double current_bid=Bid;
    
    if(LOP==-1) // this part is necessary in case periods_pivot_price ever returns 0
      {
@@ -575,7 +575,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type)
    if(pullback_percent==0 || pullback_percent==NULL) distance_pips=0;
    else distance_pips=NormalizeDouble(ADR_pips*pullback_percent,2);
    
-   if(type==OP_BUY /*|| type==OP_BUYSTOP || type==OP_BUYLIMIT*/) // what is the point of checking if it is a buystop or sellstop if the only type that gets sent to this function is OP_BUY?
+   if(type==OP_BUY /*|| type==OP_BUYSTOP || type==OP_BUYLIMIT*/) // what is the purpose of checking if it is a buystop or sellstop if the only type that gets sent to this function is OP_BUY?
      {
       if(!long_allowed) return;
       distance_pips=distance_pips*-1; // there are scenerios where this can be 0*-1=0
@@ -773,7 +773,7 @@ int compare_doubles(double var1,double var2,int precision) // For the precision 
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-bool exit_order(int ticket,double size=-1,color a_color=clrNONE)
+bool exit_order(int ticket,color a_color=clrNONE)
   {
    bool result=false;
    if(OrderSelect(ticket,SELECT_BY_TICKET))
