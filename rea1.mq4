@@ -193,7 +193,6 @@ double OnTester()
 // Runs on every tick
 void OnTick()
   {
-
    static bool adr_generated=false;
    static bool in_time_range=false;
    bool is_new_M5_bar=is_new_bar(NULL,PERIOD_M5,false); // this will run on every tick
@@ -208,7 +207,7 @@ void OnTick()
             ADR_pips=get_ADR();
             if(ADR_pips>0) 
               {
-              adr_generated=true;
+               adr_generated=true;
               }
             else 
               {
@@ -218,7 +217,7 @@ void OnTick()
            }
         }
  
-      if(in_time_range && adr_generated) // a trade will never be executed on the first tick of a new bar
+      if(in_time_range && adr_generated)
         {
          // entry and exit signals
          int max_trades=max_directional_trades;
