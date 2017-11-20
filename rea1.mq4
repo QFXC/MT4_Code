@@ -176,6 +176,7 @@ int generate_magic_num()
    int total_variable_count=10;
    string symbols_string=symbol;
    string unique_string="";
+   int magic_int=0; // This has to be initialized to 0. Do not change this unless you analyze and make changes to all the code that depends on this function because if -1 ever gets returned that means to close all orders from all EAs!
    double input_variables[10]; // only allowed to put constants in the array
    
    // add all the double and int global input variables to the input_variables array which will allow the magic_int to be unique based upon how the user sets them
@@ -219,7 +220,7 @@ int generate_magic_num()
         }
      }
    string magic_string=StringConcatenate(symbol_num_string,unique_string);
-   int magic_int=StrToInteger(magic_string);
+   magic_int=StrToInteger(magic_string);
    return magic_int;
 /*
 // started work on a different option if the one above does not work out.
@@ -289,27 +290,24 @@ double OnTester()
 // Runs on every tick
 void OnTick()
   {
-   static bool ready=false;
-   static bool in_time_range=false;
+   static bool ready=false, in_time_range=false;
    bool is_new_M5_bar=is_new_bar(symbol,PERIOD_M5,wait_next_bar_on_load);
    datetime current_time=TimeCurrent();
    
    int exit_signal=signal_exit(); // the exit signal should be made the priority and doesn't require in_time_range or adr_generated to be true
 
-   // exit signal logic
    if(exit_signal==TRADE_SIGNAL_VOID)
      {
-      close_all(EA_magic_num); // close all pending and orders for the specific EA's orders. Don't do validation to see if there is an EA_magic_num because the EA should try to exit even if for some reason there is none.
+      exit_all_trades_set(ORDER_SET_ALL,EA_magic_num); // close all pending and orders for the specific EA's orders. Don't do validation to see if there is an EA_magic_num because the EA should try to exit even if for some reason there is none.
      }
    else if(exit_signal==TRADE_SIGNAL_BUY)
      {
-      close_all_short(EA_magic_num);
+      exit_all_trades_set(ORDER_SET_SHORT,EA_magic_num);
      }
    else if(exit_signal==TRADE_SIGNAL_SELL)
      {
-      close_all_long(EA_magic_num);
+      exit_all_trades_set(ORDER_SET_LONG,EA_magic_num);
      }
-
    if(is_new_M5_bar) // only check if it is in the time range once the EA is loaded and then at the beginning of every M5 bar afterward
      {
       in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);  
@@ -319,7 +317,7 @@ void OnTick()
          ADR_pips=get_ADR();
          if(ADR_pips>0 && EA_magic_num>0) 
            {
-            ready=true; // the ADR will generate and won't generate again until after the cycle of not being in the time range completes
+            ready=true; // the ADR that has just been calculated won't generate again until after the cycle of not being in the time range completes
            }
          else 
            {
@@ -330,13 +328,11 @@ void OnTick()
      }
    if(in_time_range && ready)
      {
-      // entry and exit signals
       int max_trades=max_directional_trades;
       int enter_signal=0;
       
       enter_signal=signal_entry(); // the entry signal requires in_time_range, adr_generated, and EA_magic_num>0 to be true.
    
-      // entry signal logic
       int long_order_count=0, short_order_count=0;
       if(enter_signal>0) // if there is a signal to enter a trade
         {
@@ -374,8 +370,100 @@ void OnTick()
      {
        ready=false; // this makes sure to set it to false so when the time is within the time range again, the ADR can get generated.
        bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
-       if(time_to_exit) close_all(); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
+       if(time_to_exit) exit_all_trades_set(ORDER_SET_ALL,EA_magic_num); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
      }  
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int signal_not_consecutive_directional_trades() // TODO: work on this signal
+   {
+      int signal=TRADE_SIGNAL_NEUTRAL;
+      return signal;
+   
+   }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int signal_pullback_after_ADR_triggered()
+   {
+   int signal=TRADE_SIGNAL_NEUTRAL;
+   if(uptrend_ADR_triggered_price()>0) return signal=TRADE_SIGNAL_BUY;
+   // for a buying signal, take the level that adr was triggered and subtract the pullback_pips to get the pullback_entry_price
+   // if the pullback_entry_price is met or exceeded, signal = TRADE_SIGNAL_BUY
+   
+   else if(downtrend_ADR_triggered_price()>0) return signal=TRADE_SIGNAL_SELL;
+   
+   else return signal;
+   }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+// Checks for the entry of orders
+int signal_entry() // gets called for every tick
+  {
+   int signal=TRADE_SIGNAL_NEUTRAL;
+   
+/* Add 1 or more entry signals below. 
+   With more than 1 signal, you would follow this code using the signal_compare function. 
+   "signal=signal_compare(signal,signal_pullback_after_ADR_triggered());"
+   As each signal is compared with the previous signal, the signal variable will change and then the final signal wil get returned.
+*/ 
+   signal=signal_compare(signal,signal_pullback_after_ADR_triggered());
+   signal=signal_compare(signal,signal_not_consecutive_directional_trades());
+   return signal;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+// Checks for the exit of orders
+int signal_exit()
+  {
+   int signal=TRADE_SIGNAL_NEUTRAL;
+/* Add 1 or more entry signals below. 
+   With more than 1 signal, you would follow this code using the signal_compare function. 
+   "signal=signal_compare(signal,signal_pullback_after_ADR_triggered());"
+   As each signal is compared with the previous signal, the signal variable will change and then the final signal wil get returned.
+*/ 
+// The 3rd argument of the signal_compare function should explicitely be set to "true" every time.
+   return signal;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int signal_compare(int current_signal,int added_signal,bool exit_when_buy_and_sell=false) 
+  {
+  // signals are evaluated two at a time and the result will be used to compared with other signals until all signals are compared
+   if(current_signal==TRADE_SIGNAL_VOID)
+      return current_signal;
+   else if(current_signal==TRADE_SIGNAL_NEUTRAL)
+      return added_signal;
+   else
+     {
+      if(added_signal==TRADE_SIGNAL_NEUTRAL)
+         return current_signal;
+      else if(added_signal==TRADE_SIGNAL_VOID)
+         return added_signal;
+      // at this point, the only two options left are if they are both buy, both sell, or buy and sell
+      else if(added_signal!=current_signal) // if one signal is a buy signal and the other sign
+        {
+         if(exit_when_buy_and_sell) return TRADE_SIGNAL_VOID;
+         else return TRADE_SIGNAL_NEUTRAL;
+        }
+     }
+   return added_signal;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+// Neutralizes situations where there is a conflict between the entry and exit signal.
+// TODO: This function is not yet being called. Since the entry and exit signals are passed by reference, these paremeters would need to be prepared in advance and stored in variables prior to calling the function.
+void signal_manage(ENUM_TRADE_SIGNAL &entry,ENUM_TRADE_SIGNAL &exit)
+  {
+   if(exit==TRADE_SIGNAL_VOID)                              entry=TRADE_SIGNAL_NEUTRAL;
+   if(exit==TRADE_SIGNAL_BUY && entry==TRADE_SIGNAL_SELL)   entry=TRADE_SIGNAL_NEUTRAL;
+   if(exit==TRADE_SIGNAL_SELL && entry==TRADE_SIGNAL_BUY)   entry=TRADE_SIGNAL_NEUTRAL;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -669,51 +757,6 @@ double downtrend_ADR_triggered_price()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int signal_pullback_after_ADR_triggered()
-   {
-   int signal=TRADE_SIGNAL_NEUTRAL;
-   if(uptrend_ADR_triggered_price()>0) return signal=TRADE_SIGNAL_BUY;
-   // for a buying signal, take the level that adr was triggered and subtract the pullback_pips to get the pullback_entry_price
-   // if the pullback_entry_price is met or exceeded, signal = TRADE_SIGNAL_BUY
-   
-   else if(downtrend_ADR_triggered_price()>0) return signal=TRADE_SIGNAL_SELL;
-   
-   else return signal;
-   }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-// Checks for the entry of orders
-int signal_entry() // gets called for every tick
-  {
-   int signal=TRADE_SIGNAL_NEUTRAL;
-   
-/* Add 1 or more entry signals below. 
-   With more than 1 signal, you would follow this code using the signal_compare function. 
-   "signal=signal_compare(signal,signal_pullback_after_ADR_triggered());"
-   As each signal is compared with the previous signal, the signal variable will change and then the final signal wil get returned.
-*/ 
-   signal=signal_pullback_after_ADR_triggered();
-   return signal;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-// Checks for the exit of orders
-int signal_exit()
-  {
-   int signal=TRADE_SIGNAL_NEUTRAL;
-/* Add 1 or more entry signals below. 
-   With more than 1 signal, you would follow this code using the signal_compare function. 
-   "signal=signal_compare(signal,signal_pullback_after_ADR_triggered());"
-   As each signal is compared with the previous signal, the signal variable will change and then the final signal wil get returned.
-*/ 
-// The 3rd argument of the signal_compare function should explicitely be set to "true" every time.
-   return signal;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
 double calculate_lots()
   {
    double stoploss_pips=NormalizeDouble(ADR_pips*stoploss_percent,2);
@@ -728,42 +771,7 @@ double calculate_lots()
                   mm4_risk);
    return lots;
   }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-void close_all(int magic=-1)
-  {
-   exit_all_trades_set(ORDER_SET_ALL,magic);
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-void close_all_long(int magic=-1)
-  {
-   exit_all_trades_set(ORDER_SET_BUY,magic); // ORDER_SET_BUY includes everything (pending and active) orders related to buying
-   //exit_all_trades_set(ORDER_SET_BUY_STOP,magic);
-   //exit_all_trades_set(ORDER_SET_BUY_LIMIT,magic);
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-void close_all_short(int magic=-1)
-  {
-   exit_all_trades_set(ORDER_SET_SELL,EA_magic_num); // ORDER_SET_SELL includes everything (pending and active) orders related to selling
-   //exit_all_trades_set(ORDER_SET_SELL_STOP,magic);
-   //exit_all_trades_set(ORDER_SET_SELL_LIMIT,magic);
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-// Neutralizes situations where there is a conflict between the entry and exit signal.
-// TODO: This function is not yet being called. Since the entry and exit signals are passed by reference, these paremeters would need to be prepared in advance and stored in variables prior to calling the function.
-void signal_manage(ENUM_TRADE_SIGNAL &entry,ENUM_TRADE_SIGNAL &exit)
-  {
-   if(exit==TRADE_SIGNAL_VOID)                              entry=TRADE_SIGNAL_NEUTRAL;
-   if(exit==TRADE_SIGNAL_BUY && entry==TRADE_SIGNAL_SELL)   entry=TRADE_SIGNAL_NEUTRAL;
-   if(exit==TRADE_SIGNAL_SELL && entry==TRADE_SIGNAL_BUY)   entry=TRADE_SIGNAL_NEUTRAL;
-  }
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -878,20 +886,6 @@ bool modify(int ticket,double sl,double tp=-1,double entryPrice=-1,datetime expi
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int compare_doubles(double var1,double var2,int precision) // For the precision argument, often it is the number of digits after the price's decimal point.
-  {
-   double point=MathPow(10,-precision); // 10^(-precision) // MathPow(base, exponent value)
-   int var1_int=(int) (var1/point);
-   int var2_int=(int) (var2/point);
-   if(var1_int>var2_int)
-      return 1;
-   else if(var1_int<var2_int)
-      return -1;
-   return 0;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
 bool exit_order(int ticket,color a_color=clrNONE)
   {
    bool result=false;
@@ -952,7 +946,7 @@ void exit_all(int type=-1,int magic=-1)
 //|                                                                  |
 //+------------------------------------------------------------------+
 // This is similar to the exit_all function except that it allows you to choose more sets  to close. It will iterate through all open trades and close them based on the order type and magic number
-void exit_all_trades_set(ENUM_ORDER_SET type=-1,int magic=-1)  // -1 means all
+void exit_all_trades_set(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1)  // magic==-1 means that all orders/trades will close (including ones managed by other running EAs)
   {
    for(int i=OrdersTotal();i>=0;i--)
      {
@@ -1004,7 +998,7 @@ void exit_all_trades_set(ENUM_ORDER_SET type=-1,int magic=-1)  // -1 means all
                case ORDER_SET_PENDING:
                   if(ordertype>1) exit(ticket);
                   break;
-               default: exit(ticket);
+               default: exit(ticket); // this is the case where type==ORDER_SET_ALL falls into
               }
            }
         }
@@ -1068,8 +1062,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type)
 int send_and_get_order_ticket(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double sl,double tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
   {
    double entryPrice=0; 
-   double price_sl=0; 
-   double price_tp=0;
+   double price_sl=0, price_tp=0;
    bool instant_exec=!market;
    double point=MarketInfo(instrument,MODE_POINT); // getting the value of 1 point for the instrument
    datetime expire_time=0; // 0 means there is no expiration time for a pending order
@@ -1236,30 +1229,6 @@ void trailingstop_check_all_orders(int trail,int threshold,int step,int magic=-1
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int signal_compare(int current_signal,int added_signal,bool exit=false) 
-  {
-  // signals are evaluated two at a time and the result will be used to compared with other signals until all signals are compared
-   if(current_signal==TRADE_SIGNAL_VOID)
-      return current_signal;
-   else if(current_signal==TRADE_SIGNAL_NEUTRAL)
-      return added_signal;
-   else
-     {
-      if(added_signal==TRADE_SIGNAL_NEUTRAL)
-         return current_signal;
-      else if(added_signal==TRADE_SIGNAL_VOID)
-         return added_signal;
-      else if(added_signal!=current_signal)
-        {
-         if(exit) return TRADE_SIGNAL_VOID;
-         else return TRADE_SIGNAL_NEUTRAL;
-        }
-     }
-   return added_signal;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
 double mm(MM method,string instrument,double lots,double sl_pips,double risk_mm1_percent,double lots_mm2,double per_mm2,double risk_mm3,double risk_mm4)
   {
    double balance=AccountBalance();
@@ -1398,5 +1367,19 @@ void virtualstop_check_all_orders(int sl,int tp,int magic=-1)
          if(magic==-1 || magic==OrderMagicNumber())
             virtualstop_check_order(OrderTicket(),sl,tp);
      }
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int compare_doubles(double var1,double var2,int precision) // For the precision argument, often it is the number of digits after the price's decimal point.
+  {
+   double point=MathPow(10,-precision); // 10^(-precision) // MathPow(base, exponent value)
+   int var1_int=(int) (var1/point);
+   int var2_int=(int) (var2/point);
+   if(var1_int>var2_int)
+      return 1;
+   else if(var1_int<var2_int)
+      return -1;
+   return 0;
   }
 //+------------------------------------------------------------------+
