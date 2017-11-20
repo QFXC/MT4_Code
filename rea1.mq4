@@ -83,8 +83,8 @@ enum MM // Money Management
 	
 	input bool entry_new_bar=false; // Should you only enter trades when a new bar begins?
 	input bool wait_next_bar_on_load=false; // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade or calculate ADR?
-   input bool long_allowed=true;
-	input bool short_allowed=true;
+   input bool long_allowed=true; // Are long trades allowed?
+	input bool short_allowed=true; // Are short trades allowed?
 	input int max_directional_trades=1; // How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)
 	input bool exit_opposite_signal=true; // Should the EA exit trades when there is a signal in the opposite direction?
 	
@@ -148,7 +148,7 @@ enum MM // Money Management
 // Runs once when the EA is turned on
 int OnInit()
   {
-   EA_magic_num=generate_magic();
+   EA_magic_num=generate_magic_num();
    int range_start_time=(start_time_hour*3600)+(start_time_minute*60);
    int range_end_time=(end_time_hour*3600)+(end_time_minute*60);
    int exit_time=(exit_time_hour*3600)+(exit_time_minute*60);
@@ -171,45 +171,57 @@ int OnInit()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int generate_magic()
+int generate_magic_num()
 {
    int total_variable_count=10;
-   double array[10]; // only allowed to put constants in the array
    string symbols_string=symbol;
-   double other_variable=(double)0;
    string unique_string="";
+   double input_variables[10]; // only allowed to put constants in the array
    
+   // add all the double and int global input variables to the input_variables array which will allow the magic_int to be unique based upon how the user sets them
+   
+   
+
+  
+  
+  
+  
+  
+  
+  
+  
    int symbols_int=StrToInteger(symbols_string);
    string symbol_num_string=IntegerToString(symbols_int);
 
    for(int i=0;i<total_variable_count-1;i++)
      {
-      if(MathIsValidNumber(other_variable))
+     // get the "i"th global input variables from the input_variable
+
+      double another_variable=input_variables[i];
+      
+      if(MathIsValidNumber(another_variable))
         {
-         if(MathMod(other_variable,1)!=0) // if it is NOT a whole number
+         if(MathMod(another_variable,1)!=0) // if it is NOT a whole number
            {
-            other_variable=NormalizeDouble(other_variable,2)*100; // TODO: does NormalizeDouble make it so doubles only have two numbers after the decimal point?
+            another_variable=NormalizeDouble(another_variable,2)*100; // TODO: does NormalizeDouble make it so doubles only have two numbers after the decimal point?
            }
-          // now any number that gets to this point can be converted into an int without any loss of data
-         int other_variable_int=(int)other_variable;
-  
-         string num_string=IntegerToString(other_variable_int);
+           
+         // now any number that gets to this point can be converted into an int without any loss of data
+         int another_variable_int=(int)another_variable;
+         string num_string=IntegerToString(another_variable_int);
          
-         if(other_variable_int>0) unique_string=StringConcatenate("1",num_string); // create a unique string for this specific positive number
-         else if(other_variable_int!=NULL) unique_string=StringConcatenate("0",num_string); // create a unique string for this specific negative number 
-        
+         if(another_variable_int>0) unique_string=StringConcatenate("1",num_string); // create a unique string for this specific positive number
+         else if(another_variable_int!=NULL) unique_string=StringConcatenate("0",num_string); // create a unique string for this specific negative number 
         }
       else // it must be a string or some other unknown type
         {
-         Alert("A string variable was used to try to make the magic number. The EA cannot go forward until the Expert Advisor MQL4 programmer fixes the code.");
+         Alert("A non-valid number was used to try to make the magic number. Only numbers are allowed. The EA cannot go forward until the Expert Advisor MQL4 programmer fixes the code.");
         }
      }
    string magic_string=StringConcatenate(symbol_num_string,unique_string);
    int magic_int=StrToInteger(magic_string);
    return magic_int;
-  
 /*
-
 // started work on a different option if the one above does not work out.
    MathSrand(1);
    int large_random_num=MathRand()*MathRand();
@@ -277,51 +289,52 @@ double OnTester()
 // Runs on every tick
 void OnTick()
   {
-   static bool adr_generated=false;
+   static bool ready=false;
    static bool in_time_range=false;
    bool is_new_M5_bar=is_new_bar(symbol,PERIOD_M5,wait_next_bar_on_load);
    datetime current_time=TimeCurrent();
+   
+   int exit_signal=signal_exit(); // the exit signal should be made the priority and doesn't require in_time_range or adr_generated to be true
+
+   // exit signal logic
+   if(exit_signal==TRADE_SIGNAL_VOID)
+     {
+      close_all(EA_magic_num); // close all pending and orders for the specific EA's orders. Don't do validation to see if there is an EA_magic_num because the EA should try to exit even if for some reason there is none.
+     }
+   else if(exit_signal==TRADE_SIGNAL_BUY)
+     {
+      close_all_short(EA_magic_num);
+     }
+   else if(exit_signal==TRADE_SIGNAL_SELL)
+     {
+      close_all_long(EA_magic_num);
+     }
 
    if(is_new_M5_bar) // only check if it is in the time range once the EA is loaded and then at the beginning of every M5 bar afterward
      {
       in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);  
       
-      if(in_time_range && !adr_generated) 
+      if(in_time_range && !ready) 
         {
          ADR_pips=get_ADR();
-         if(ADR_pips>0) 
+         if(ADR_pips>0 && EA_magic_num>0) 
            {
-            adr_generated=true; // the ADR will generate and won't generate again until after the cycle of not being in the time range completes
+            ready=true; // the ADR will generate and won't generate again until after the cycle of not being in the time range completes
            }
          else 
            {
-            adr_generated=false;
+            ready=false;
             return;
            }
         }
      }
-   if(in_time_range && adr_generated)
+   if(in_time_range && ready)
      {
       // entry and exit signals
       int max_trades=max_directional_trades;
-      int enter_signal=0,exit_signal=0;
+      int enter_signal=0;
       
-      enter_signal=signal_entry();  
-      exit_signal=signal_exit();
-   
-      // exit signal logic
-      if(exit_signal==TRADE_SIGNAL_VOID)
-        {
-         close_all(); // close all pending and orders for the specific EAs orders
-        }
-      else if(exit_signal==TRADE_SIGNAL_BUY)
-        {
-         close_all_short();
-        }
-      else if(exit_signal==TRADE_SIGNAL_SELL)
-        {
-         close_all_long();
-        }
+      enter_signal=signal_entry(); // the entry signal requires in_time_range, adr_generated, and EA_magic_num>0 to be true.
    
       // entry signal logic
       int long_order_count=0, short_order_count=0;
@@ -359,7 +372,7 @@ void OnTick()
      }
     else
      {
-       adr_generated=false; // making sure to set it to false so when the time is within the time range again, the ADR can get generated.
+       ready=false; // this makes sure to set it to false so when the time is within the time range again, the ADR can get generated.
        bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
        if(time_to_exit) close_all(); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
      }  
@@ -426,6 +439,28 @@ bool is_new_bar(string instrument,int timeframe,bool wait_for_next_bar=false)
      }
    else return false; // if it is not a new bar
   }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool time_to_exit(datetime current_time,int hour,int min,int gmt_offset=0) 
+{
+   if(gmt_offset!=0) 
+     {
+      hour+=gmt_offset;
+      hour+=gmt_offset;
+     }
+// Since a non-zero gmt_offset will make the start and end hour go beyond acceptable paremeters (below 0 or above 23), change the start_hour and end_hour to military time.
+   if(hour>23) hour=(hour-23)-1;
+   else if(hour<0) hour=23+hour+1;
+   
+   int timehour=TimeHour(current_time);
+   int timeminute=TimeMinute(current_time);
+   int exit_hour=hour*3600;
+   int exit_min=min*60;
+   
+   if(timehour==exit_hour && timeminute==exit_min) return true; // this will only give the signal to exit for every tick for 1 minute per day
+   else return false;
+}
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -648,28 +683,6 @@ int signal_pullback_after_ADR_triggered()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool time_to_exit(datetime current_time,int hour,int min,int gmt_offset=0) 
-{
-   if(gmt_offset!=0) 
-     {
-      hour+=gmt_offset;
-      hour+=gmt_offset;
-     }
-// Since a non-zero gmt_offset will make the start and end hour go beyond acceptable paremeters (below 0 or above 23), change the start_hour and end_hour to military time.
-   if(hour>23) hour=(hour-23)-1;
-   else if(hour<0) hour=23+hour+1;
-   
-   int timehour=TimeHour(current_time);
-   int timeminute=TimeMinute(current_time);
-   int exit_hour=hour*3600;
-   int exit_min=min*60;
-   
-   if(timehour==exit_hour && timeminute==exit_min) return true; // this will only give the signal to exit for every tick for 1 minute per day
-   else return false;
-}
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
 // Checks for the entry of orders
 int signal_entry() // gets called for every tick
   {
@@ -690,9 +703,12 @@ int signal_entry() // gets called for every tick
 int signal_exit()
   {
    int signal=TRADE_SIGNAL_NEUTRAL;
-// Add exit signals below. As each signal is compared with the previous signal, the signal variable will change and then get returned.
+/* Add 1 or more entry signals below. 
+   With more than 1 signal, you would follow this code using the signal_compare function. 
+   "signal=signal_compare(signal,signal_pullback_after_ADR_triggered());"
+   As each signal is compared with the previous signal, the signal variable will change and then the final signal wil get returned.
+*/ 
 // The 3rd argument of the signal_compare function should explicitely be set to "true" every time.
-// Return the exit signal
    return signal;
   }
 //+------------------------------------------------------------------+
@@ -715,68 +731,27 @@ double calculate_lots()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void try_to_enter_order(ENUM_ORDER_TYPE type)
+void close_all(int magic=-1)
   {
-   double distance_pips;
-   color arrow_color;
-   
-   if(pullback_percent==0 || pullback_percent==NULL) distance_pips=0;
-   else distance_pips=NormalizeDouble(ADR_pips*pullback_percent,2);
-   
-   if(type==OP_BUY /*|| type==OP_BUYSTOP || type==OP_BUYLIMIT*/) // what is the purpose of checking if it is a buystop or sellstop if the only type that gets sent to this function is OP_BUY?
-     {
-      if(!long_allowed) return;
-      distance_pips=distance_pips*-1; // there are scenerios where this can be 0*-1=0
-      arrow_color=arrow_color_long;
-     }
-   else if(type==OP_SELL /*|| type==OP_SELLSTOP || type==OP_SELLLIMIT*/)
-     {
-      if(!short_allowed) return;
-      arrow_color=arrow_color_short;
-     }
-   else return;
-      
-   double lots=calculate_lots();
-   
-   // TODO: you may want to calculate and then add another argument (entering_max_slippage) for the check_for_entry_errors function
-
-   // remember that you could add more arguments to the end instead of accepting the defaults of the check_for_entry_errors function
-   check_for_entry_errors(symbol,
-               type,
-               lots,
-               distance_pips, // This used to be 0 because it was originally for opening a market order.
-               NormalizeDouble(ADR_pips*stoploss_percent,2),
-               NormalizeDouble(ADR_pips*takeprofit_percent,2),
-               order_comment,
-               EA_magic_num,
-               order_expire,
-               arrow_color,
-               market_exec); 
+   exit_all_trades_set(ORDER_SET_ALL,magic);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void close_all()
+void close_all_long(int magic=-1)
   {
-   exit_all_trades_set(ORDER_SET_ALL,EA_magic_num);
+   exit_all_trades_set(ORDER_SET_BUY,magic); // ORDER_SET_BUY includes everything (pending and active) orders related to buying
+   //exit_all_trades_set(ORDER_SET_BUY_STOP,magic);
+   //exit_all_trades_set(ORDER_SET_BUY_LIMIT,magic);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void close_all_long()
-  {
-   exit_all_trades_set(ORDER_SET_BUY,EA_magic_num); // ORDER_SET_BUY includes everything (pending and active) orders related to buying
-//exit_all_trades_set(ORDER_SET_BUY_STOP,order_magic);
-//exit_all_trades_set(ORDER_SET_BUY_LIMIT,order_magic);
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-void close_all_short()
+void close_all_short(int magic=-1)
   {
    exit_all_trades_set(ORDER_SET_SELL,EA_magic_num); // ORDER_SET_SELL includes everything (pending and active) orders related to selling
-   //exit_all_trades_set(ORDER_SET_SELL_STOP,order_magic);
-   //exit_all_trades_set(ORDER_SET_SELL_LIMIT,order_magic);
+   //exit_all_trades_set(ORDER_SET_SELL_STOP,magic);
+   //exit_all_trades_set(ORDER_SET_SELL_LIMIT,magic);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1045,6 +1020,47 @@ bool acceptable_spread(string instrument,bool refresh_rates)
    if(compare_doubles(spread,(ADR_pips*max_spread_percent)*Point,1)<=0) return true; // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
    else return false;
 }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void try_to_enter_order(ENUM_ORDER_TYPE type)
+  {
+   double distance_pips;
+   color arrow_color;
+   
+   if(pullback_percent==0 || pullback_percent==NULL) distance_pips=0;
+   else distance_pips=NormalizeDouble(ADR_pips*pullback_percent,2);
+   
+   if(type==OP_BUY /*|| type==OP_BUYSTOP || type==OP_BUYLIMIT*/) // what is the purpose of checking if it is a buystop or sellstop if the only type that gets sent to this function is OP_BUY?
+     {
+      if(!long_allowed) return;
+      distance_pips=distance_pips*-1; // there are scenerios where this can be 0*-1=0
+      arrow_color=arrow_color_long;
+     }
+   else if(type==OP_SELL /*|| type==OP_SELLSTOP || type==OP_SELLLIMIT*/)
+     {
+      if(!short_allowed) return;
+      arrow_color=arrow_color_short;
+     }
+   else return;
+      
+   double lots=calculate_lots();
+   
+   // TODO: you may want to calculate and then add another argument (entering_max_slippage) for the check_for_entry_errors function
+
+   // remember that you could add more arguments to the end instead of accepting the defaults of the check_for_entry_errors function
+   check_for_entry_errors(symbol,
+               type,
+               lots,
+               distance_pips, // This used to be 0 because it was originally for opening a market order.
+               NormalizeDouble(ADR_pips*stoploss_percent,2),
+               NormalizeDouble(ADR_pips*takeprofit_percent,2),
+               order_comment,
+               EA_magic_num,
+               order_expire,
+               arrow_color,
+               market_exec); 
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
