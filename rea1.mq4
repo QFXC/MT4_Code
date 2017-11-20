@@ -66,7 +66,8 @@ enum MM // Money Management
 // general settings
 	int charts_timeframe=PERIOD_M5;
 	string symbol=NULL;
-	
+   static int EA_magic_num; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
+   
 // virtual stoploss variables
 	int virtual_sl=0; // TODO: Change to a percent of ADR
 	int virtual_tp=0; // TODO: Change to a percent of ADR
@@ -80,84 +81,85 @@ enum MM // Money Management
 	int trail_threshold=500; // TODO: Change to a percent of ADR
 	int trail_step=20; // the minimum difference between the proposed new value of the stoploss to the current stoploss price // TODO: Change to a percent of ADR
 	
-	input bool exit_opposite_signal=true; // Should the EA exit trades when there is a signal in the opposite direction?
-	input int max_directional_trades=1; // How many trades can the EA enter at the same time on the current chart? TODO: make sure you can have 1 long and 1 short at the same time.
 	input bool entry_new_bar=false; // Should you only enter trades when a new bar begins?
-	input bool wait_next_bar_on_load=true; // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade?
+	input bool wait_next_bar_on_load=false; // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade or calculate ADR?
+   input bool long_allowed=true;
+	input bool short_allowed=true;
+	input int max_directional_trades=1; // How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)
+	input bool exit_opposite_signal=true; // Should the EA exit trades when there is a signal in the opposite direction?
 	
 // time filters - only allow EA to enter trades between a range of time in a day
 	input int start_time_hour=0; // eligible time to start a trade. 0-23
 	input int start_time_minute=30; // 0-59
 	input int end_time_hour=23; // banned time to start a trade. 0-23
 	input int end_time_minute=0; // 0-59
-	input int gmt_hour_offset=-3; // The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). Adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
-
    input int exit_time_hour=23; // the exit_time should be before the trading range start_time and after trading range end_time
    input int exit_time_minute=30;
+	input int gmt_hour_offset=-3; // -3 if using Gain Capital. The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). Adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
    
 // enter_order
 	input double takeprofit_percent=0.3; // Must be a positive number. // TODO: Change to a percent of ADR (What % of ADR should you tarket?)
    input double stoploss_percent=1.0; // Must be a positive number.
-	input double pullback_percent=-0.50; //  If you want a limit order, it must be negative. If you want a stop order, it must be positive.
+	input double pullback_percent=-0.50; //  If you want a buy or sell limit order, it must be negative.
 	input double max_spread_percent=.04; // Must be positive. What percent of ADR should the spread be less than? (Only for immediate orders and not pending.)
 	
-	input int entering_max_slippage=5; // must be in whole number. // the default used to be 50 // TODO: allow slippage in my favor but not against me and change to a percent of ADR
+	input int entering_max_slippage=5; // Must be in whole number. // the default used to be 50
 //input int unfavorable_slippage=5;
 	input string order_comment="Relativity EA"; // TODO: Add the parameter settings for the order to the message. // allows the robot to enter a description for the order. An empty string is a default value.
-	input int order_expire=// In seconds. If none, type 0. The expiration countdown is only used for pending orders.
+	
+	// TODO: create the ability to exit active trades after a certain amount of time has passed and it has not reached takeprofit or stoploss
+	input int order_expire=// In how many seconds do you want your pending orders to expire?
 	   /*Minutes=**/120
 	   *
 	   /*Seconds in a minute=*/60; 
 	input bool market_exec=false; // False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
-	input bool long_allowed=true;
-	input bool short_allowed=false; // TODO: set this back to true once you have all of the shorting code done
-	input color arrow_color_short=clrRed; // you may want to remove all arrow color settings
-	input color arrow_color_long=clrGreen; // you may want to remove all arrow color settings
+	input color arrow_color_short=clrRed;
+	input color arrow_color_long=clrGreen;
 	
 //exit_order
-	input int exiting_max_slippage=50; // TODO: Change to a percent of ADR // additional argument i added
+	input int exiting_max_slippage=50;
 	
 //calculate_lots/mm variables
-	input double lot_size=0.1;
 	MM money_management=MM_RISK_PERCENT;
 	double mm1_risk_percent=0.02; // percent risked when using the MM_RISK_PERCENT money management calculations
+   // these variables will not be used with the MM_RISK_PERCENT money management strategy
+	input double lot_size=0.1;
 	double mm2_lots=0.1;
 	double mm2_per=1000;
 	double mm3_risk=50;
 	double mm4_risk=50;
 	
 // ADR()
-   input double change_ADR_percent=-.25;
+   input double change_ADR_percent=-.25; // this can be a negative or positive decimal or whole number
    input int num_ADR_months=2; // How months back should you use to calculate the average ADR? (Divisible by 1) TODO: this is not implemented yet.
-   input double above_ADR_outlier_percent=1.5; // How much should the ADR be surpassed an a day for it to be neglected from the average calculation? TODO: This is not implemented yet.
-   input double below_ADR_outlier_percent=.5;
+   input double above_ADR_outlier_percent=1.5; // Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be surpassed in a day for it to be neglected from the average calculation?
+   input double below_ADR_outlier_percent=.5; // Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be under in a day for it to be neglected from the average calculation?
 
 // Market Trends
    input int H1s_to_roll=3; // How many hours should you roll to determine a short term market trend? (You are only allowed to input values divisible by 0.5.)
    input double max_weekend_gap_percent=.1; // What is the maximum weekend gap (as a percent of ADR) for H1s_to_roll to not take the previous week into account?
    input bool include_last_week=true; // Should the EA take Friday's moves into account when starting to determine length of the current move?
    static int ADR_pips; // TODO: make sure this maintains the value that was generated OnInit()
-   static int order_magic; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-bool magic_num_in_use(int num)
-{
-   return false;
-}
+   
+
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 // Runs once when the EA is turned on
 int OnInit()
   {
-   order_magic=generate_magic();
+   EA_magic_num=generate_magic();
    int range_start_time=(start_time_hour*3600)+(start_time_minute*60);
    int range_end_time=(end_time_hour*3600)+(end_time_minute*60);
    int exit_time=(exit_time_hour*3600)+(exit_time_minute*60);
       if(exit_time>range_start_time && exit_time<range_end_time)
         {
          Alert("Make sure that the trade exit_time_hour and exit_time_minute combination does not fall within the trading range start and end times or else there will be trouble!");
+         return(INIT_FAILED);
+        }
+      else if(EA_magic_num<=0)
+        {
+         Alert("There is not a valid magic number for the Expert Advisor (EA). Without one, the EA will not run correctly. Get a MQL4 programmer check the code to find out why.");
          return(INIT_FAILED);
         }
       else 
@@ -169,36 +171,46 @@ int OnInit()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-string getUninitReasonText(int reasonCode) 
-  { 
-   string text=""; 
-
-   switch(reasonCode) 
-     { 
-      case REASON_ACCOUNT: 
-         text="The account was changed";break; 
-      case REASON_CHARTCHANGE: 
-         text="The symbol or timeframe was changed";break; 
-      case REASON_CHARTCLOSE: 
-         text="The chart was closed";break; 
-      case REASON_PARAMETERS: 
-         text="The input-parameter was changed";break; 
-      case REASON_RECOMPILE: 
-         text="The program "+__FILE__+" was recompiled";break; 
-      case REASON_REMOVE: 
-         text="Program "+__FILE__+" was removed from chart";break; 
-      case REASON_TEMPLATE: 
-         text="A new template was applied to chart";break; 
-      default:text="A different reason"; 
-     } 
-
-   return text; 
-  } 
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
 int generate_magic()
 {
+   int total_variable_count=10;
+   double array[10]; // only allowed to put constants in the array
+   string symbols_string=symbol;
+   double other_variable=(double)0;
+   string unique_string="";
+   
+   int symbols_int=StrToInteger(symbols_string);
+   string symbol_num_string=IntegerToString(symbols_int);
+
+   for(int i=0;i<total_variable_count-1;i++)
+     {
+      if(MathIsValidNumber(other_variable))
+        {
+         if(MathMod(other_variable,1)!=0) // if it is NOT a whole number
+           {
+            other_variable=NormalizeDouble(other_variable,2)*100; // TODO: does NormalizeDouble make it so doubles only have two numbers after the decimal point?
+           }
+          // now any number that gets to this point can be converted into an int without any loss of data
+         int other_variable_int=(int)other_variable;
+  
+         string num_string=IntegerToString(other_variable_int);
+         
+         if(other_variable_int>0) unique_string=StringConcatenate("1",num_string); // create a unique string for this specific positive number
+         else if(other_variable_int!=NULL) unique_string=StringConcatenate("0",num_string); // create a unique string for this specific negative number 
+        
+        }
+      else // it must be a string or some other unknown type
+        {
+         Alert("A string variable was used to try to make the magic number. The EA cannot go forward until the Expert Advisor MQL4 programmer fixes the code.");
+        }
+     }
+   string magic_string=StringConcatenate(symbol_num_string,unique_string);
+   int magic_int=StrToInteger(magic_string);
+   return magic_int;
+  
+/*
+
+// started work on a different option if the one above does not work out.
    MathSrand(1);
    int large_random_num=MathRand()*MathRand();
    
@@ -207,6 +219,8 @@ int generate_magic()
      large_random_num=MathRand()*MathRand(); // from 1 through 1,073,676,289
    }
    return large_random_num;
+   
+ */
 }
 
 //+------------------------------------------------------------------+
@@ -215,12 +229,44 @@ int generate_magic()
 // Runs once when the EA is turned off
 void OnDeinit(const int reason)
   {
-//--- The first way to get the uninitialization reason code 
-   Print(__FUNCTION__,"_Uninitalization reason code = ",reason); 
-//--- The second way to get the uninitialization reason code 
-   Print(__FUNCTION__,"_UninitReason = ",getUninitReasonText(_UninitReason)); 
+//--- The first way to get the uninitialization reason code
+   Print(__FUNCTION__,"_Uninitalization reason code = ",reason);
+/*
+//The second way to get the uninitialization reason code
+   Print(__FUNCTION__,"_UninitReason = ",getUninitReasonText(_UninitReason));
+*/
   }
-  
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+string getUninitReasonText(int reasonCode)
+  {
+   string text="";
+
+   switch(reasonCode)
+     {
+      case REASON_ACCOUNT:
+         text="The account was changed";break;
+      case REASON_CHARTCHANGE:
+         text="The symbol or timeframe was changed";break;
+      case REASON_CHARTCLOSE:
+         text="The chart was closed";break;
+      case REASON_PARAMETERS:
+         text="The input-parameter was changed";break;
+      case REASON_RECOMPILE: 
+         text="The program "+__FILE__+" was recompiled";break;
+      case REASON_REMOVE:
+         text="Program "+__FILE__+" was removed from chart";break;
+      case REASON_TEMPLATE:
+         text="A new template was applied to chart";break;
+      default:text="A different reason";
+     }
+
+   return text; 
+  } 
+//+------------------------------------------------------------------+
+//| Expert testing function (not required)                           |
+//+------------------------------------------------------------------+
 double OnTester()
   {
     return 0;
@@ -233,10 +279,10 @@ void OnTick()
   {
    static bool adr_generated=false;
    static bool in_time_range=false;
-   bool is_new_M5_bar=is_new_bar(symbol,PERIOD_M5,wait_next_bar_on_load); // this will run on every tick
+   bool is_new_M5_bar=is_new_bar(symbol,PERIOD_M5,wait_next_bar_on_load);
    datetime current_time=TimeCurrent();
 
-   if(is_new_M5_bar) // only check if it is in the time range once the EA is loaded and then every 5 minutes afterward
+   if(is_new_M5_bar) // only check if it is in the time range once the EA is loaded and then at the beginning of every M5 bar afterward
      {
       in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);  
       
@@ -254,7 +300,6 @@ void OnTick()
            }
         }
      }
-
    if(in_time_range && adr_generated)
      {
       // entry and exit signals
@@ -284,8 +329,8 @@ void OnTick()
         {
          if(enter_signal==TRADE_SIGNAL_BUY)
            {
-            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_SELL,order_magic);
-            long_order_count=count_orders(ORDER_SET_LONG,order_magic); // counts all long (active and pending) orders for the current EA
+            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_SELL,EA_magic_num);
+            long_order_count=count_orders(ORDER_SET_LONG,EA_magic_num); // counts all long (active and pending) orders for the current EA
             if(long_order_count<max_trades) // if you have not yet reached the user's maximum allowed long trades
               {
                if(!entry_new_bar || 
@@ -295,8 +340,8 @@ void OnTick()
            }
          else if(enter_signal==TRADE_SIGNAL_SELL)
            {
-            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_BUY,order_magic);
-            short_order_count=count_orders(ORDER_SET_SHORT,order_magic); // counts all short (active and pending) orders for the current EA
+            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_BUY,EA_magic_num);
+            short_order_count=count_orders(ORDER_SET_SHORT,EA_magic_num); // counts all short (active and pending) orders for the current EA
             if(short_order_count<max_trades) // if you have not yet reached the user's maximum allowed short trades
               {
                if(!entry_new_bar || 
@@ -364,19 +409,19 @@ bool is_new_bar(string instrument,int timeframe,bool wait_for_next_bar=false)
    static double open_price=0;
    datetime current_bar_open_time=iTime(instrument,timeframe,0);
    double current_bar_open_price=iOpen(instrument,timeframe,0);
-   int digits=(int)MarketInfo(instrument,MODE_DIGITS);  // TODO: why are the digits being converted to an int?
+   int digits=(int)MarketInfo(instrument,MODE_DIGITS);
    
    if(bar_time==0 && open_price==0) // If it is the first time the function is called or it is the start of a new bar. This could be after the open time (aka in the middle) of a bar.
      {
-      bar_time=current_bar_open_time; // update the time to the current time
-      open_price=current_bar_open_price; // update the price to the current price
+      bar_time=current_bar_open_time;
+      open_price=current_bar_open_price;
       if(wait_for_next_bar) return false; // after loading the EA for the first time, if the user wants to wait for the next bar for the bar to be considered new
       else return true;
      }
-   else if(current_bar_open_time>bar_time && compare_doubles(open_price,current_bar_open_price,digits)!=0) // determine if the opening time and price of this bar is different than the previous one
+   else if(current_bar_open_time>bar_time && compare_doubles(open_price,current_bar_open_price,digits)!=0) // if the opening time and price of this bar is different than the opening time and price of the previous one
      {
-      bar_time=current_bar_open_time; // update the time to the current time
-      open_price=current_bar_open_price; // update the price to the current price
+      bar_time=current_bar_open_time;
+      open_price=current_bar_open_price;
       return true;
      }
    else return false; // if it is not a new bar
@@ -387,7 +432,7 @@ bool is_new_bar(string instrument,int timeframe,bool wait_for_next_bar=false)
 int ADR_calculation()
 {
    int three_mnth_sunday_count=0;
-   int three_mnth_num_days=3*22; // There are about 22 business days a month.   
+   int three_mnth_num_days=3*22; // There are about 22 business days a month.
    
    for(int i=three_mnth_num_days;i>0;i--) // count the number of Sundays in the past 6 months
       {
@@ -475,13 +520,15 @@ int ADR_calculation()
 int get_ADR() // get the Average Daily Range
 {
    static int adr=0;
-   bool is_new_D1_bar=is_new_bar(symbol,PERIOD_D1,false);
+   bool is_new_D1_bar=is_new_bar(symbol,PERIOD_D1,wait_next_bar_on_load);
    
+   if(below_ADR_outlier_percent>above_ADR_outlier_percent || num_ADR_months<=0 || num_ADR_months ==NULL || MathMod(H1s_to_roll,.5)!=0)
+      return -1; // if the user inputed the wrong outlier variables or a H1s_to_roll number that is not divisible by .5, it is not possible to calculate ADR
    if(adr==0) // if it is the first time the function is called
      {
-     int calculated_adr=ADR_calculation();
-     adr=calculated_adr; // make the function remember the calculation the next time it is called
-     return adr;
+      int calculated_adr=ADR_calculation();
+      adr=calculated_adr; // make the function remember the calculation the next time it is called
+      return adr;
      }
    if(is_new_D1_bar) // if it is a fresh new bar
      {
@@ -498,7 +545,8 @@ int get_moves_start_bar()
    datetime week_start_open_time=iTime(symbol,PERIOD_W1,0)+(gmt_hour_offset*3600); // The iTime of the week bar gives you the time that the week is 0:00 on the chart so I shifted the time to start when the markets actually start.
    int week_start_bar=iBarShift(symbol,PERIOD_M5,week_start_open_time,false);
    int move_start_bar=H1s_to_roll*12;
-      
+   
+  
    if(move_start_bar<=week_start_bar)
      {
       return move_start_bar;
@@ -700,7 +748,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type)
                NormalizeDouble(ADR_pips*stoploss_percent,2),
                NormalizeDouble(ADR_pips*takeprofit_percent,2),
                order_comment,
-               order_magic,
+               EA_magic_num,
                order_expire,
                arrow_color,
                market_exec); 
@@ -710,14 +758,14 @@ void try_to_enter_order(ENUM_ORDER_TYPE type)
 //+------------------------------------------------------------------+
 void close_all()
   {
-   exit_all_trades_set(ORDER_SET_ALL,order_magic);
+   exit_all_trades_set(ORDER_SET_ALL,EA_magic_num);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void close_all_long()
   {
-   exit_all_trades_set(ORDER_SET_BUY,order_magic); // ORDER_SET_BUY includes everything (pending and active) orders related to buying
+   exit_all_trades_set(ORDER_SET_BUY,EA_magic_num); // ORDER_SET_BUY includes everything (pending and active) orders related to buying
 //exit_all_trades_set(ORDER_SET_BUY_STOP,order_magic);
 //exit_all_trades_set(ORDER_SET_BUY_LIMIT,order_magic);
   }
@@ -726,7 +774,7 @@ void close_all_long()
 //+------------------------------------------------------------------+
 void close_all_short()
   {
-   exit_all_trades_set(ORDER_SET_SELL,order_magic); // ORDER_SET_SELL includes everything (pending and active) orders related to selling
+   exit_all_trades_set(ORDER_SET_SELL,EA_magic_num); // ORDER_SET_SELL includes everything (pending and active) orders related to selling
    //exit_all_trades_set(ORDER_SET_SELL_STOP,order_magic);
    //exit_all_trades_set(ORDER_SET_SELL_LIMIT,order_magic);
   }
