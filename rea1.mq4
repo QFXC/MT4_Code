@@ -49,7 +49,8 @@ enum ENUM_ORDER_SET
    ORDER_SET_LIMIT,
    ORDER_SET_STOP,
    ORDER_SET_MARKET,
-   ORDER_SET_PENDING
+   ORDER_SET_PENDING,
+   ORDER_SET_SHORT_LONG_LIMIT_MARKET
   };
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -334,20 +335,20 @@ void OnTick()
      }
    if(in_time_range && ready)
      {
-      int max_trades=max_directional_trades; // maximum trades in one direction for the current chart
-      int within_x_hours=max_trades_within_x_hours;
-      
       int enter_signal=0; 
       enter_signal=signal_entry(); // the entry signal requires in_time_range, adr_generated, and EA_magic_num>0 to be true.
    
       int long_order_count=0, short_order_count=0;
+      int opened_order_recently_count=0;
+      
       if(enter_signal>0) // if there is a signal to enter a trade
         {
          if(enter_signal==TRADE_SIGNAL_BUY)
            {
             if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_SELL,EA_magic_num);
             long_order_count=count_orders(ORDER_SET_LONG,EA_magic_num,MODE_TRADES); // counts all long (active and pending) orders for the current EA
-            if(long_order_count<max_trades) // if you have not yet reached the user's maximum allowed long trades
+            opened_order_recently_count=count_orders(ORDER_SET_SHORT_LONG_LIMIT_MARKET,EA_magic_num,MODE_HISTORY);
+            if(long_order_count<max_directional_trades && opened_order_recently_count<max_trades_within_x_hours) // if you have not yet reached the user's maximum allowed long trades
               {
                if(!entry_new_bar || 
                   (entry_new_bar && is_new_M5_bar))
@@ -358,7 +359,8 @@ void OnTick()
            {
             if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_BUY,EA_magic_num);
             short_order_count=count_orders(ORDER_SET_SHORT,EA_magic_num,MODE_TRADES); // counts all short (active and pending) orders for the current EA
-            if(short_order_count<max_trades) // if you have not yet reached the user's maximum allowed short trades
+            opened_order_recently_count=count_orders(ORDER_SET_SHORT_LONG_LIMIT_MARKET,EA_magic_num,MODE_HISTORY);
+            if(short_order_count<max_directional_trades && opened_order_recently_count<max_trades_within_x_hours) // if you have not yet reached the user's maximum allowed short trades
               {
                if(!entry_new_bar || 
                   (entry_new_bar && is_new_M5_bar))
@@ -1270,7 +1272,7 @@ double mm(MM method,string instrument,double lots,double sl_pips,double risk_mm1
 int count_orders(ENUM_ORDER_SET type=-1,int magic=-1,int pool=MODE_TRADES) // With pool, you can define whether to count current orders (MODE_TRADES) or closed and cancelled orders (MODE_HISTORY).
   {
    int count=0;
-   int pool_end_index=0; // is the newest order in the list is at index position is 0
+   int pool_end_index=0;
    
    if(pool==MODE_TRADES) 
      {
@@ -1325,6 +1327,10 @@ int count_orders(ENUM_ORDER_SET type=-1,int magic=-1,int pool=MODE_TRADES) // Wi
                   break;
                case ORDER_SET_SHORT:
                   if(ordertype==OP_SELL || ordertype==OP_SELLLIMIT /*|| ordertype==OP_SELLSTOP*/)
+                  count++;
+                  break;
+               case ORDER_SET_SHORT_LONG_LIMIT_MARKET:
+                  if(ordertype==OP_BUY || ordertype==OP_BUYLIMIT || ordertype==OP_SELL || ordertype==OP_SELLLIMIT /*|| ordertype==OP_SELLSTOP*/)
                   count++;
                   break;
                case ORDER_SET_LIMIT:
