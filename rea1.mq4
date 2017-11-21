@@ -29,6 +29,8 @@ enum ENUM_TRADE_SIGNAL  // since ENUM_ORDER_TYPE is not enough, this enum was cr
    TRADE_SIGNAL_NEUTRAL, // no direction is determined. This happens when buy and sell signals are compared with each other.
    TRADE_SIGNAL_BUY, // buy
    TRADE_SIGNAL_SELL // sell
+   
+   // TODO: should you create TRADE_SIGNAL_SIT_ON_HANDS that will override all other buy and sell signals? (but not the void one)
   };
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -88,6 +90,7 @@ enum MM // Money Management
 	input int max_directional_trades=1; // How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)
 	input int max_trades_within_x_hours=1; // TODO: work on this
 	input int x_hours=24; // TODO: work on this
+	input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
 	input bool exit_opposite_signal=true; // Should the EA exit trades when there is a signal in the opposite direction?
 	
 // time filters - only allow EA to enter trades between a range of time in a day
@@ -154,21 +157,22 @@ int OnInit()
    int range_start_time=(start_time_hour*3600)+(start_time_minute*60);
    int range_end_time=(end_time_hour*3600)+(end_time_minute*60);
    int exit_time=(exit_time_hour*3600)+(exit_time_minute*60);
-      if(exit_time>range_start_time && exit_time<range_end_time)
-        {
-         Alert("Make sure that the trade exit_time_hour and exit_time_minute combination does not fall within the trading range start and end times or else there will be trouble!");
-         return(INIT_FAILED);
-        }
-      else if(EA_magic_num<=0)
-        {
-         Alert("There is not a valid magic number for the Expert Advisor (EA). Without one, the EA will not run correctly. Get a MQL4 programmer check the code to find out why.");
-         return(INIT_FAILED);
-        }
-      else 
-        {
-         Alert("The initialization succeeded.");
-         return(INIT_SUCCEEDED);
-        }
+   
+   if(exit_time>range_start_time && exit_time<range_end_time)
+     {
+      Alert("Make sure that the trade exit_time_hour and exit_time_minute combination does not fall within the trading range start and end times or else there will be trouble!");
+      return(INIT_FAILED);
+     }
+   else if(EA_magic_num<=0)
+     {
+      Alert("There is not a valid magic number for the Expert Advisor (EA). Without one, the EA will not run correctly. Get a MQL4 programmer check the code to find out why.");
+      return(INIT_FAILED);
+     }
+   else 
+     {
+      Alert("The initialization succeeded.");
+      return(INIT_SUCCEEDED);
+     }
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -333,8 +337,7 @@ void OnTick()
       int max_trades=max_directional_trades; // maximum trades in one direction for the current chart
       int within_x_hours=max_trades_within_x_hours;
       
-      int enter_signal=0;
-      
+      int enter_signal=0; 
       enter_signal=signal_entry(); // the entry signal requires in_time_range, adr_generated, and EA_magic_num>0 to be true.
    
       int long_order_count=0, short_order_count=0;
@@ -949,7 +952,8 @@ void exit_all(int type=-1,int magic=-1)
 // This is similar to the exit_all function except that it allows you to choose more sets  to close. It will iterate through all open trades and close them based on the order type and magic number
 void exit_all_trades_set(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1)  // magic==-1 means that all orders/trades will close (including ones managed by other running EAs)
   {
-   for(int i=OrdersTotal();i>=0;i--)
+   int end_index=OrdersTotal()-1;
+   for(int i=end_index;i>=0;i--)
      {
       if(OrderSelect(i,SELECT_BY_POS)) // if an open trade can be found
         {
@@ -971,28 +975,28 @@ void exit_all_trades_set(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1)  // mag
                case ORDER_SET_SELL_LIMIT:
                   if(ordertype==OP_SELLLIMIT) exit(ticket);
                   break;
-               case ORDER_SET_BUY_STOP:
+               /*case ORDER_SET_BUY_STOP:
                   if(ordertype==OP_BUYSTOP) exit(ticket);
                   break;
                case ORDER_SET_SELL_STOP:
                   if(ordertype==OP_SELLSTOP) exit(ticket);
-                  break;
+                  break;*/
                case ORDER_SET_LONG:
-                  if(ordertype==OP_BUY || ordertype==OP_BUYLIMIT || ordertype==OP_BUYSTOP)
+                  if(ordertype==OP_BUY || ordertype==OP_BUYLIMIT /*|| ordertype==OP_BUYSTOP*/)
                   exit(ticket);
                   break;
                case ORDER_SET_SHORT:
-                  if(ordertype==OP_SELL || ordertype==OP_SELLLIMIT || ordertype==OP_SELLSTOP)
+                  if(ordertype==OP_SELL || ordertype==OP_SELLLIMIT /*|| ordertype==OP_SELLSTOP*/)
                   exit(ticket);
                   break;
                case ORDER_SET_LIMIT:
                   if(ordertype==OP_BUYLIMIT || ordertype==OP_SELLLIMIT)
                   exit(ticket);
                   break;
-               case ORDER_SET_STOP:
+               /*case ORDER_SET_STOP:
                   if(ordertype==OP_BUYSTOP || ordertype==OP_SELLSTOP)
                   exit(ticket);
-                  break;
+                  break;*/
                case ORDER_SET_MARKET:
                   if(ordertype<=1) exit(ticket);
                   break;
@@ -1267,9 +1271,15 @@ double mm(MM method,string instrument,double lots,double sl_pips,double risk_mm1
 int count_orders(ENUM_ORDER_SET type=-1,int magic=-1,int pool=MODE_TRADES) // With pool, you can define whether to count current orders (MODE_TRADES) or closed and cancelled orders (MODE_HISTORY).
   {
    int count=0;
-   for(int i=OrdersTotal();i>=0;i--)
+   int pool_end_index=OrdersTotal()-1; // is the newest order in the list index position is OrdersTotal()-1
+   int pool_start_index=0;
+   
+   if(pool==MODE_TRADES) pool_start_index=0; // this should be a small pool of active and pending orders so it is okay to start at the beginning (the oldest order) of the list 
+   else if(pool==MODE_HISTORY) pool_start_index=pool_end_index-(max_directional_trades*max_num_EAs_at_once*max_trades_within_x_hours); // this is to improve performance. It prevents the EA from iterating through lists of potentially hundreds or thousands of past orders
+     
+   for(int i=pool_end_index;i>=pool_start_index;i--) // the oldest order in the list has index position 0
      {
-      if(OrderSelect(i,SELECT_BY_POS,pool))
+      if(OrderSelect(i,SELECT_BY_POS,pool)) // Problem: if the pool is MODE_HISTORY, that can be a lot of data to search.
         {
          if(magic==-1 || magic==OrderMagicNumber())
            {
@@ -1282,52 +1292,52 @@ int count_orders(ENUM_ORDER_SET type=-1,int magic=-1,int pool=MODE_TRADES) // Wi
                datetime time_x_hours_ago=TimeCurrent()-(x_hours*3600);
                
                if(open_time>time_x_hours_ago) break; // if the time the order was opened is ahead of the time X hours ago
-               else continue;
+               //else continue;
               }
-               switch(type)
-                 {
-                  case ORDER_SET_BUY:
-                     if(ordertype==OP_BUY) count++;
-                     break;
-                  case ORDER_SET_SELL:
-                     if(ordertype==OP_SELL) count++;
-                     break;
-                  case ORDER_SET_BUY_LIMIT:
-                     if(ordertype==OP_BUYLIMIT) count++;
-                     break;
-                  case ORDER_SET_SELL_LIMIT:
-                     if(ordertype==OP_SELLLIMIT) count++;
-                     break;
-                  case ORDER_SET_BUY_STOP:
-                     if(ordertype==OP_BUYSTOP) count++;
-                     break;
-                  case ORDER_SET_SELL_STOP:
-                     if(ordertype==OP_SELLSTOP) count++;
-                     break;
-                  case ORDER_SET_LONG:
-                     if(ordertype==OP_BUY || ordertype==OP_BUYLIMIT || ordertype==OP_BUYSTOP)
-                     count++;
-                     break;
-                  case ORDER_SET_SHORT:
-                     if(ordertype==OP_SELL || ordertype==OP_SELLLIMIT || ordertype==OP_SELLSTOP)
-                     count++;
-                     break;
-                  case ORDER_SET_LIMIT:
-                     if(ordertype==OP_BUYLIMIT || ordertype==OP_SELLLIMIT)
-                     count++;
-                     break;
-                  case ORDER_SET_STOP:
-                     if(ordertype==OP_BUYSTOP || ordertype==OP_SELLSTOP)
-                     count++;
-                     break;
-                  case ORDER_SET_MARKET:
-                     if(ordertype<=1) count++;
-                     break;
-                  case ORDER_SET_PENDING:
-                     if(ordertype>1) count++;
-                     break;
-                  default: count++;
-                 }
+            switch(type)
+              {
+               case ORDER_SET_BUY:
+                  if(ordertype==OP_BUY) count++;
+                  break;
+               case ORDER_SET_SELL:
+                  if(ordertype==OP_SELL) count++;
+                  break;
+               case ORDER_SET_BUY_LIMIT:
+                  if(ordertype==OP_BUYLIMIT) count++;
+                  break;
+               case ORDER_SET_SELL_LIMIT:
+                  if(ordertype==OP_SELLLIMIT) count++;
+                  break;
+               /*case ORDER_SET_BUY_STOP:
+                  if(ordertype==OP_BUYSTOP) count++;
+                  break;
+               case ORDER_SET_SELL_STOP:
+                  if(ordertype==OP_SELLSTOP) count++;
+                  break;*/
+               case ORDER_SET_LONG:
+                  if(ordertype==OP_BUY || ordertype==OP_BUYLIMIT /*|| ordertype==OP_BUYSTOP*/)
+                  count++;
+                  break;
+               case ORDER_SET_SHORT:
+                  if(ordertype==OP_SELL || ordertype==OP_SELLLIMIT /*|| ordertype==OP_SELLSTOP*/)
+                  count++;
+                  break;
+               case ORDER_SET_LIMIT:
+                  if(ordertype==OP_BUYLIMIT || ordertype==OP_SELLLIMIT)
+                  count++;
+                  break;
+               /*case ORDER_SET_STOP:
+                  if(ordertype==OP_BUYSTOP || ordertype==OP_SELLSTOP)
+                  count++;
+                  break;*/
+               case ORDER_SET_MARKET:
+                  if(ordertype<=1) count++;
+                  break;
+               case ORDER_SET_PENDING:
+                  if(ordertype>1) count++;
+                  break;
+               default: count++;
+              }
            }
         }
      }
