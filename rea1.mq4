@@ -12,10 +12,16 @@
 // TODO: Always use NormalizeDouble() when computing the price (or lots or ADR?) yourself. This is not necessary for internal functions like OrderOPenPrice(), OrderStopLess(),OrderClosePrice(),Bid,Ask
 // TODO: User the compare_doubles() function to compare two doubles.
 // Remember: It has to be for a broker that will give you D1 data for at least around 6 months in order to calculate the Average Daily Range (ADR).
+enum ENUM_SIGNAL_SET
+  {
+   SIGNAL_SET_NONE=0,
+   SIGNAL_SET_1=1,
+   SIGNAL_SET_2=2
+  };
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-enum DIRECTIONAL_MODE
+enum ENUM_DIRECTIONAL_MODE
   {
    BUYING_MODE=0,
    SELLING_MODE=1
@@ -69,7 +75,7 @@ enum MM // Money Management
 // general settings
 	int charts_timeframe=PERIOD_M5;
 	string symbol=NULL;
-   static int EA_magic_num; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
+   static int EA1_magic_num; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
    
 // virtual stoploss variables
 	int virtual_sl=0; // TODO: Change to a percent of ADR
@@ -84,12 +90,12 @@ enum MM // Money Management
 	int trail_threshold=500; // TODO: Change to a percent of ADR
 	int trail_step=20; // the minimum difference between the proposed new value of the stoploss to the current stoploss price // TODO: Change to a percent of ADR
 	
-	input bool entry_new_bar=false; // Should you only enter trades when a new bar begins?
+	input bool only_enter_on_new_bar=false; // Should you only enter trades when a new bar begins?
 	input bool wait_next_bar_on_load=false; // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade or calculate ADR?
    input bool long_allowed=true; // Are long trades allowed?
 	input bool short_allowed=true; // Are short trades allowed?
-	input int max_directional_trades=1; // How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)
-	input int max_trades_within_x_hours=1; // TODO: work on this
+	input int max_trades_in_direction=1; // How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)
+	input int max_trades_within_x_hours=1; // How many trades are allowed to be opened (even if they are closed now) within the last x_hours?
 	input int x_hours=24; // TODO: work on this
 	input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
 	input bool exit_opposite_signal=true; // Should the EA exit trades when there is a signal in the opposite direction?
@@ -111,9 +117,11 @@ enum MM // Money Management
 	
 	input int entering_max_slippage=5; // Must be in whole number. // the default used to be 50
 //input int unfavorable_slippage=5;
-	string order_comment="Relativity EA"; // TODO: Add the parameter settings for the order to the message. // allows the robot to enter a description for the order. An empty string is a default value.
+	string order_comment="Relativity EA"; // TODO: Add the parameter settings for the order to the message. // allows the robot to enter a description for the order. An empty string is a default value
+//exit_order
+	input int exiting_max_slippage=50;
 	
-	// TODO: create the ability to exit active trades after a certain amount of time has passed and it has not reached takeprofit or stoploss
+	// TODO: create the ability to exit active trades after a certain amount of time has passed and it has not reached takeprofit or stoploss. (virtual_expire)
 	input int order_expire=// In how many seconds do you want your pending orders to expire?
 	   /*Minutes=**/120
 	   *
@@ -121,9 +129,6 @@ enum MM // Money Management
 	input bool market_exec=false; // False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
 	input color arrow_color_short=clrRed;
 	input color arrow_color_long=clrGreen;
-	
-//exit_order
-	input int exiting_max_slippage=50;
 	
 //calculate_lots/mm variables
 	MM money_management=MM_RISK_PERCENT;
@@ -154,17 +159,19 @@ enum MM // Money Management
 // Runs once when the EA is turned on
 int OnInit()
   {
-   EA_magic_num=generate_magic_num();
+   EA1_magic_num=generate_magic_num(SIGNAL_SET_1);
    int range_start_time=(start_time_hour*3600)+(start_time_minute*60);
    int range_end_time=(end_time_hour*3600)+(end_time_minute*60);
    int exit_time=(exit_time_hour*3600)+(exit_time_minute*60);
+   
+   // Print("The EA will not work properly. The input variables max_trades_in_direction, max_num_EAs_at_once, and max_trades_within_x_hours can't be 0 or negative.");
    
    if(exit_time>range_start_time && exit_time<range_end_time)
      {
       Alert("Make sure that the trade exit_time_hour and exit_time_minute combination does not fall within the trading range start and end times or else there will be trouble!");
       return(INIT_FAILED);
      }
-   else if(EA_magic_num<=0)
+   else if(EA1_magic_num<=0)
      {
       Alert("There is not a valid magic number for the Expert Advisor (EA). Without one, the EA will not run correctly. Get a MQL4 programmer check the code to find out why.");
       return(INIT_FAILED);
@@ -175,10 +182,246 @@ int OnInit()
       return(INIT_SUCCEEDED);
      }
   }
+
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+// Runs once when the EA is turned off
+void OnDeinit(const int reason)
+  {
+//--- The first way to get the uninitialization reason code
+   Print(__FUNCTION__,"_Uninitalization reason code = ",reason);
+/*
+//The second way to get the uninitialization reason code
+   Print(__FUNCTION__,"_UninitReason = ",getUninitReasonText(_UninitReason));
+*/
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int generate_magic_num()
+string getUninitReasonText(int reasonCode)
+  {
+   string text="";
+
+   switch(reasonCode)
+     {
+      case REASON_ACCOUNT:
+         text="The account was changed";break;
+      case REASON_CHARTCHANGE:
+         text="The symbol or timeframe was changed";break;
+      case REASON_CHARTCLOSE:
+         text="The chart was closed";break;
+      case REASON_PARAMETERS:
+         text="The input-parameter was changed";break;
+      case REASON_RECOMPILE: 
+         text="The program "+__FILE__+" was recompiled";break;
+      case REASON_REMOVE:
+         text="Program "+__FILE__+" was removed from chart";break;
+      case REASON_TEMPLATE:
+         text="A new template was applied to chart";break;
+      default:text="A different reason";
+     }
+
+   return text; 
+  } 
+//+------------------------------------------------------------------+
+//| Expert testing function (not required)                           |
+//+------------------------------------------------------------------+
+double OnTester()
+  {
+    return 0;
+  }
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+// Runs on every tick
+void OnTick()
+  {
+   static bool ready=false, in_time_range=false;
+   bool is_new_M5_bar=is_new_bar(symbol,PERIOD_M5,wait_next_bar_on_load);
+   datetime current_time=TimeCurrent();
+   int exit_signal=0, exit_signal_2=0;
+   
+   exit_signal=signal_exit(SIGNAL_SET_1); // the exit signal should be made the priority and doesn't require in_time_range or adr_generated to be true
+   exit_signal_2=signal_exit(SIGNAL_SET_2);
+
+   if(exit_signal==TRADE_SIGNAL_VOID) exit_all_trades_set(ORDER_SET_ALL,EA1_magic_num); // close all pending and orders for the specific EA's orders. Don't do validation to see if there is an EA_magic_num because the EA should try to exit even if for some reason there is none.
+   else if(exit_signal==TRADE_SIGNAL_BUY) exit_all_trades_set(ORDER_SET_SHORT,EA1_magic_num);
+   else if(exit_signal==TRADE_SIGNAL_SELL) exit_all_trades_set(ORDER_SET_LONG,EA1_magic_num);
+
+   if(is_new_M5_bar) // only check if it is in the time range once the EA is loaded and, then, afterward at the beginning of every M5 bar
+     {
+      in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);  
+      
+      if(in_time_range && !ready) 
+        {
+         ADR_pips=get_ADR();
+         if(ADR_pips>0 && EA1_magic_num>0) 
+           {
+            ready=true; // the ADR that has just been calculated won't generate again until after the cycle of not being in the time range completes
+           }
+         else 
+           {
+            ready=false;
+            return;
+           }
+        }
+     }
+   if(in_time_range && ready)
+     {
+      int enter_signal=0, enter_signal_2=0;
+      int long_order_count=0, short_order_count=0;
+      int opened_order_recently_count=0;
+      
+      enter_signal=signal_entry(SIGNAL_SET_1); // the entry signal requires in_time_range, adr_generated, and EA_magic_num>0 to be true.
+      enter_signal_2=signal_entry(SIGNAL_SET_2);
+      
+      if(enter_signal>0) // if there is a signal to enter a trade
+        {
+         if(enter_signal==TRADE_SIGNAL_BUY)
+           {
+            // TODO: Make a function out of this
+            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_SELL,EA1_magic_num);
+            long_order_count=count_orders(ORDER_SET_LONG,EA1_magic_num,MODE_TRADES); // counts all long (active and pending) orders for the current EA
+            opened_order_recently_count=count_orders(ORDER_SET_SHORT_LONG_LIMIT_MARKET,EA1_magic_num,MODE_HISTORY);
+            if(long_order_count<max_trades_in_direction && opened_order_recently_count<max_trades_within_x_hours) // if you have not yet reached the user's maximum allowed long trades
+              {
+               if(!only_enter_on_new_bar || 
+                  (only_enter_on_new_bar && is_new_M5_bar))
+                     try_to_enter_order(OP_BUY);
+              }
+           }
+         else if(enter_signal==TRADE_SIGNAL_SELL)
+           {
+            // TODO: Make a function out of this
+            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_BUY,EA1_magic_num);
+            short_order_count=count_orders(ORDER_SET_SHORT,EA1_magic_num,MODE_TRADES); // counts all short (active and pending) orders for the current EA
+            opened_order_recently_count=count_orders(ORDER_SET_SHORT_LONG_LIMIT_MARKET,EA1_magic_num,MODE_HISTORY);
+            if(short_order_count<max_trades_in_direction && opened_order_recently_count<max_trades_within_x_hours) // if you have not yet reached the user's maximum allowed short trades
+              {
+               if(!only_enter_on_new_bar || 
+                  (only_enter_on_new_bar && is_new_M5_bar))
+                     try_to_enter_order(OP_SELL);
+              }
+           }
+        }
+   // Breakeven (comment out if this functionality is not required)
+   //if(breakeven_threshold>0) breakeven_check_all_orders(breakeven_threshold,breakeven_plus,order_magic);
+   
+   // Trailing Stop (comment out of this functinoality is not required)
+   //if(trail_value>0) trailingstop_check_all_orders(trail_value,trail_threshold,trail_step,order_magic);
+   //   virtualstop_check(virtual_sl,virtual_tp);     
+     }
+    else
+     {
+       ready=false; // this makes sure to set it to false so when the time is within the time range again, the ADR can get generated.
+       bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
+       if(time_to_exit) exit_all_trades_set(ORDER_SET_ALL,EA1_magic_num); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
+     }  
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int signal_x_consecutive_directional_days() // TODO: work on this signal
+   {
+      int signal=TRADE_SIGNAL_NEUTRAL;
+      return signal;
+   }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int signal_pullback_after_ADR_triggered()
+   {
+   int signal=TRADE_SIGNAL_NEUTRAL;
+   if(uptrend_ADR_triggered_price()>0) return signal=TRADE_SIGNAL_BUY;
+   // for a buying signal, take the level that adr was triggered and subtract the pullback_pips to get the pullback_entry_price
+   // if the pullback_entry_price is met or exceeded, signal = TRADE_SIGNAL_BUY
+   
+   else if(downtrend_ADR_triggered_price()>0) return signal=TRADE_SIGNAL_SELL;
+   else return signal;
+   }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+// Checks for the entry of orders
+int signal_entry(ENUM_SIGNAL_SET system) // gets called for every tick
+  {
+   int signal=TRADE_SIGNAL_NEUTRAL;
+   
+/* Add 1 or more entry signals below. 
+   With more than 1 signal, you would follow this code using the signal_compare function. 
+   "signal=signal_compare(signal,signal_pullback_after_ADR_triggered());"
+   As each signal is compared with the previous signal, the signal variable will change and then the final signal wil get returned.
+*/
+
+   signal=signal_compare(signal,signal_pullback_after_ADR_triggered(),false); // this signal is will apply to all signal sets so it gets run first
+   
+   if(system==SIGNAL_SET_1)
+     {
+      signal=signal_compare(signal,signal_x_consecutive_directional_days(),false);
+      return signal;
+     }
+   else if(system==SIGNAL_SET_2)
+     {
+      return signal;
+     }
+   else return TRADE_SIGNAL_NEUTRAL;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+// Checks for the exit of orders
+int signal_exit(ENUM_SIGNAL_SET)
+  {
+   int signal=TRADE_SIGNAL_NEUTRAL;
+/* Add 1 or more entry signals below. 
+   With more than 1 signal, you would follow this code using the signal_compare function. 
+   "signal=signal_compare(signal,signal_pullback_after_ADR_triggered());"
+   As each signal is compared with the previous signal, the signal variable will change and then the final signal wil get returned.
+*/ 
+// The 3rd argument of the signal_compare function should explicitely be set to "true" every time.
+   return signal;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int signal_compare(int current_signal,int added_signal,bool exit_when_buy_and_sell=false) 
+  {
+  // signals are evaluated two at a time and the result will be used to compared with other signals until all signals are compared
+   if(current_signal==TRADE_SIGNAL_VOID)
+      return current_signal;
+   else if(current_signal==TRADE_SIGNAL_NEUTRAL)
+      return added_signal;
+   else
+     {
+      if(added_signal==TRADE_SIGNAL_NEUTRAL)
+         return current_signal;
+      else if(added_signal==TRADE_SIGNAL_VOID)
+         return added_signal;
+      // at this point, the only two options left are if they are both buy, both sell, or buy and sell
+      else if(added_signal!=current_signal) // if one signal is a buy signal and the other sign
+        {
+         if(exit_when_buy_and_sell) return TRADE_SIGNAL_VOID;
+         else return TRADE_SIGNAL_NEUTRAL;
+        }
+     }
+   return added_signal;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+// Neutralizes situations where there is a conflict between the entry and exit signal.
+// TODO: This function is not yet being called. Since the entry and exit signals are passed by reference, these paremeters would need to be prepared in advance and stored in variables prior to calling the function.
+void signal_manage(ENUM_TRADE_SIGNAL &entry,ENUM_TRADE_SIGNAL &exit)
+  {
+   if(exit==TRADE_SIGNAL_VOID)                              entry=TRADE_SIGNAL_NEUTRAL;
+   if(exit==TRADE_SIGNAL_BUY && entry==TRADE_SIGNAL_SELL)   entry=TRADE_SIGNAL_NEUTRAL;
+   if(exit==TRADE_SIGNAL_SELL && entry==TRADE_SIGNAL_BUY)   entry=TRADE_SIGNAL_NEUTRAL;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int generate_magic_num(ENUM_SIGNAL_SET)
 {
    int total_variable_count=10;
    string symbols_string=symbol;
@@ -242,235 +485,6 @@ int generate_magic_num()
    
  */
 }
-
-//+------------------------------------------------------------------+
-//| Expert deinitialization function                                 |
-//+------------------------------------------------------------------+
-// Runs once when the EA is turned off
-void OnDeinit(const int reason)
-  {
-//--- The first way to get the uninitialization reason code
-   Print(__FUNCTION__,"_Uninitalization reason code = ",reason);
-/*
-//The second way to get the uninitialization reason code
-   Print(__FUNCTION__,"_UninitReason = ",getUninitReasonText(_UninitReason));
-*/
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-string getUninitReasonText(int reasonCode)
-  {
-   string text="";
-
-   switch(reasonCode)
-     {
-      case REASON_ACCOUNT:
-         text="The account was changed";break;
-      case REASON_CHARTCHANGE:
-         text="The symbol or timeframe was changed";break;
-      case REASON_CHARTCLOSE:
-         text="The chart was closed";break;
-      case REASON_PARAMETERS:
-         text="The input-parameter was changed";break;
-      case REASON_RECOMPILE: 
-         text="The program "+__FILE__+" was recompiled";break;
-      case REASON_REMOVE:
-         text="Program "+__FILE__+" was removed from chart";break;
-      case REASON_TEMPLATE:
-         text="A new template was applied to chart";break;
-      default:text="A different reason";
-     }
-
-   return text; 
-  } 
-//+------------------------------------------------------------------+
-//| Expert testing function (not required)                           |
-//+------------------------------------------------------------------+
-double OnTester()
-  {
-    return 0;
-  }
-//+------------------------------------------------------------------+
-//| Expert tick function                                             |
-//+------------------------------------------------------------------+
-// Runs on every tick
-void OnTick()
-  {
-   static bool ready=false, in_time_range=false;
-   bool is_new_M5_bar=is_new_bar(symbol,PERIOD_M5,wait_next_bar_on_load);
-   datetime current_time=TimeCurrent();
-   
-   int exit_signal=signal_exit(); // the exit signal should be made the priority and doesn't require in_time_range or adr_generated to be true
-
-   if(exit_signal==TRADE_SIGNAL_VOID)
-     {
-      exit_all_trades_set(ORDER_SET_ALL,EA_magic_num); // close all pending and orders for the specific EA's orders. Don't do validation to see if there is an EA_magic_num because the EA should try to exit even if for some reason there is none.
-     }
-   else if(exit_signal==TRADE_SIGNAL_BUY)
-     {
-      exit_all_trades_set(ORDER_SET_SHORT,EA_magic_num);
-     }
-   else if(exit_signal==TRADE_SIGNAL_SELL)
-     {
-      exit_all_trades_set(ORDER_SET_LONG,EA_magic_num);
-     }
-   if(is_new_M5_bar) // only check if it is in the time range once the EA is loaded and then at the beginning of every M5 bar afterward
-     {
-      in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);  
-      
-      if(in_time_range && !ready) 
-        {
-         ADR_pips=get_ADR();
-         if(ADR_pips>0 && EA_magic_num>0) 
-           {
-            ready=true; // the ADR that has just been calculated won't generate again until after the cycle of not being in the time range completes
-           }
-         else 
-           {
-            ready=false;
-            return;
-           }
-        }
-     }
-   if(in_time_range && ready)
-     {
-      int enter_signal=0; 
-      enter_signal=signal_entry(); // the entry signal requires in_time_range, adr_generated, and EA_magic_num>0 to be true.
-   
-      int long_order_count=0, short_order_count=0;
-      int opened_order_recently_count=0;
-      
-      if(enter_signal>0) // if there is a signal to enter a trade
-        {
-         if(enter_signal==TRADE_SIGNAL_BUY)
-           {
-            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_SELL,EA_magic_num);
-            long_order_count=count_orders(ORDER_SET_LONG,EA_magic_num,MODE_TRADES); // counts all long (active and pending) orders for the current EA
-            opened_order_recently_count=count_orders(ORDER_SET_SHORT_LONG_LIMIT_MARKET,EA_magic_num,MODE_HISTORY);
-            if(long_order_count<max_directional_trades && opened_order_recently_count<max_trades_within_x_hours) // if you have not yet reached the user's maximum allowed long trades
-              {
-               if(!entry_new_bar || 
-                  (entry_new_bar && is_new_M5_bar))
-                     try_to_enter_order(OP_BUY);
-              }
-           }
-         else if(enter_signal==TRADE_SIGNAL_SELL)
-           {
-            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_BUY,EA_magic_num);
-            short_order_count=count_orders(ORDER_SET_SHORT,EA_magic_num,MODE_TRADES); // counts all short (active and pending) orders for the current EA
-            opened_order_recently_count=count_orders(ORDER_SET_SHORT_LONG_LIMIT_MARKET,EA_magic_num,MODE_HISTORY);
-            if(short_order_count<max_directional_trades && opened_order_recently_count<max_trades_within_x_hours) // if you have not yet reached the user's maximum allowed short trades
-              {
-               if(!entry_new_bar || 
-                  (entry_new_bar && is_new_M5_bar))
-                     try_to_enter_order(OP_SELL);
-              }
-           }
-        }
-   // Breakeven (comment out if this functionality is not required)
-   //if(breakeven_threshold>0) breakeven_check_all_orders(breakeven_threshold,breakeven_plus,order_magic);
-   
-   // Trailing Stop (comment out of this functinoality is not required)
-   //if(trail_value>0) trailingstop_check_all_orders(trail_value,trail_threshold,trail_step,order_magic);
-   //   virtualstop_check(virtual_sl,virtual_tp);     
-     }
-    else
-     {
-       ready=false; // this makes sure to set it to false so when the time is within the time range again, the ADR can get generated.
-       bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
-       if(time_to_exit) exit_all_trades_set(ORDER_SET_ALL,EA_magic_num); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
-     }  
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-int signal_not_consecutive_directional_trades() // TODO: work on this signal
-   {
-      int signal=TRADE_SIGNAL_NEUTRAL;
-      return signal;
-   }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-int signal_pullback_after_ADR_triggered()
-   {
-   int signal=TRADE_SIGNAL_NEUTRAL;
-   if(uptrend_ADR_triggered_price()>0) return signal=TRADE_SIGNAL_BUY;
-   // for a buying signal, take the level that adr was triggered and subtract the pullback_pips to get the pullback_entry_price
-   // if the pullback_entry_price is met or exceeded, signal = TRADE_SIGNAL_BUY
-   
-   else if(downtrend_ADR_triggered_price()>0) return signal=TRADE_SIGNAL_SELL;
-   else return signal;
-   }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-// Checks for the entry of orders
-int signal_entry() // gets called for every tick
-  {
-   int signal=TRADE_SIGNAL_NEUTRAL;
-   
-/* Add 1 or more entry signals below. 
-   With more than 1 signal, you would follow this code using the signal_compare function. 
-   "signal=signal_compare(signal,signal_pullback_after_ADR_triggered());"
-   As each signal is compared with the previous signal, the signal variable will change and then the final signal wil get returned.
-*/ 
-   signal=signal_compare(signal,signal_pullback_after_ADR_triggered(),false);
-   signal=signal_compare(signal,signal_not_consecutive_directional_trades(),false);
-   return signal;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-// Checks for the exit of orders
-int signal_exit()
-  {
-   int signal=TRADE_SIGNAL_NEUTRAL;
-/* Add 1 or more entry signals below. 
-   With more than 1 signal, you would follow this code using the signal_compare function. 
-   "signal=signal_compare(signal,signal_pullback_after_ADR_triggered());"
-   As each signal is compared with the previous signal, the signal variable will change and then the final signal wil get returned.
-*/ 
-// The 3rd argument of the signal_compare function should explicitely be set to "true" every time.
-   return signal;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-int signal_compare(int current_signal,int added_signal,bool exit_when_buy_and_sell=false) 
-  {
-  // signals are evaluated two at a time and the result will be used to compared with other signals until all signals are compared
-   if(current_signal==TRADE_SIGNAL_VOID)
-      return current_signal;
-   else if(current_signal==TRADE_SIGNAL_NEUTRAL)
-      return added_signal;
-   else
-     {
-      if(added_signal==TRADE_SIGNAL_NEUTRAL)
-         return current_signal;
-      else if(added_signal==TRADE_SIGNAL_VOID)
-         return added_signal;
-      // at this point, the only two options left are if they are both buy, both sell, or buy and sell
-      else if(added_signal!=current_signal) // if one signal is a buy signal and the other sign
-        {
-         if(exit_when_buy_and_sell) return TRADE_SIGNAL_VOID;
-         else return TRADE_SIGNAL_NEUTRAL;
-        }
-     }
-   return added_signal;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-// Neutralizes situations where there is a conflict between the entry and exit signal.
-// TODO: This function is not yet being called. Since the entry and exit signals are passed by reference, these paremeters would need to be prepared in advance and stored in variables prior to calling the function.
-void signal_manage(ENUM_TRADE_SIGNAL &entry,ENUM_TRADE_SIGNAL &exit)
-  {
-   if(exit==TRADE_SIGNAL_VOID)                              entry=TRADE_SIGNAL_NEUTRAL;
-   if(exit==TRADE_SIGNAL_BUY && entry==TRADE_SIGNAL_SELL)   entry=TRADE_SIGNAL_NEUTRAL;
-   if(exit==TRADE_SIGNAL_SELL && entry==TRADE_SIGNAL_BUY)   entry=TRADE_SIGNAL_NEUTRAL;
-  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -696,7 +710,7 @@ int get_moves_start_bar()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double periods_pivot_price(DIRECTIONAL_MODE mode)
+double periods_pivot_price(ENUM_DIRECTIONAL_MODE mode)
 {
    if(mode==BUYING_MODE) return iLow(symbol,PERIOD_M5,iLowest(symbol,PERIOD_M5,MODE_LOW,WHOLE_ARRAY,get_moves_start_bar())); // get the price of the bar that has the lowest price for the determined period
    else if(mode==SELLING_MODE) return iHigh(symbol,PERIOD_M5,iHighest(symbol,PERIOD_M5,MODE_HIGH,WHOLE_ARRAY,get_moves_start_bar())); // get the price of the bar that has the highest price for the determined period
@@ -1056,7 +1070,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type)
                NormalizeDouble(ADR_pips*stoploss_percent,2),
                NormalizeDouble(ADR_pips*takeprofit_percent,2),
                order_comment,
-               EA_magic_num,
+               EA1_magic_num,
                order_expire,
                arrow_color,
                market_exec); 
@@ -1272,19 +1286,18 @@ double mm(MM method,string instrument,double lots,double sl_pips,double risk_mm1
 int count_orders(ENUM_ORDER_SET type=-1,int magic=-1,int pool=MODE_TRADES) // With pool, you can define whether to count current orders (MODE_TRADES) or closed and cancelled orders (MODE_HISTORY).
   {
    int count=0;
-   int pool_end_index=0;
+   int pools_end_index=0;
    
    if(pool==MODE_TRADES) 
      {
-         pool_end_index=OrdersTotal()-1;  // this should be a small pool of active and pending orders so it is okay to start at the beginning (the newest order) of the list 
+         pools_end_index=OrdersTotal()-1;
      }
    else if(pool==MODE_HISTORY) 
      {
-         pool_end_index=(max_directional_trades*max_num_EAs_at_once*max_trades_within_x_hours)-1; // this is to improve performance. It prevents the EA from iterating through lists of potentially hundreds or thousands of past orders. Note: it may be less than 0.  
+         pools_end_index=(max_trades_in_direction*max_num_EAs_at_once*max_trades_within_x_hours)-1; // this is to improve performance. It prevents the EA from iterating through lists of potentially hundreds or thousands of past orders. Note: it may be less than 0.
      }
-   if(pool_end_index<0) pool_end_index=0;
 
-   for(int i=pool_end_index;i>=0;i--) // You have to start iterating from the lower part (or 0) of the order array because the newest trades get sent to the start. Interate through the index from a not excessive index position (the middle of an index) to OrdersTotal()-1 // the oldest order in the list has index position 0
+   for(int i=pools_end_index;i>=0;i--) // You have to start iterating from the lower part (or 0) of the order array because the newest trades get sent to the start. Interate through the index from a not excessive index position (the middle of an index) to OrdersTotal()-1 // the oldest order in the list has index position 0
      {
       if(OrderSelect(i,SELECT_BY_POS,pool)) // Problem: if the pool is MODE_HISTORY, that can be a lot of data to search.
         {
@@ -1295,10 +1308,10 @@ int count_orders(ENUM_ORDER_SET type=-1,int magic=-1,int pool=MODE_TRADES) // Wi
             
             if(pool==MODE_HISTORY) // if historical orders are needed, only count them if they are within X hours
               {
-               datetime open_time=OrderOpenTime();
-               datetime time_x_hours_ago=TimeCurrent()-(x_hours*3600);
+               datetime opened=OrderOpenTime();
+               datetime x_hours_ago=TimeCurrent()-(x_hours*3600);
                
-               if(open_time>time_x_hours_ago) break; // if the time the order was opened is ahead of the time X hours ago
+               if(opened>x_hours_ago) break; // if the time the historical order was opened is after X hours ago
                //else continue;
               }
             switch(type)
