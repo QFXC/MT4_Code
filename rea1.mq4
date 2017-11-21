@@ -953,11 +953,11 @@ void exit_all(int type=-1,int magic=-1)
 void exit_all_trades_set(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1)  // magic==-1 means that all orders/trades will close (including ones managed by other running EAs)
   {
    int end_index=OrdersTotal()-1;
-   for(int i=end_index;i>=0;i--)
+   for(int i=end_index;i>=0;i--) // interate through the index from position 0 to OrdersTotal()-1
      {
       if(OrderSelect(i,SELECT_BY_POS)) // if an open trade can be found
         {
-         if(magic==OrderMagicNumber() || magic==-1) // if the open trade matches the magic number
+         if(magic==OrderMagicNumber() || magic==-1)
            {
             int ordertype=OrderType();
             int ticket=OrderTicket();
@@ -1274,10 +1274,17 @@ int count_orders(ENUM_ORDER_SET type=-1,int magic=-1,int pool=MODE_TRADES) // Wi
    int pool_end_index=OrdersTotal()-1; // is the newest order in the list index position is OrdersTotal()-1
    int pool_start_index=0;
    
-   if(pool==MODE_TRADES) pool_start_index=0; // this should be a small pool of active and pending orders so it is okay to start at the beginning (the oldest order) of the list 
-   else if(pool==MODE_HISTORY) pool_start_index=pool_end_index-(max_directional_trades*max_num_EAs_at_once*max_trades_within_x_hours); // this is to improve performance. It prevents the EA from iterating through lists of potentially hundreds or thousands of past orders
-     
-   for(int i=pool_end_index;i>=pool_start_index;i--) // the oldest order in the list has index position 0
+   if(pool==MODE_TRADES) 
+     {
+         pool_start_index=0; // this should be a small pool of active and pending orders so it is okay to start at the beginning (the oldest order) of the list 
+     }
+   else if(pool==MODE_HISTORY) 
+     {
+         pool_start_index=pool_end_index-(max_directional_trades*max_num_EAs_at_once*max_trades_within_x_hours); // this is to improve performance. It prevents the EA from iterating through lists of potentially hundreds or thousands of past orders. Note: it may be less than 0.
+         if(pool_start_index<0) pool_start_index=0;  
+     }
+
+   for(int i=pool_end_index;i>=pool_start_index;i--) // interate through the index from a not excessive middle of the index to OrdersTotal()-1 // the oldest order in the list has index position 0
      {
       if(OrderSelect(i,SELECT_BY_POS,pool)) // Problem: if the pool is MODE_HISTORY, that can be a lot of data to search.
         {
