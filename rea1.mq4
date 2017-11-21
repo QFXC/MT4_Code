@@ -200,7 +200,7 @@ int generate_magic_num()
    int symbols_int=StrToInteger(symbols_string);
    string symbol_num_string=IntegerToString(symbols_int);
 
-   for(int i=0;i<total_variable_count-1;i++)
+   for(int i=0;i<total_variable_count;i++)
      {
      // get the "i"th global input variables from the input_variable
 
@@ -868,10 +868,10 @@ bool modify(int ticket,double sl,double tp=-1,double entryPrice=-1,datetime expi
      {
       for(int i=0;i<retries;i++)
         {
-         if(!IsConnected()) Print("There is no internet connection.");
-         else if(!IsExpertEnabled()) Print("EAs are not enabled in the trading platform.");
-         else if(IsTradeContextBusy()) Print("The trade context is busy.");
-         else if(!IsTradeAllowed()) Print("The trade is not allowed in the trading platform.");
+         if(!IsConnected()) Print("The EA can't modify ticket ",IntegerToString(ticket)," because there is no internet connection.");
+         else if(!IsExpertEnabled()) Print("The EA can't modify ticket ",IntegerToString(ticket)," because EAs are not enabled in the trading platform.");
+         else if(IsTradeContextBusy()) Print("The EA can't modify ticket ",IntegerToString(ticket)," because The trade context is busy.");
+         else if(!IsTradeAllowed()) Print("The EA can't modify ticket ",IntegerToString(ticket)," because the trade is not allowed in the trading platform.");
          else result=modify_order(ticket,sl,tp,entryPrice,expire,a_color); // entryPrice could be -1 if there was no entryPrice sent to this function
          if(result)
             break;
@@ -916,10 +916,10 @@ bool exit(int ticket,color a_color=clrNONE,int retries=3,int sleep_milisec=500)
    // TODO: you may want to calculate and add another argument (exiting_max_slippage) to the exit_order function
    for(int i=0;i<retries;i++)
      {
-      if(!IsConnected()) Print("There is no internet connection.");
-      else if(!IsExpertEnabled()) Print("EAs are not enabled in the trading platform.");
-      else if(IsTradeContextBusy()) Print("The trade context is busy.");
-      else if(!IsTradeAllowed()) Print("The trade is not allowed in the trading platform.");
+      if(!IsConnected()) Print("The EA can't close ticket ",IntegerToString(ticket)," because there is no internet connection.");
+      else if(!IsExpertEnabled()) Print("The EA can't close ticket ",IntegerToString(ticket)," because EAs are not enabled in the trading platform.");
+      else if(IsTradeContextBusy()) Print("The EA can't close ticket ",IntegerToString(ticket)," because the trade context is busy.");
+      else if(!IsTradeAllowed()) Print("The EA can't close ticket ",IntegerToString(ticket)," because the close order is not allowed in the trading platform.");
       else result=exit_order(ticket,a_color);
       if(result)
          break;
@@ -937,7 +937,7 @@ bool exit(int ticket,color a_color=clrNONE,int retries=3,int sleep_milisec=500)
 // By default, if the type and magic number is not supplied it is set to -1 so the function exits all orders (including ones from different EAs). But, there is an option to specify the type of orders when calling the function.
 void exit_all(int type=-1,int magic=-1) 
   {
-   for(int i=OrdersTotal();i>=0;i--) // it has to iterate through the array from the highest to lowest
+   for(int i=OrdersTotal()-1;i>=0;i--) // it has to iterate through the array from the highest to lowest
      {
       if(OrderSelect(i,SELECT_BY_POS)) // if an open trade can be found
         {
@@ -952,8 +952,7 @@ void exit_all(int type=-1,int magic=-1)
 // This is similar to the exit_all function except that it allows you to choose more sets  to close. It will iterate through all open trades and close them based on the order type and magic number
 void exit_all_trades_set(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1)  // magic==-1 means that all orders/trades will close (including ones managed by other running EAs)
   {
-   int end_index=OrdersTotal()-1;
-   for(int i=end_index;i>=0;i--) // interate through the index from position 0 to OrdersTotal()-1
+   for(int i=OrdersTotal()-1;i>=0;i--) // interate through the index from position 0 to OrdersTotal()-1
      {
       if(OrderSelect(i,SELECT_BY_POS)) // if an open trade can be found
         {
@@ -1155,11 +1154,11 @@ int check_for_entry_errors(string instrument,int cmd,double lots,double distance
    int ticket=0;
    for(int i=0;i<retries;i++)
      {
-      if(IsStopped()) Print("The EA was stopped.");
-      else if(!IsConnected()) Print("There is no internet connection.");
-      else if(!IsExpertEnabled()) Print("EAs are not enabled in trading platform.");
-      else if(IsTradeContextBusy()) Print("The trade context is busy.");
-      else if(!IsTradeAllowed()) Print("The trade is not allowed in the trading platform.");
+      if(IsStopped()) Print("The EA can't enter a trade because the EA was stopped.");
+      else if(!IsConnected()) Print("The EA can't enter a trade because there is no internet connection.");
+      else if(!IsExpertEnabled()) Print("The EA can't enter a trade because EAs are not enabled in trading platform.");
+      else if(IsTradeContextBusy()) Print("The EA can't enter a trade because the trade context is busy.");
+      else if(!IsTradeAllowed()) Print("The EA can't enter a trade because the trade is not allowed in the trading platform.");
       else ticket=send_and_get_order_ticket(instrument,cmd,lots,distanceFromCurrentPrice,sl,tp,comment,magic,expire,a_clr,market);
       if(ticket>0) break;
       else
@@ -1271,20 +1270,19 @@ double mm(MM method,string instrument,double lots,double sl_pips,double risk_mm1
 int count_orders(ENUM_ORDER_SET type=-1,int magic=-1,int pool=MODE_TRADES) // With pool, you can define whether to count current orders (MODE_TRADES) or closed and cancelled orders (MODE_HISTORY).
   {
    int count=0;
-   int pool_end_index=OrdersTotal()-1; // is the newest order in the list index position is OrdersTotal()-1
-   int pool_start_index=0;
+   int pool_end_index=0; // is the newest order in the list is at index position is 0
    
    if(pool==MODE_TRADES) 
      {
-         pool_start_index=0; // this should be a small pool of active and pending orders so it is okay to start at the beginning (the oldest order) of the list 
+         pool_end_index=OrdersTotal()-1;  // this should be a small pool of active and pending orders so it is okay to start at the beginning (the newest order) of the list 
      }
    else if(pool==MODE_HISTORY) 
      {
-         pool_start_index=pool_end_index-(max_directional_trades*max_num_EAs_at_once*max_trades_within_x_hours); // this is to improve performance. It prevents the EA from iterating through lists of potentially hundreds or thousands of past orders. Note: it may be less than 0.
-         if(pool_start_index<0) pool_start_index=0;  
+         pool_end_index=(max_directional_trades*max_num_EAs_at_once*max_trades_within_x_hours)-1; // this is to improve performance. It prevents the EA from iterating through lists of potentially hundreds or thousands of past orders. Note: it may be less than 0.  
      }
+   if(pool_end_index<0) pool_end_index=0;
 
-   for(int i=pool_end_index;i>=pool_start_index;i--) // interate through the index from a not excessive middle of the index to OrdersTotal()-1 // the oldest order in the list has index position 0
+   for(int i=pool_end_index;i>=0;i--) // You have to start iterating from the lower part (or 0) of the order array because the newest trades get sent to the start. Interate through the index from a not excessive index position (the middle of an index) to OrdersTotal()-1 // the oldest order in the list has index position 0
      {
       if(OrderSelect(i,SELECT_BY_POS,pool)) // Problem: if the pool is MODE_HISTORY, that can be a lot of data to search.
         {
