@@ -32,9 +32,9 @@ enum ENUM_DIRECTIONAL_MODE
 enum ENUM_TRADE_SIGNAL  // since ENUM_ORDER_TYPE is not enough, this enum was created to be able to use neutral and void signals
   {
    TRADE_SIGNAL_VOID=-1, // exit all trades
-   TRADE_SIGNAL_NEUTRAL, // no direction is determined. This happens when buy and sell signals are compared with each other.
-   TRADE_SIGNAL_BUY, // buy
-   TRADE_SIGNAL_SELL // sell
+   TRADE_SIGNAL_NEUTRAL=0, // no direction is determined. This happens when buy and sell signals are compared with each other.
+   TRADE_SIGNAL_BUY,
+   TRADE_SIGNAL_SELL
    
    // TODO: should you create TRADE_SIGNAL_SIT_ON_HANDS that will override all other buy and sell signals? (but not the void one)
   };
@@ -110,6 +110,7 @@ enum MM // Money Management
 	input int gmt_hour_offset=-3; // -3 if using Gain Capital. The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). Adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
    
 // enter_order
+   input ENUM_SIGNAL_SET signal_set=SIGNAL_SET_1; // Which signal set would you like to test?
 	input double takeprofit_percent=0.3; // Must be a positive number. // TODO: Change to a percent of ADR (What % of ADR should you tarket?)
    input double stoploss_percent=1.0; // Must be a positive number.
 	input double pullback_percent=-0.50; //  If you want a buy or sell limit order, it must be negative.
@@ -242,8 +243,7 @@ void OnTick()
    datetime current_time=TimeCurrent();
    int exit_signal=0, exit_signal_2=0;
    
-   exit_signal=signal_exit(SIGNAL_SET_1); // the exit signal should be made the priority and doesn't require in_time_range or adr_generated to be true
-   exit_signal_2=signal_exit(SIGNAL_SET_2);
+   exit_signal=signal_exit(signal_set); // You can change the signal set easiliy when testing different options for the EA. The exit signal should be made the priority and doesn't require in_time_range or adr_generated to be true
 
    if(exit_signal==TRADE_SIGNAL_VOID) exit_all_trades_set(ORDER_SET_ALL,EA1_magic_num); // close all pending and orders for the specific EA's orders. Don't do validation to see if there is an EA_magic_num because the EA should try to exit even if for some reason there is none.
    else if(exit_signal==TRADE_SIGNAL_BUY) exit_all_trades_set(ORDER_SET_SHORT,EA1_magic_num);
@@ -269,16 +269,17 @@ void OnTick()
      }
    if(in_time_range && ready)
      {
-      int enter_signal=0, enter_signal_2=0;
+      int enter_signal=0;
       int long_order_count=0, short_order_count=0;
       int opened_order_recently_count=0;
+   
+      enter_signal=signal_pullback_after_ADR_triggered(); // this is the first signal and will apply to all signal sets so it gets run first
       
-      enter_signal=signal_entry(SIGNAL_SET_1); // the entry signal requires in_time_range, adr_generated, and EA_magic_num>0 to be true.
-      enter_signal_2=signal_entry(SIGNAL_SET_2);
+      int final_signal=signal_compare(enter_signal,signal_entry(signal_set),false); // You can change the signal set easily when testing different options. The entry signal requires in_time_range, adr_generated, and EA_magic_num>0 to be true.
       
-      if(enter_signal>0) // if there is a signal to enter a trade
+      if(final_signal>0) // if there is a signal to enter a trade
         {
-         if(enter_signal==TRADE_SIGNAL_BUY)
+         if(final_signal==TRADE_SIGNAL_BUY)
            {
             // TODO: Make a function out of this
             if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_SELL,EA1_magic_num);
@@ -291,7 +292,7 @@ void OnTick()
                      try_to_enter_order(OP_BUY);
               }
            }
-         else if(enter_signal==TRADE_SIGNAL_SELL)
+         else if(final_signal==TRADE_SIGNAL_SELL)
            {
             // TODO: Make a function out of this
             if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_BUY,EA1_magic_num);
@@ -353,15 +354,12 @@ int signal_entry(ENUM_SIGNAL_SET system) // gets called for every tick
    "signal=signal_compare(signal,signal_pullback_after_ADR_triggered());"
    As each signal is compared with the previous signal, the signal variable will change and then the final signal wil get returned.
 */
-
-   signal=signal_compare(signal,signal_pullback_after_ADR_triggered(),false); // this signal is will apply to all signal sets so it gets run first
-   
    if(system==SIGNAL_SET_1)
      {
       signal=signal_compare(signal,signal_x_consecutive_directional_days(),false);
       return signal;
      }
-   else if(system==SIGNAL_SET_2)
+   if(system==SIGNAL_SET_2)
      {
       return signal;
      }
@@ -688,7 +686,6 @@ int get_moves_start_bar()
    datetime week_start_open_time=iTime(symbol,PERIOD_W1,0)+(gmt_hour_offset*3600); // The iTime of the week bar gives you the time that the week is 0:00 on the chart so I shifted the time to start when the markets actually start.
    int week_start_bar=iBarShift(symbol,PERIOD_M5,week_start_open_time,false);
    int move_start_bar=H1s_to_roll*12;
-   
   
    if(move_start_bar<=week_start_bar)
      {
