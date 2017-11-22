@@ -61,13 +61,14 @@ enum ENUM_ORDER_SET
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-enum MM // Money Management
+enum ENUM_MM // Money Management
   {
-   MM_FIXED_LOT, // 0 by default
+   MM_RISK_PERCENT_PER_ADR, // 0 by default
    MM_RISK_PERCENT,
    MM_FIXED_RATIO,
    MM_FIXED_RISK,
    MM_FIXED_RISK_PER_POINT,
+   MM_FIXED_LOT
   };
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -113,6 +114,7 @@ enum MM // Money Management
    
 // enter_order
   input ENUM_SIGNAL_SET SIGNAL_SET=SIGNAL_SET_1; // Which signal set would you like to test? (the details of each signal set are found in the signal_entry function)
+  // TODO: make sure you have coded for the scenerios when each of these is set to 0
 	input double takeprofit_percent=0.3; // Must be a positive number. // TODO: Change to a percent of ADR (What % of ADR should you tarket?)
   input double stoploss_percent=1.0; // Must be a positive number.
 	input double pullback_percent=-0.50; //  If you want a buy or sell limit order, it must be negative.
@@ -135,7 +137,8 @@ enum MM // Money Management
 	color arrow_color_long=clrGreen;
 	
 //calculate_lots/mm variables
-	MM money_management=MM_RISK_PERCENT;
+	ENUM_MM money_management=MM_RISK_PERCENT_PER_ADR;
+	double risk_per_ADR_percent=0.02; // percent risked when using the MM_RISK_PER_ADR_PERCENT money management calculations. Note: This is not the percent of your balance you will be risking.
 	double mm1_risk_percent=0.02; // percent risked when using the MM_RISK_PERCENT money management calculations
    // these variables will not be used with the MM_RISK_PERCENT money management strategy
 	double lot_size=0.1;
@@ -151,15 +154,16 @@ enum MM // Money Management
   static int ADR_pips; // TODO: make sure this maintains the value that was generated OnInit()
    
 // ADR()
-  input double change_ADR_percent=-.25; // this can be a negative or positive decimal or whole number
   input int num_ADR_months=2; // How months back should you use to calculate the average ADR? (Divisible by 1) TODO: this is not implemented yet.
+  input double change_ADR_percent=-.25; // this can be a 0, negative, or positive decimal or whole number. 
+// TODO: make sure you have coded for the scenerios when each of these is set to 0
   input double above_ADR_outlier_percent=1.5; // Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be surpassed in a day for it to be neglected from the average calculation?
   input double below_ADR_outlier_percent=.5; // Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be under in a day for it to be neglected from the average calculation?
 
 bool all_user_input_variables_valid() // TODO: Work on this
-{
-  return true;
-}
+  {
+    return true;
+  }
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -169,7 +173,7 @@ int OnInit()
    return OnInit_Relativity_EA_1(EA1_magic_num,SIGNAL_SET);
   }
 int OnInit_Relativity_EA_1(int magic,ENUM_SIGNAL_SET signal_set)
-    {
+  {
     magic=generate_magic_num(signal_set);
     bool input_variables_valid=all_user_input_variables_valid();
     
@@ -260,7 +264,7 @@ void OnTick()
 //|                                                                  |
 //+------------------------------------------------------------------+
 void Relativity_EA_1(int magic)
-{
+  {
    static bool ready=false, in_time_range=false;
    bool is_new_M5_bar=is_new_bar(symbol,PERIOD_M5,wait_next_bar_on_load);
    datetime current_time=TimeCurrent();
@@ -278,7 +282,7 @@ void Relativity_EA_1(int magic)
       
       if(in_time_range && !ready) 
         {
-         ADR_pips=get_ADR();
+         ADR_pips=get_ADR(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent);
          if(ADR_pips>0 && magic>0) 
            {
             ready=true; // the ADR that has just been calculated won't generate again until after the cycle of not being in the time range completes
@@ -306,11 +310,25 @@ void Relativity_EA_1(int magic)
             ENUM_ORDER_SET order_set=ORDER_SET_LONG;
             ENUM_ORDER_SET order_set2=ORDER_SET_SHORT_LONG_LIMIT_MARKET;
             
-            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_SELL,magic,exiting_max_slippage);
-            
-            int opened_today_count=count_orders(order_set,magic,MODE_HISTORY,(max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,days_seconds,current_time);
-            int current_long_count=count_orders(order_set,magic,MODE_TRADES,OrdersTotal()-1,0,current_time); // counts all long (active and pending) orders for the current EA
-            int opened_recently_count=count_orders(order_set2,magic,MODE_HISTORY,(max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,x_hours*3600,current_time);
+            if(exit_opposite_signal) 
+              exit_all_trades_set(ORDER_SET_SELL,magic,exiting_max_slippage);
+            int opened_today_count=count_orders (order_set,
+                                                 magic,
+                                                 MODE_HISTORY,
+                                                 (max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,
+                                                 days_seconds,
+                                                 current_time);
+            int current_long_count=count_orders (order_set,
+                                                 magic,
+                                                 MODE_TRADES,
+                                                 OrdersTotal()-1,
+                                                 0,current_time); // counts all long (active and pending) orders for the current EA
+            int opened_recently_count=count_orders(order_set2,
+                                                 magic,
+                                                 MODE_HISTORY,
+                                                 (max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,
+                                                 x_hours*3600,
+                                                 current_time);
             
             if(current_long_count<max_directional_trades_at_once && 
                opened_recently_count<max_trades_within_x_hours && 
@@ -326,11 +344,26 @@ void Relativity_EA_1(int magic)
             ENUM_ORDER_SET order_set=ORDER_SET_SHORT;
             ENUM_ORDER_SET order_set2=ORDER_SET_SHORT_LONG_LIMIT_MARKET;
             
-            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_BUY,magic,exiting_max_slippage);
-            
-            int opened_today_count=count_orders(order_set,magic,MODE_HISTORY,(max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,days_seconds,current_time);
-            int current_short_count=count_orders(order_set,magic,MODE_TRADES,OrdersTotal()-1,0,current_time); // counts all short (active and pending) orders for the current EA
-            int opened_recently_count=count_orders(order_set2,magic,MODE_HISTORY,(max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,x_hours*3600,current_time);
+            if(exit_opposite_signal) 
+              exit_all_trades_set(ORDER_SET_BUY,magic,exiting_max_slippage);
+            int opened_today_count=count_orders (order_set,
+                                                 magic,
+                                                 MODE_HISTORY,
+                                                 (max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,
+                                                 days_seconds,
+                                                 current_time);
+            int current_short_count=count_orders(order_set,
+                                                 magic,
+                                                 MODE_TRADES,
+                                                 OrdersTotal()-1,
+                                                 0,
+                                                 current_time); // counts all short (active and pending) orders for the current EA
+            int opened_recently_count=count_orders(order_set2,
+                                                 magic,
+                                                 MODE_HISTORY,
+                                                 (max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,
+                                                 x_hours*3600,
+                                                 current_time);
             
             if(current_short_count<max_directional_trades_at_once && 
                opened_recently_count<max_trades_within_x_hours && 
@@ -355,26 +388,26 @@ void Relativity_EA_1(int magic)
        bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
        if(time_to_exit) exit_all_trades_set(ORDER_SET_ALL,magic,exiting_max_slippage); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
      }
-}
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 int signal_x_consecutive_directional_days() // TODO: work on this signal
-   {
-      int signal=TRADE_SIGNAL_NEUTRAL;
-      return signal;
-   }
+  {
+    int signal=TRADE_SIGNAL_NEUTRAL;
+    return signal;
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 int signal_pullback_after_ADR_triggered()
    {
    int signal=TRADE_SIGNAL_NEUTRAL;
-   if(uptrend_ADR_triggered_price()>0) return signal=TRADE_SIGNAL_BUY;
+   if(uptrend_ADR_threshold_price_met(true)>0) return signal=TRADE_SIGNAL_BUY;
    // for a buying signal, take the level that adr was triggered and subtract the pullback_pips to get the pullback_entry_price
    // if the pullback_entry_price is met or exceeded, signal = TRADE_SIGNAL_BUY
    
-   else if(downtrend_ADR_triggered_price()>0) return signal=TRADE_SIGNAL_SELL;
+   else if(downtrend_ADR_threshold_price_met(true)>0) return signal=TRADE_SIGNAL_SELL;
    else return signal;
    }
 //+------------------------------------------------------------------+
@@ -465,69 +498,69 @@ void signal_manage(ENUM_TRADE_SIGNAL &entry,ENUM_TRADE_SIGNAL &exit)
 //|                                                                  |
 //+------------------------------------------------------------------+
 int generate_magic_num(ENUM_SIGNAL_SET)
-{
-   int total_variable_count=10;
-   string symbols_string=symbol;
-   string unique_string="";
-   int magic_int=0; // This has to be initialized to 0. Do not change this unless you analyze and make changes to all the code that depends on this function because if -1 ever gets returned that means to close all orders from all EAs!
-   double input_variables[10]; // only allowed to put constants in the array
-   
-   // add all the double and int global input variables to the input_variables array which will allow the magic_int to be unique based upon how the user sets them
-   
-   
-
+  {
+     int total_variable_count=10;
+     string symbols_string=symbol;
+     string unique_string="";
+     int magic_int=0; // This has to be initialized to 0. Do not change this unless you analyze and make changes to all the code that depends on this function because if -1 ever gets returned that means to close all orders from all EAs!
+     double input_variables[10]; // only allowed to put constants in the array
+     
+     // add all the double and int global input variables to the input_variables array which will allow the magic_int to be unique based upon how the user sets them
+     
+     
   
+    
+    
+    // int max and min values https://docs.mql4.com/basis/types/integer
+    
+    
+    
+    
+    
+     int symbols_int=StrToInteger(symbols_string);
+     string symbol_num_string=IntegerToString(symbols_int);
   
-  // int max and min values https://docs.mql4.com/basis/types/integer
+     for(int i=0;i<total_variable_count;i++)
+       {
+       // get the "i"th global input variables from the input_variable
   
-  
-  
-  
-  
-   int symbols_int=StrToInteger(symbols_string);
-   string symbol_num_string=IntegerToString(symbols_int);
-
-   for(int i=0;i<total_variable_count;i++)
-     {
-     // get the "i"th global input variables from the input_variable
-
-      double another_variable=input_variables[i];
-      
-      if(MathIsValidNumber(another_variable))
-        {
-         if(MathMod(another_variable,1)!=0) // if it is NOT a whole number
-           {
-            another_variable=NormalizeDouble(another_variable,2)*100; // TODO: does NormalizeDouble make it so doubles only have two numbers after the decimal point?
-           }
+        double another_variable=input_variables[i];
+        
+        if(MathIsValidNumber(another_variable))
+          {
+           if(MathMod(another_variable,1)!=0) // if it is NOT a whole number
+             {
+              another_variable=NormalizeDouble(another_variable,2)*100; // TODO: does NormalizeDouble make it so doubles only have two numbers after the decimal point?
+             }
+             
+           // now any number that gets to this point can be converted into an int without any loss of data
+           int another_variable_int=(int)another_variable;
+           string num_string=IntegerToString(another_variable_int);
            
-         // now any number that gets to this point can be converted into an int without any loss of data
-         int another_variable_int=(int)another_variable;
-         string num_string=IntegerToString(another_variable_int);
-         
-         if(another_variable_int>0) unique_string=StringConcatenate("1",num_string); // create a unique string for this specific positive number
-         else if(another_variable_int!=NULL) unique_string=StringConcatenate("0",num_string); // create a unique string for this specific negative number 
-        }
-      else // it must be a string or some other unknown type
-        {
-         Alert("A non-valid number was used to try to make the magic number. Only numbers are allowed. The EA cannot go forward until the Expert Advisor MQL4 programmer fixes the code.");
-        }
+           if(another_variable_int>0) unique_string=StringConcatenate("1",num_string); // create a unique string for this specific positive number
+           else if(another_variable_int!=NULL) unique_string=StringConcatenate("0",num_string); // create a unique string for this specific negative number 
+          }
+        else // it must be a string or some other unknown type
+          {
+           Alert("A non-valid number was used to try to make the magic number. Only numbers are allowed. The EA cannot go forward until the Expert Advisor MQL4 programmer fixes the code.");
+          }
+       }
+     string magic_string=StringConcatenate(symbol_num_string,unique_string);
+     magic_int=StrToInteger(magic_string);
+     return magic_int;
+  /*
+  // started work on a different option if the one above does not work out.
+     MathSrand(1);
+     int large_random_num=MathRand()*MathRand();
+     
+     while(magic_num_in_use(large_random_num))
+     {
+       large_random_num=MathRand()*MathRand(); // from 1 through 1,073,676,289
      }
-   string magic_string=StringConcatenate(symbol_num_string,unique_string);
-   magic_int=StrToInteger(magic_string);
-   return magic_int;
-/*
-// started work on a different option if the one above does not work out.
-   MathSrand(1);
-   int large_random_num=MathRand()*MathRand();
-   
-   while(magic_num_in_use(large_random_num))
-   {
-     large_random_num=MathRand()*MathRand(); // from 1 through 1,073,676,289
-   }
-   return large_random_num;
-   
- */
-}
+     return large_random_num;
+     
+   */
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -594,154 +627,154 @@ bool is_new_bar(string instrument,int timeframe,bool wait_for_next_bar=false)
 //|                                                                  |
 //+------------------------------------------------------------------+
 bool time_to_exit(datetime current_time,int hour,int min,int gmt_offset=0) 
-{
-   if(gmt_offset!=0) 
-     {
-      hour+=gmt_offset;
-      hour+=gmt_offset;
-     }
-// Since a non-zero gmt_offset will make the start and end hour go beyond acceptable paremeters (below 0 or above 23), change the start_hour and end_hour to military time.
-   if(hour>23) hour=(hour-23)-1;
-   else if(hour<0) hour=23+hour+1;
-   
-   int time_hour=TimeHour(current_time);
-   int time_minute=TimeMinute(current_time);
-   int exit_hour=hour*3600;
-   int exit_min=min*60;
-   
-   if(time_hour==exit_hour && time_minute==exit_min) return true; // this will only give the signal to exit for every tick for 1 minute per day
-   else return false;
-}
+  {
+     if(gmt_offset!=0) 
+       {
+        hour+=gmt_offset;
+        hour+=gmt_offset;
+       }
+  // Since a non-zero gmt_offset will make the start and end hour go beyond acceptable paremeters (below 0 or above 23), change the start_hour and end_hour to military time.
+     if(hour>23) hour=(hour-23)-1;
+     else if(hour<0) hour=23+hour+1;
+     
+     int time_hour=TimeHour(current_time);
+     int time_minute=TimeMinute(current_time);
+     int exit_hour=hour*3600;
+     int exit_min=min*60;
+     
+     if(time_hour==exit_hour && time_minute==exit_min) return true; // this will only give the signal to exit for every tick for 1 minute per day
+     else return false;
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int ADR_calculation()
-{
-   int three_mnth_sunday_count=0;
-   int three_mnth_num_days=3*22; // There are about 22 business days a month.
-   
-   for(int i=three_mnth_num_days;i>0;i--) // count the number of Sundays in the past 6 months
-      {
-      int day=DayOfWeek();
-      
-      if(day==0) // count Sundays
+int ADR_calculation(double low_outlier,double high_outlier,double change_ADR)
+  {
+     int three_mnth_sunday_count=0;
+     int three_mnth_num_days=3*22; // There are about 22 business days a month.
+     
+     for(int i=three_mnth_num_days;i>0;i--) // count the number of Sundays in the past 6 months
         {
-         three_mnth_sunday_count++;
+        int day=DayOfWeek();
+        
+        if(day==0) // count Sundays
+          {
+           three_mnth_sunday_count++;
+          }
         }
-      }
-   double avg_sunday_per_day=three_mnth_sunday_count/three_mnth_num_days;
-   int six_mnth_adjusted_num_days=(int)(((avg_sunday_per_day*three_mnth_num_days)+three_mnth_num_days)*2); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
-   int six_mnth_non_sunday_count=0;
-   double six_mnth_non_sunday_ADR_sum=0;
-   
-   for(int i=six_mnth_adjusted_num_days;i>0;i--) // get the raw ADR (outliers are included but not Sunday's outliers) for the approximate past 6 months
-   {
-    int day=DayOfWeek();
-   
-    if(day>0) // if the day of week is not Sunday
-      {
-       double HOD=iHigh(symbol,PERIOD_D1,i);
-       double LOD=iLow(symbol,PERIOD_D1,i);
-       six_mnth_non_sunday_ADR_sum+=HOD-LOD;
-       six_mnth_non_sunday_count++;
-      }
-   }
-   
-   int digits=(int)MarketInfo(symbol,MODE_DIGITS);
-   double six_mnth_ADR_avg=NormalizeDouble(six_mnth_non_sunday_ADR_sum/six_mnth_non_sunday_count,digits); // the first time getting the ADR average
-   six_mnth_non_sunday_ADR_sum=0;
-   six_mnth_non_sunday_count=0;
-   
-   for(int i=six_mnth_adjusted_num_days;i>0;i--) // refine the ADR (outliers and Sundays are NOT included) for the approximate past 6 months
+     double avg_sunday_per_day=three_mnth_sunday_count/three_mnth_num_days;
+     int six_mnth_adjusted_num_days=(int)(((avg_sunday_per_day*three_mnth_num_days)+three_mnth_num_days)*2); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
+     int six_mnth_non_sunday_count=0;
+     double six_mnth_non_sunday_ADR_sum=0;
+     
+     for(int i=six_mnth_adjusted_num_days;i>0;i--) // get the raw ADR (outliers are included but not Sunday's outliers) for the approximate past 6 months
      {
       int day=DayOfWeek();
-           
+     
       if(day>0) // if the day of week is not Sunday
         {
          double HOD=iHigh(symbol,PERIOD_D1,i);
          double LOD=iLow(symbol,PERIOD_D1,i);
-         double days_range=HOD-LOD;
-         double ADR_ratio=NormalizeDouble(days_range/six_mnth_ADR_avg,2); // ratio for comparing the current iteration with the 6 month average
-         
-         if(compare_doubles(ADR_ratio,below_ADR_outlier_percent,2)==1 && compare_doubles(ADR_ratio,above_ADR_outlier_percent,2)==-1) // filtering out outliers
-           {
-            six_mnth_non_sunday_ADR_sum+=days_range;
-            six_mnth_non_sunday_count++;
-           }
+         six_mnth_non_sunday_ADR_sum+=HOD-LOD;
+         six_mnth_non_sunday_count++;
         }
      }
-   six_mnth_ADR_avg=NormalizeDouble(six_mnth_non_sunday_ADR_sum/six_mnth_non_sunday_count,digits); // the second time getting an ADR average but this time it is MORE REFINED
-   double x_mnth_non_sunday_ADR_sum=0;
-   int x_mnth_non_sunday_count=0;
-   int x_mnth_num_days=num_ADR_months*22; // There are about 22 business days a month.
-   int x_mnth_adjusted_num_days=(int)((avg_sunday_per_day*x_mnth_num_days)+x_mnth_num_days); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
-   
-   for(int i=x_mnth_adjusted_num_days;i>0;i--) // find the counts of all days that are significantly below or above ADR
-     {
-      int day=DayOfWeek();
+     
+     int digits=(int)MarketInfo(symbol,MODE_DIGITS);
+     double six_mnth_ADR_avg=NormalizeDouble(six_mnth_non_sunday_ADR_sum/six_mnth_non_sunday_count,digits); // the first time getting the ADR average
+     six_mnth_non_sunday_ADR_sum=0;
+     six_mnth_non_sunday_count=0;
+     
+     for(int i=six_mnth_adjusted_num_days;i>0;i--) // refine the ADR (outliers and Sundays are NOT included) for the approximate past 6 months
+       {
+        int day=DayOfWeek();
+             
+        if(day>0) // if the day of week is not Sunday
+          {
+           double HOD=iHigh(symbol,PERIOD_D1,i);
+           double LOD=iLow(symbol,PERIOD_D1,i);
+           double days_range=HOD-LOD;
+           double ADR_ratio=NormalizeDouble(days_range/six_mnth_ADR_avg,2); // ratio for comparing the current iteration with the 6 month average
            
-      if(day>0) // if the day of week is not Sunday
-        {
-         double HOD=iHigh(symbol,PERIOD_D1,i);
-         double LOD=iLow(symbol,PERIOD_D1,i);
-         double days_range=HOD-LOD;
-         double ADR_ratio=NormalizeDouble(days_range/six_mnth_ADR_avg,2); // ratio for comparing the current iteration with the 6 month average
-         
-         if(compare_doubles(ADR_ratio,below_ADR_outlier_percent,2)==1 && compare_doubles(ADR_ratio,above_ADR_outlier_percent,2)==-1) // filtering out outliers
-           {
-            x_mnth_non_sunday_ADR_sum+=days_range;
-            x_mnth_non_sunday_count++;
-           }
-        }
-     }
-   // adr doesn't need to be Normalized because it has been converted into an int.
-   int adr=(int)((x_mnth_non_sunday_ADR_sum/Point)/x_mnth_non_sunday_count); // converting it away from points to more human understandable numbers
-   // int adr=.0080;
-   if(change_ADR_percent==0 || change_ADR_percent==NULL) return adr;
-   else return (int)((adr*change_ADR_percent)+adr); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
-}
+           if(compare_doubles(ADR_ratio,low_outlier,2)==1 && compare_doubles(ADR_ratio,high_outlier,2)==-1) // filtering out outliers
+             {
+              six_mnth_non_sunday_ADR_sum+=days_range;
+              six_mnth_non_sunday_count++;
+             }
+          }
+       }
+     six_mnth_ADR_avg=NormalizeDouble(six_mnth_non_sunday_ADR_sum/six_mnth_non_sunday_count,digits); // the second time getting an ADR average but this time it is MORE REFINED
+     double x_mnth_non_sunday_ADR_sum=0;
+     int x_mnth_non_sunday_count=0;
+     int x_mnth_num_days=num_ADR_months*22; // There are about 22 business days a month.
+     int x_mnth_adjusted_num_days=(int)((avg_sunday_per_day*x_mnth_num_days)+x_mnth_num_days); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
+     
+     for(int i=x_mnth_adjusted_num_days;i>0;i--) // find the counts of all days that are significantly below or above ADR
+       {
+        int day=DayOfWeek();
+             
+        if(day>0) // if the day of week is not Sunday
+          {
+           double HOD=iHigh(symbol,PERIOD_D1,i);
+           double LOD=iLow(symbol,PERIOD_D1,i);
+           double days_range=HOD-LOD;
+           double ADR_ratio=NormalizeDouble(days_range/six_mnth_ADR_avg,2); // ratio for comparing the current iteration with the 6 month average
+           
+           if(compare_doubles(ADR_ratio,low_outlier,2)==1 && compare_doubles(ADR_ratio,high_outlier,2)==-1) // filtering out outliers
+             {
+              x_mnth_non_sunday_ADR_sum+=days_range;
+              x_mnth_non_sunday_count++;
+             }
+          }
+       }
+     // adr doesn't need to be Normalized because it has been converted into an int.
+     int adr=(int)((x_mnth_non_sunday_ADR_sum/Point)/x_mnth_non_sunday_count); // converting it away from points to more human understandable numbers
+     // int adr=.0080;
+     if(change_ADR==0 || change_ADR==NULL) return adr;
+     else return (int)((adr*change_ADR)+adr); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int get_ADR() // get the Average Daily Range
-{
-  static int adr=0;
-  bool is_new_D1_bar=is_new_bar(symbol,PERIOD_D1,wait_next_bar_on_load);
-   
-  if(below_ADR_outlier_percent>above_ADR_outlier_percent || num_ADR_months<=0 || num_ADR_months==NULL || MathMod(H1s_to_roll,.5)!=0)
-    {
-      return -1; // if the user inputed the wrong outlier variables or a H1s_to_roll number that is not divisible by .5, it is not possible to calculate ADR
-    }  
-  if(adr==0) // if it is the first time the function is called
-    {
-      int calculated_adr=ADR_calculation();
-      adr=calculated_adr; // make the function remember the calculation the next time it is called
-      return adr;
-    }
-  if(is_new_D1_bar) // if it is a fresh new bar
-    {
-      int freshly_calculated_adr=ADR_calculation();
-      adr=freshly_calculated_adr; // make the function remember the calculation the next time it is called
-    }
-  return adr; // if it is not the first time the function is called it is the middle of a bar, return the static adr
-}
+int get_ADR(int hours_to_roll,double low_outlier,double high_outlier,double change_ADR) // get the Average Daily Range
+  {
+    static int adr=0;
+    bool is_new_D1_bar=is_new_bar(symbol,PERIOD_D1,wait_next_bar_on_load);
+     
+    if(low_outlier>high_outlier || num_ADR_months<=0 || num_ADR_months==NULL || MathMod(hours_to_roll,.5)!=0)
+      {
+        return -1; // if the user inputed the wrong outlier variables or a H1s_to_roll number that is not divisible by .5, it is not possible to calculate ADR
+      }  
+    if(adr==0) // if it is the first time the function is called
+      {
+        int calculated_adr=ADR_calculation(low_outlier,high_outlier,change_ADR);
+        adr=calculated_adr; // make the function remember the calculation the next time it is called
+        return adr;
+      }
+    if(is_new_D1_bar) // if it is a fresh new bar
+      {
+        int freshly_calculated_adr=ADR_calculation(low_outlier,high_outlier,change_ADR);
+        adr=freshly_calculated_adr; // make the function remember the calculation the next time it is called
+      }
+    return adr; // if it is not the first time the function is called it is the middle of a bar, return the static adr
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+  
-int get_moves_start_bar()
-{
-   datetime week_start_open_time=iTime(symbol,PERIOD_W1,0)+(gmt_hour_offset*3600); // The iTime of the week bar gives you the time that the week is 0:00 on the chart so I shifted the time to start when the markets actually start.
+int get_moves_start_bar(int _H1s_to_roll,int gmt_offset,double _max_weekend_gap_percent,bool _include_last_week=true)
+  {
+   datetime week_start_open_time=iTime(symbol,PERIOD_W1,0)+(gmt_offset*3600); // The iTime of the week bar gives you the time that the week is 0:00 on the chart so I shifted the time to start when the markets actually start.
    int week_start_bar=iBarShift(symbol,PERIOD_M5,week_start_open_time,false);
-   int move_start_bar=H1s_to_roll*12;
+   int move_start_bar=_H1s_to_roll*12;
   
    if(move_start_bar<=week_start_bar)
      {
       return move_start_bar;
      }
-   else if(include_last_week)
+   else if(_include_last_week)
      {
       double weekend_gap_points=MathAbs(iClose(symbol,PERIOD_W1,1)-iOpen(symbol,PERIOD_W1,0));
-      double max_weekend_gap_points=NormalizeDouble((ADR_pips*Point)*max_weekend_gap_percent,Digits); // TODO: this may not need to be normalized
+      double max_weekend_gap_points=NormalizeDouble((ADR_pips*Point)*_max_weekend_gap_percent,Digits); // TODO: this may not need to be normalized
       
       if(weekend_gap_points>=max_weekend_gap_points) return week_start_bar;
       else return move_start_bar;
@@ -750,21 +783,42 @@ int get_moves_start_bar()
      {
       return week_start_bar;
      }
-}
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 double periods_pivot_price(ENUM_DIRECTIONAL_MODE mode)
-{
-   if(mode==BUYING_MODE) return iLow(symbol,PERIOD_M5,iLowest(symbol,PERIOD_M5,MODE_LOW,WHOLE_ARRAY,get_moves_start_bar())); // get the price of the bar that has the lowest price for the determined period
-   else if(mode==SELLING_MODE) return iHigh(symbol,PERIOD_M5,iHighest(symbol,PERIOD_M5,MODE_HIGH,WHOLE_ARRAY,get_moves_start_bar())); // get the price of the bar that has the highest price for the determined period
-   else return -1;
-}
+  {
+    if(mode==BUYING_MODE)
+      return iLow(symbol,
+                PERIOD_M5,
+                iLowest(symbol,
+                        PERIOD_M5,
+                        MODE_LOW,
+                        WHOLE_ARRAY,
+                        get_moves_start_bar(H1s_to_roll,
+                                            gmt_hour_offset,
+                                            max_weekend_gap_percent,
+                                            include_last_week))); // get the price of the bar that has the lowest price for the determined period
+    else if(mode==SELLING_MODE) 
+      return iHigh(symbol,
+                 PERIOD_M5,
+                 iHighest(symbol,
+                          PERIOD_M5,
+                          MODE_HIGH,
+                          WHOLE_ARRAY,
+                          get_moves_start_bar(H1s_to_roll,
+                                              gmt_hour_offset,
+                                              max_weekend_gap_percent,
+                                              include_last_week))); // get the price of the bar that has the highest price for the determined period
+    else 
+      return -1;
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double uptrend_ADR_triggered_price()
-{
+double uptrend_ADR_threshold_price_met(bool get_current_bid_instead=false)
+  {
    static double LOP=periods_pivot_price(BUYING_MODE);
    double point=MarketInfo(symbol,MODE_POINT);
    double pip_move_threshold=ADR_pips*point;
@@ -784,16 +838,18 @@ double uptrend_ADR_triggered_price()
      {
        // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
        LOP=periods_pivot_price(BUYING_MODE);
-       if(current_bid-LOP>=pip_move_threshold) return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
+       if(current_bid-LOP>=pip_move_threshold) 
+         if(get_current_bid_instead) return current_bid; // TODO: should you return the current_bid or LOP+pip_move_threshold? // check if it is actually true by taking the new calculation of Low Of Period into account
+         else return LOP+pip_move_threshold;
        else return -1;
      }         
    else return -1;
-}
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double downtrend_ADR_triggered_price()
-{
+double downtrend_ADR_threshold_price_met(bool get_current_bid_instead=false)
+  {
    static double HOP=periods_pivot_price(SELLING_MODE);
    double point=MarketInfo(symbol,MODE_POINT);
    double pip_move_threshold=ADR_pips*point;
@@ -813,27 +869,13 @@ double downtrend_ADR_triggered_price()
      {
        // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
        HOP=periods_pivot_price(SELLING_MODE);
-       if(HOP-current_bid>=pip_move_threshold) return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
+       if(HOP-current_bid>=pip_move_threshold) 
+         if(get_current_bid_instead)
+           return current_bid; // TODO: should you return the current_bid or HOP-pip_move_threshold? // check if it is actually true by taking the new calculation of Low Of Period into account
+           else return HOP-pip_move_threshold;
        else return -1;
      }         
    else return -1;
-}
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-double calculate_lots()
-  {
-   double stoploss_pips=NormalizeDouble(ADR_pips*stoploss_percent,2);
-   double lots=mm(money_management,
-                  symbol,
-                  lot_size,
-                  stoploss_pips,
-                  mm1_risk_percent,
-                  mm2_lots,
-                  mm2_per,
-                  mm3_risk,
-                  mm4_risk);
-   return lots;
   }
 
 //+------------------------------------------------------------------+
@@ -1071,11 +1113,11 @@ void exit_all_trades_set(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1,int max_
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool acceptable_spread(string instrument,bool refresh_rates)
+bool acceptable_spread(string instrument,bool refresh_rates,double _max_spread_percent)
 {
    if(refresh_rates) RefreshRates();
    double spread=MarketInfo(instrument,MODE_SPREAD); // already normalized. I put this check here because the rates were just refereshed.
-   if(compare_doubles(spread,(ADR_pips*max_spread_percent)*Point,1)<=0) return true; // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+   if(compare_doubles(spread,(ADR_pips*_max_spread_percent)*Point,1)<=0) return true; // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
    else return false;
 }
 //+------------------------------------------------------------------+
@@ -1104,7 +1146,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic=0,int max_slippage=50)
      }
    else return;
       
-   double lots=calculate_lots();
+   double lots=calculate_lots(money_management,risk_per_ADR_percent);
 
    check_for_entry_errors(symbol,
                type,
@@ -1151,7 +1193,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
         }
       else if(order_type==OP_BUY)
         {
-         if(acceptable_spread(instrument,true)) entryPrice=MarketInfo(instrument,MODE_ASK);// Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+         if(acceptable_spread(instrument,true,max_spread_percent)) entryPrice=MarketInfo(instrument,MODE_ASK);// Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
          // TODO: create an alert informing the user that the trade was not executed because of the spread being too wide
          else return 0;
         }
@@ -1173,7 +1215,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
         }
       else if(order_type==OP_SELL)
         {
-         if(acceptable_spread(instrument,true)) entryPrice=MarketInfo(instrument,MODE_BID); // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+         if(acceptable_spread(instrument,true,max_spread_percent)) entryPrice=MarketInfo(instrument,MODE_BID); // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
          // TODO: create an alert informing the user that the trade was not executed because the spread was too wide         
          else return 0;
         }
@@ -1244,9 +1286,11 @@ bool trailingstop_check_order(int ticket,int trail_pips,int threshold,int step)
   {
    if(ticket<=0) return true;
    if(!OrderSelect(ticket,SELECT_BY_TICKET)) return false;
+   
    int digits=(int) MarketInfo(OrderSymbol(),MODE_DIGITS);
    double point=MarketInfo(OrderSymbol(),MODE_POINT);
    bool result=true;
+   
    if(OrderType()==OP_BUY)
      {
       double new_moving_sl=OrderClosePrice()-(trail_pips*point); // the current price - the trail in pips
@@ -1298,25 +1342,55 @@ void trailingstop_check_all_orders(int trail,int threshold,int step,int magic=-1
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double mm(MM method,string instrument,double lots,double sl_pips,double risk_mm1_percent,double lots_mm2,double per_mm2,double risk_mm3,double risk_mm4)
+
+double calculate_lots(ENUM_MM _money_management,double _risk_per_ADR_percent=.02)
+  {
+    double pips=0;
+
+    if(_money_management==MM_RISK_PERCENT_PER_ADR)
+      pips=ADR_pips;
+    else if(ADR_pips>0 && stoploss_percent>0)
+      pips=NormalizeDouble(ADR_pips*stoploss_percent,2); // could be 0 if stoploss_percent is set to 0 
+    else 
+      pips=ADR_pips;
+
+    double lots=get_lots(_money_management,
+                        symbol,
+                        lot_size,
+                        _risk_per_ADR_percent,
+                        pips,
+                        mm1_risk_percent,
+                        mm2_lots,
+                        mm2_per,
+                        mm3_risk,
+                        mm4_risk);
+   return lots;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double get_lots(ENUM_MM method,string instrument,double lots,double _risk_per_ADR_percent,double pips,double risk_mm1_percent,double lots_mm2,double per_mm2,double risk_mm3,double risk_mm4)
   {
    double balance=AccountBalance();
    double tick_value=MarketInfo(instrument,MODE_TICKVALUE);
-   
+    
    switch(method)
      {
-      case MM_RISK_PERCENT:
-         if(sl_pips>0) lots=((balance*risk_mm1_percent)/sl_pips)/tick_value;
+      case MM_RISK_PERCENT_PER_ADR:
+         if(pips>0) lots=((balance*_risk_per_ADR_percent)/pips)/tick_value;
          break;
-      case MM_FIXED_RATIO:
+      case MM_RISK_PERCENT:
+         if(pips>0) lots=((balance*risk_mm1_percent)/pips)/tick_value;
+         break;
+      /*case MM_FIXED_RATIO:
          lots=balance*lots_mm2/per_mm2;
          break;
       case MM_FIXED_RISK:
-         if(sl_pips>0) lots=(risk_mm3/tick_value)/sl_pips;
+         if(pips>0) lots=(risk_mm3/tick_value)/pips;
          break;
       case MM_FIXED_RISK_PER_POINT:
          lots=risk_mm4/tick_value;
-         break;
+         break;*/
      }
    // get information from the broker and then Normalize the lots double
    double min_lot=MarketInfo(instrument,MODE_MINLOT);
@@ -1417,6 +1491,7 @@ bool virtualstop_check_order(int ticket,int sl,int tp,int max_slippage)
   {
    if(ticket<=0) return true;
    if(!OrderSelect(ticket,SELECT_BY_TICKET)) return false;
+   
    int digits=(int) MarketInfo(OrderSymbol(),MODE_DIGITS);
    double point=MarketInfo(OrderSymbol(),MODE_POINT);
    bool result=true;
