@@ -76,7 +76,7 @@ enum ENUM_MM // Money Management
 // general settings
 	int charts_timeframe=PERIOD_M5;
 	string symbol=NULL;
-  static int EA1_magic_num; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
+  static int EA_1_magic_num; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
    
 // virtual stoploss variables
 	int virtual_sl=0; // TODO: Change to a percent of ADR
@@ -101,7 +101,7 @@ enum ENUM_MM // Money Management
 	input int max_directional_trades_at_once=1; // How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
 	input int max_trades_within_x_hours=1; // How many trades are allowed to be opened (even if they are closed now) within the last x_hours?
 	input int x_hours=3;
-	input int max_directional_trades_each_day=1; // How many trades are allowed to be opened after the start of each current day?
+	input int max_directional_trades_each_day=1; // How many trades are allowed to be opened (even if they are close now) after the start of each current day?
 	
 // time filters - only allow EA to enter trades between a range of time in a day
 	input int start_time_hour=0; // eligible time to start a trade. 0-23
@@ -170,11 +170,14 @@ bool all_user_input_variables_valid() // TODO: Work on this
 // Runs once when the EA is turned on
 int OnInit()
   {
-   return OnInit_Relativity_EA_1(EA1_magic_num,SIGNAL_SET);
+   return OnInit_Relativity_EA_1(SIGNAL_SET);
   }
-int OnInit_Relativity_EA_1(int magic,ENUM_SIGNAL_SET signal_set)
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set)
   {
-    magic=generate_magic_num(signal_set);
+    EA_1_magic_num=generate_magic_num(signal_set);
     bool input_variables_valid=all_user_input_variables_valid();
     
     int range_start_time=(start_time_hour*3600)+(start_time_minute*60);
@@ -188,7 +191,7 @@ int OnInit_Relativity_EA_1(int magic,ENUM_SIGNAL_SET signal_set)
       Alert("Make sure that the trade exit_time_hour and exit_time_minute combination does not fall within the trading range start and end times or else there will be trouble!");
       return(INIT_FAILED);
     }
-  else if(magic<=0)
+  else if(EA_1_magic_num<=0)
     {
       Alert("There is not a valid magic number for the Expert Advisor (EA). Without one, the EA will not run correctly. Get a MQL4 programmer check the code to find out why.");
       return(INIT_FAILED);
@@ -258,7 +261,7 @@ string getUninitReasonText(int reasonCode)
 // Runs on every tick
 void OnTick()
   {
-   Relativity_EA_1(EA1_magic_num);
+   Relativity_EA_1(EA_1_magic_num);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -269,12 +272,13 @@ void Relativity_EA_1(int magic)
    bool is_new_M5_bar=is_new_bar(symbol,PERIOD_M5,wait_next_bar_on_load);
    datetime current_time=TimeCurrent();
    int exit_signal=TRADE_SIGNAL_NEUTRAL, exit_signal_2=TRADE_SIGNAL_NEUTRAL; // 0
+   int _exiting_max_slippage=exiting_max_slippage;
    
    exit_signal=signal_exit(SIGNAL_SET); // The exit signal should be made the priority and doesn't require in_time_range or adr_generated to be true
 
-   if(exit_signal==TRADE_SIGNAL_VOID)       exit_all_trades_set(ORDER_SET_ALL,magic,exiting_max_slippage); // close all pending and orders for the specific EA's orders. Don't do validation to see if there is an EA_magic_num because the EA should try to exit even if for some reason there is none.
-   else if(exit_signal==TRADE_SIGNAL_BUY)   exit_all_trades_set(ORDER_SET_SHORT,magic,exiting_max_slippage);
-   else if(exit_signal==TRADE_SIGNAL_SELL)  exit_all_trades_set(ORDER_SET_LONG,magic,exiting_max_slippage);
+   if(exit_signal==TRADE_SIGNAL_VOID)       exit_all_trades_set(ORDER_SET_ALL,magic,_exiting_max_slippage); // close all pending and orders for the specific EA's orders. Don't do validation to see if there is an EA_magic_num because the EA should try to exit even if for some reason there is none.
+   else if(exit_signal==TRADE_SIGNAL_BUY)   exit_all_trades_set(ORDER_SET_SHORT,magic,_exiting_max_slippage);
+   else if(exit_signal==TRADE_SIGNAL_SELL)  exit_all_trades_set(ORDER_SET_LONG,magic,_exiting_max_slippage);
 
    if(is_new_M5_bar) // only check if it is in the time range once the EA is loaded and, then, afterward at the beginning of every M5 bar
      {
@@ -304,29 +308,31 @@ void Relativity_EA_1(int magic)
       if(enter_signal>0) // if there is a signal to enter a trade
         {
          int days_seconds=(int)(current_time-(iTime(symbol,PERIOD_D1,0))+(gmt_hour_offset*3600)); // i am assuming it is okay to typecast a datetime (iTime) into an int since datetime is count of the number of seconds since 1970
+         int efficient_end_index=MathMax(max_trades_within_x_hours*x_hours,max_directional_trades_each_day*24)*max_directional_trades_at_once*max_num_EAs_at_once-1; // calculating the maximum orders that could have been placed so at least the program doesn't have to iterate through all orders in history (which can slow down the EA)
          
          if(enter_signal==TRADE_SIGNAL_BUY)
            {
             ENUM_ORDER_SET order_set=ORDER_SET_LONG;
             ENUM_ORDER_SET order_set2=ORDER_SET_SHORT_LONG_LIMIT_MARKET;
             
-            if(exit_opposite_signal) 
-              exit_all_trades_set(ORDER_SET_SELL,magic,exiting_max_slippage);
+            
+            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_SELL,magic,_exiting_max_slippage);
             int opened_today_count=count_orders (order_set,
                                                  magic,
                                                  MODE_HISTORY,
-                                                 (max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,
+                                                 efficient_end_index,
                                                  days_seconds,
                                                  current_time);
             int current_long_count=count_orders (order_set,
                                                  magic,
                                                  MODE_TRADES,
                                                  OrdersTotal()-1,
-                                                 0,current_time); // counts all long (active and pending) orders for the current EA
+                                                 0,
+                                                 current_time); // counts all long (active and pending) orders for the current EA
             int opened_recently_count=count_orders(order_set2,
                                                  magic,
                                                  MODE_HISTORY,
-                                                 (max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,
+                                                 efficient_end_index,
                                                  x_hours*3600,
                                                  current_time);
             
@@ -344,12 +350,11 @@ void Relativity_EA_1(int magic)
             ENUM_ORDER_SET order_set=ORDER_SET_SHORT;
             ENUM_ORDER_SET order_set2=ORDER_SET_SHORT_LONG_LIMIT_MARKET;
             
-            if(exit_opposite_signal) 
-              exit_all_trades_set(ORDER_SET_BUY,magic,exiting_max_slippage);
+            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_BUY,magic,_exiting_max_slippage);
             int opened_today_count=count_orders (order_set,
                                                  magic,
                                                  MODE_HISTORY,
-                                                 (max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,
+                                                 efficient_end_index,
                                                  days_seconds,
                                                  current_time);
             int current_short_count=count_orders(order_set,
@@ -361,7 +366,7 @@ void Relativity_EA_1(int magic)
             int opened_recently_count=count_orders(order_set2,
                                                  magic,
                                                  MODE_HISTORY,
-                                                 (max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,
+                                                 efficient_end_index,
                                                  x_hours*3600,
                                                  current_time);
             
@@ -386,7 +391,7 @@ void Relativity_EA_1(int magic)
      {
        ready=false; // this makes sure to set it to false so when the time is within the time range again, the ADR can get generated.
        bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
-       if(time_to_exit) exit_all_trades_set(ORDER_SET_ALL,magic,exiting_max_slippage); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
+       if(time_to_exit) exit_all_trades_set(ORDER_SET_ALL,magic,_exiting_max_slippage); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
      }
   }
 //+------------------------------------------------------------------+
@@ -499,7 +504,7 @@ void signal_manage(ENUM_TRADE_SIGNAL &entry,ENUM_TRADE_SIGNAL &exit)
 //+------------------------------------------------------------------+
 int generate_magic_num(ENUM_SIGNAL_SET)
   {
-     int total_variable_count=10;
+     /*int total_variable_count=10;
      string symbols_string=symbol;
      string unique_string="";
      int magic_int=0; // This has to be initialized to 0. Do not change this unless you analyze and make changes to all the code that depends on this function because if -1 ever gets returned that means to close all orders from all EAs!
@@ -560,6 +565,9 @@ int generate_magic_num(ENUM_SIGNAL_SET)
      return large_random_num;
      
    */
+   
+   return 1;
+   
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -739,9 +747,10 @@ int ADR_calculation(double low_outlier,double high_outlier,double change_ADR)
 int get_ADR(int hours_to_roll,double low_outlier,double high_outlier,double change_ADR) // get the Average Daily Range
   {
     static int adr=0;
+    int _num_ADR_months=num_ADR_months;
     bool is_new_D1_bar=is_new_bar(symbol,PERIOD_D1,wait_next_bar_on_load);
      
-    if(low_outlier>high_outlier || num_ADR_months<=0 || num_ADR_months==NULL || MathMod(hours_to_roll,.5)!=0)
+    if(low_outlier>high_outlier || _num_ADR_months<=0 || _num_ADR_months==NULL || MathMod(hours_to_roll,.5)!=0)
       {
         return -1; // if the user inputed the wrong outlier variables or a H1s_to_roll number that is not divisible by .5, it is not possible to calculate ADR
       }  
@@ -1128,9 +1137,10 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic=0,int max_slippage=50)
    double distance_pips;
    double periods_pivot_price;
    color arrow_color;
+   double _pullback_percent=pullback_percent;
    
-   if(pullback_percent==0 || pullback_percent==NULL) distance_pips=0;
-   else distance_pips=NormalizeDouble(ADR_pips*pullback_percent,2);
+   if(_pullback_percent==0 || _pullback_percent==NULL) distance_pips=0;
+   else distance_pips=NormalizeDouble(ADR_pips*_pullback_percent,2);
    
    if(type==OP_BUY /*|| type==OP_BUYSTOP || type==OP_BUYLIMIT*/) // what is the purpose of checking if it is a buystop or sellstop if the only type that gets sent to this function is OP_BUY?
      {
@@ -1346,11 +1356,12 @@ void trailingstop_check_all_orders(int trail,int threshold,int step,int magic=-1
 double calculate_lots(ENUM_MM _money_management,double _risk_per_ADR_percent=.02)
   {
     double pips=0;
+    double _stoploss_percent=stoploss_percent;
 
     if(_money_management==MM_RISK_PERCENT_PER_ADR)
       pips=ADR_pips;
-    else if(ADR_pips>0 && stoploss_percent>0)
-      pips=NormalizeDouble(ADR_pips*stoploss_percent,2); // could be 0 if stoploss_percent is set to 0 
+    else if(ADR_pips>0 && _stoploss_percent>0)
+      pips=NormalizeDouble(ADR_pips*_stoploss_percent,2); // could be 0 if stoploss_percent is set to 0 
     else 
       pips=ADR_pips;
 
@@ -1412,7 +1423,7 @@ double get_lots(ENUM_MM method,string instrument,double lots,double _risk_per_AD
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int count_orders(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1,int pool=MODE_TRADES, int pools_end_index=-1,int x_seconds_before=-1,datetime since_time=-1) // With pool, you can define whether to count current orders (MODE_TRADES) or closed and cancelled orders (MODE_HISTORY).
+int count_orders(ENUM_ORDER_SET type_needed=ORDER_SET_ALL,int magic=-1,int pool=MODE_TRADES, int pools_end_index=-1,int x_seconds_before=-1,datetime since_time=-1) // With pool, you can define whether to count current orders (MODE_TRADES) or closed and cancelled orders (MODE_HISTORY).
   {
    int count=0;
 
@@ -1423,59 +1434,55 @@ int count_orders(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1,int pool=MODE_TR
          if(magic==-1 || magic==OrderMagicNumber())
            {
             if(x_seconds_before>0 && since_time>0) // only count them if they are within X seconds of the specified time
-              {
-               datetime opened_time=OrderOpenTime();
-               datetime x_seconds_ago=since_time-x_seconds_before;
-               
-               if(opened_time<x_seconds_ago) break; // if the time the order was opened is before the time the user wants to start counting orders, do not count it
-              }
-            int ordertype=OrderType();
+               if(OrderOpenTime()<(since_time-x_seconds_before)) break; // if the time the order was opened is before the time the user wants to start counting orders, do not count it
+
+            int actual_type=OrderType();
             //int ticket=OrderTicket(); // the ticket variable may not be needed in the code of this function
-            switch(type)
+            switch(type_needed)
               {
                case ORDER_SET_BUY:
-                  if(ordertype==OP_BUY) count++;
+                  if(actual_type==OP_BUY) count++;
                   break;
                case ORDER_SET_SELL:
-                  if(ordertype==OP_SELL) count++;
+                  if(actual_type==OP_SELL) count++;
                   break;
                case ORDER_SET_BUY_LIMIT:
-                  if(ordertype==OP_BUYLIMIT) count++;
+                  if(actual_type==OP_BUYLIMIT) count++;
                   break;
                case ORDER_SET_SELL_LIMIT:
-                  if(ordertype==OP_SELLLIMIT) count++;
+                  if(actual_type==OP_SELLLIMIT) count++;
                   break;
                /*case ORDER_SET_BUY_STOP:
-                  if(ordertype==OP_BUYSTOP) count++;
+                  if(actual_type==OP_BUYSTOP) count++;
                   break;
                case ORDER_SET_SELL_STOP:
-                  if(ordertype==OP_SELLSTOP) count++;
+                  if(actual_type==OP_SELLSTOP) count++;
                   break;*/
                case ORDER_SET_LONG:
-                  if(ordertype==OP_BUY || ordertype==OP_BUYLIMIT /*|| ordertype==OP_BUYSTOP*/)
+                  if(actual_type==OP_BUY || actual_type==OP_BUYLIMIT /*|| actual_type==OP_BUYSTOP*/)
                   count++;
                   break;
                case ORDER_SET_SHORT:
-                  if(ordertype==OP_SELL || ordertype==OP_SELLLIMIT /*|| ordertype==OP_SELLSTOP*/)
+                  if(actual_type==OP_SELL || actual_type==OP_SELLLIMIT /*|| actual_type==OP_SELLSTOP*/)
                   count++;
                   break;
                case ORDER_SET_SHORT_LONG_LIMIT_MARKET:
-                  if(ordertype==OP_BUY || ordertype==OP_BUYLIMIT || ordertype==OP_SELL || ordertype==OP_SELLLIMIT /*|| ordertype==OP_SELLSTOP*/)
+                  if(actual_type==OP_BUY || actual_type==OP_BUYLIMIT || actual_type==OP_SELL || actual_type==OP_SELLLIMIT /*|| ordertype==OP_SELLSTOP*/)
                   count++;
                   break;
                case ORDER_SET_LIMIT:
-                  if(ordertype==OP_BUYLIMIT || ordertype==OP_SELLLIMIT)
+                  if(actual_type==OP_BUYLIMIT || actual_type==OP_SELLLIMIT)
                   count++;
                   break;
                /*case ORDER_SET_STOP:
-                  if(ordertype==OP_BUYSTOP || ordertype==OP_SELLSTOP)
+                  if(actual_type==OP_BUYSTOP || actual_type==OP_SELLSTOP)
                   count++;
                   break;*/
                case ORDER_SET_MARKET:
-                  if(ordertype<=1) count++;
+                  if(actual_type<=1) count++;
                   break;
                case ORDER_SET_PENDING:
-                  if(ordertype>1) count++;
+                  if(actual_type>1) count++;
                   break;
                default: count++;
               }
