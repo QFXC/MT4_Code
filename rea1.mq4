@@ -92,13 +92,15 @@ enum MM // Money Management
 	
 	input bool only_enter_on_new_bar=false; // Should you only enter trades when a new bar begins?
 	input bool wait_next_bar_on_load=false; // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade or calculate ADR?
+	input bool exit_opposite_signal=true; // Should the EA exit trades when there is a signal in the opposite direction?
   bool long_allowed=true; // Are long trades allowed?
 	bool short_allowed=true; // Are short trades allowed?
-	input int max_trades_in_direction=1; // How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)
+	
+	input int max_num_EAs_at_once=28;
+	input int max_directional_trades_at_once=1; // How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
 	input int max_trades_within_x_hours=1; // How many trades are allowed to be opened (even if they are closed now) within the last x_hours?
-	input int x_hours=24;
-	input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
-	input bool exit_opposite_signal=true; // Should the EA exit trades when there is a signal in the opposite direction?
+	input int x_hours=3;
+	input int max_directional_trades_each_day=1; // TODO: work on this
 	
 // time filters - only allow EA to enter trades between a range of time in a day
 	input int start_time_hour=0; // eligible time to start a trade. 0-23
@@ -129,24 +131,18 @@ enum MM // Money Management
 	   *
 	   /*Seconds in a minute=*/60; 
 	input bool market_exec=false; // False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
-	input color arrow_color_short=clrRed;
-	input color arrow_color_long=clrGreen;
+	color arrow_color_short=clrRed;
+	color arrow_color_long=clrGreen;
 	
 //calculate_lots/mm variables
 	MM money_management=MM_RISK_PERCENT;
 	double mm1_risk_percent=0.02; // percent risked when using the MM_RISK_PERCENT money management calculations
    // these variables will not be used with the MM_RISK_PERCENT money management strategy
-	input double lot_size=0.1;
+	double lot_size=0.1;
 	double mm2_lots=0.1;
 	double mm2_per=1000;
 	double mm3_risk=50;
 	double mm4_risk=50;
-	
-// ADR()
-  input double change_ADR_percent=-.25; // this can be a negative or positive decimal or whole number
-  input int num_ADR_months=2; // How months back should you use to calculate the average ADR? (Divisible by 1) TODO: this is not implemented yet.
-  input double above_ADR_outlier_percent=1.5; // Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be surpassed in a day for it to be neglected from the average calculation?
-  input double below_ADR_outlier_percent=.5; // Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be under in a day for it to be neglected from the average calculation?
 
 // Market Trends
   input int H1s_to_roll=3; // How many hours should you roll to determine a short term market trend? (You are only allowed to input values divisible by 0.5.)
@@ -154,6 +150,11 @@ enum MM // Money Management
   input bool include_last_week=true; // Should the EA take Friday's moves into account when starting to determine length of the current move?
   static int ADR_pips; // TODO: make sure this maintains the value that was generated OnInit()
    
+// ADR()
+  input double change_ADR_percent=-.25; // this can be a negative or positive decimal or whole number
+  input int num_ADR_months=2; // How months back should you use to calculate the average ADR? (Divisible by 1) TODO: this is not implemented yet.
+  input double above_ADR_outlier_percent=1.5; // Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be surpassed in a day for it to be neglected from the average calculation?
+  input double below_ADR_outlier_percent=.5; // Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be under in a day for it to be neglected from the average calculation?
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -281,26 +282,24 @@ void Relativity_EA_1(int magic)
    if(in_time_range && ready)
      {
       int enter_signal=0;
-      int long_order_count=0, short_order_count=0;
-      int opened_order_recently_count=0;
    
       enter_signal=signal_pullback_after_ADR_triggered(); // this is the first signal and will apply to all signal sets so it gets run first
-      int final_signal=signal_compare(enter_signal,signal_entry(SIGNAL_SET),false); // The entry signal requires in_time_range, adr_generated, and EA_magic_num>0 to be true.
+      int final_signal=signal_compare(enter_signal,signal_entry(SIGNAL_SET),false); // The entry signal requires in_time_range, adr_generated, and EA_magic_num>0 to be true.      
       
-      
-      
-       // this is to improve performance. It prevents the EA from iterating through lists of potentially hundreds or thousands of past orders. Note: it may be less than 0.
-     
-     
       if(final_signal>0) // if there is a signal to enter a trade
         {
+         int days_seconds=(int)(current_time-(iTime(symbol,PERIOD_D1,0))+(gmt_hour_offset*3600));
+         
          if(final_signal==TRADE_SIGNAL_BUY)
            {
             // TODO: Make a function out of this
             if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_SELL,magic);
-            long_order_count=count_orders(ORDER_SET_LONG,magic,MODE_TRADES,OrdersTotal()-1,0); // counts all long (active and pending) orders for the current EA
-            opened_order_recently_count=count_orders(ORDER_SET_SHORT_LONG_LIMIT_MARKET,magic,MODE_HISTORY,(max_trades_in_direction*max_num_EAs_at_once*max_trades_within_x_hours)-1,x_hours);
-            if(long_order_count<max_trades_in_direction && opened_order_recently_count<max_trades_within_x_hours) // if you have not yet reached the user's maximum allowed long trades
+            int opened_today_count=count_orders(ORDER_SET_LONG,magic,MODE_HISTORY,(max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,days_seconds,current_time);
+            int current_long_count=count_orders(ORDER_SET_LONG,magic,MODE_TRADES,OrdersTotal()-1,0,current_time); // counts all long (active and pending) orders for the current EA
+            int opened_recently_count=count_orders(ORDER_SET_SHORT_LONG_LIMIT_MARKET,magic,MODE_HISTORY,(max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,x_hours*3600,current_time);
+            if(current_long_count<max_directional_trades_at_once && 
+               opened_recently_count<max_trades_within_x_hours && 
+               opened_today_count<max_directional_trades_each_day) // if you have not yet reached the user's maximum allowed long trades
               {
                if(!only_enter_on_new_bar || 
                   (only_enter_on_new_bar && is_new_M5_bar))
@@ -311,9 +310,12 @@ void Relativity_EA_1(int magic)
            {
             // TODO: Make a function out of this
             if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_BUY,magic);
-            short_order_count=count_orders(ORDER_SET_SHORT,magic,MODE_TRADES,OrdersTotal()-1,0); // counts all short (active and pending) orders for the current EA
-            opened_order_recently_count=count_orders(ORDER_SET_SHORT_LONG_LIMIT_MARKET,magic,MODE_HISTORY,(max_trades_in_direction*max_num_EAs_at_once*max_trades_within_x_hours)-1,x_hours);
-            if(short_order_count<max_trades_in_direction && opened_order_recently_count<max_trades_within_x_hours) // if you have not yet reached the user's maximum allowed short trades
+            int opened_today_count=count_orders(ORDER_SET_SHORT,magic,MODE_HISTORY,(max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,days_seconds,current_time);
+            int current_short_count=count_orders(ORDER_SET_SHORT,magic,MODE_TRADES,OrdersTotal()-1,0,current_time); // counts all short (active and pending) orders for the current EA
+            int opened_recently_count=count_orders(ORDER_SET_SHORT_LONG_LIMIT_MARKET,magic,MODE_HISTORY,(max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,x_hours,current_time);
+            if(current_short_count<max_directional_trades_at_once && 
+               opened_recently_count<max_trades_within_x_hours && 
+               opened_today_count<max_directional_trades_each_day) // if you have not yet reached the user's maximum allowed short trades
               {
                if(!only_enter_on_new_bar || 
                   (only_enter_on_new_bar && is_new_M5_bar))
@@ -1077,8 +1079,8 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic=0)
    else if(type==OP_SELL /*|| type==OP_SELLSTOP || type==OP_SELLLIMIT*/)
      {
       if(!short_allowed) return;
-      arrow_color=arrow_color_short;
       periods_pivot_price=periods_pivot_price(SELLING_MODE);
+      arrow_color=arrow_color_short;
      }
    else return;
       
@@ -1311,26 +1313,32 @@ double mm(MM method,string instrument,double lots,double sl_pips,double risk_mm1
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-// This function solves the problem of an EA on a chart thinking it controls other EAs orders.
-int count_orders(ENUM_ORDER_SET type=-1,int magic=-1,int pool=MODE_TRADES, int pools_end_index=-1,int opened_x_hours_ago=0) // With pool, you can define whether to count current orders (MODE_TRADES) or closed and cancelled orders (MODE_HISTORY).
+/*int trades_within_x_hours(ENUM_ORDER_SET type=-1,int magic=-1,int pool=MODE_TRADES, int pools_end_index=-1,int opened_x_hours_ago=0)
+  {
+    if
+  }*/
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int count_orders(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1,int pool=MODE_TRADES, int pools_end_index=-1,int x_seconds_before=-1,datetime since_time=-1) // With pool, you can define whether to count current orders (MODE_TRADES) or closed and cancelled orders (MODE_HISTORY).
   {
    int count=0;
 
    for(int i=pools_end_index;i>=0;i--) // You have to start iterating from the lower part (or 0) of the order array because the newest trades get sent to the start. Interate through the index from a not excessive index position (the middle of an index) to OrdersTotal()-1 // the oldest order in the list has index position 0
      {
-      if(OrderSelect(i,SELECT_BY_POS,pool)) // Problem: if the pool is MODE_HISTORY, that can be a lot of data to search.
+      if(OrderSelect(i,SELECT_BY_POS,pool)) // Problem: if the pool is MODE_HISTORY, that can be a lot of data to search. So make sure you calculated a not-excessive pools_end_index (the oldest order that is acceptable).
         {
          if(magic==-1 || magic==OrderMagicNumber())
            {
             int ordertype=OrderType();
             int ticket=OrderTicket();
             
-            if(opened_x_hours_ago>0) // only count them if they are within X hours
+            if(x_seconds_before>0) // only count them if they are within X hours
               {
-               datetime opened=OrderOpenTime();
-               datetime x_hours_ago=TimeCurrent()-(opened_x_hours_ago*3600);
+               datetime opened_time=OrderOpenTime();
+               datetime x_seconds_ago=since_time-x_seconds_before;
                
-               if(opened<x_hours_ago) break; // if the time the order was opened is before the time the user wants to start counting orders, do not count it
+               if(opened_time<x_seconds_ago) break; // if the time the order was opened is before the time the user wants to start counting orders, do not count it
               }
             switch(type)
               {
