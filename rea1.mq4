@@ -100,7 +100,7 @@ enum MM // Money Management
 	input int max_directional_trades_at_once=1; // How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
 	input int max_trades_within_x_hours=1; // How many trades are allowed to be opened (even if they are closed now) within the last x_hours?
 	input int x_hours=3;
-	input int max_directional_trades_each_day=1; // TODO: work on this
+	input int max_directional_trades_each_day=1; // How many trades are allowed to be opened after the start of each current day?
 	
 // time filters - only allow EA to enter trades between a range of time in a day
 	input int start_time_hour=0; // eligible time to start a trade. 0-23
@@ -112,7 +112,7 @@ enum MM // Money Management
 	input int gmt_hour_offset=-3; // -3 if using Gain Capital. The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). Adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
    
 // enter_order
-  input ENUM_SIGNAL_SET SIGNAL_SET=SIGNAL_SET_1; // Which signal set would you like to test? (they are found in the signal_entry function)
+  input ENUM_SIGNAL_SET SIGNAL_SET=SIGNAL_SET_1; // Which signal set would you like to test? (the details of each signal set are found in the signal_entry function)
 	input double takeprofit_percent=0.3; // Must be a positive number. // TODO: Change to a percent of ADR (What % of ADR should you tarket?)
   input double stoploss_percent=1.0; // Must be a positive number.
 	input double pullback_percent=-0.50; //  If you want a buy or sell limit order, it must be negative.
@@ -156,6 +156,10 @@ enum MM // Money Management
   input double above_ADR_outlier_percent=1.5; // Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be surpassed in a day for it to be neglected from the average calculation?
   input double below_ADR_outlier_percent=.5; // Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be under in a day for it to be neglected from the average calculation?
 
+bool all_user_input_variables_valid() // TODO: Work on this
+{
+  return true;
+}
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -167,23 +171,30 @@ int OnInit()
 int OnInit_Relativity_EA_1(int magic,ENUM_SIGNAL_SET signal_set)
     {
     magic=generate_magic_num(signal_set);
+    bool input_variables_valid=all_user_input_variables_valid();
+    
     int range_start_time=(start_time_hour*3600)+(start_time_minute*60);
     int range_end_time=(end_time_hour*3600)+(end_time_minute*60);
     int exit_time=(exit_time_hour*3600)+(exit_time_minute*60);
    
    // Print("The EA will not work properly. The input variables max_trades_in_direction, max_num_EAs_at_once, and max_trades_within_x_hours can't be 0 or negative.");
    
-  if(exit_time>range_start_time && exit_time<range_end_time)
+  if(exit_time>range_start_time && exit_time<range_end_time && !input_variables_valid)
     {
       Alert("Make sure that the trade exit_time_hour and exit_time_minute combination does not fall within the trading range start and end times or else there will be trouble!");
       return(INIT_FAILED);
     }
   else if(magic<=0)
-     {
+    {
       Alert("There is not a valid magic number for the Expert Advisor (EA). Without one, the EA will not run correctly. Get a MQL4 programmer check the code to find out why.");
       return(INIT_FAILED);
-     }
-  else 
+    }
+  else if(!input_variables_valid)
+    {
+      Alert("One or more of the user input variables are not valid. The EA will not run correctly.");
+      return(INIT_FAILED);
+    }
+  else
     {
       Alert("The initialization succeeded.");
       return(INIT_SUCCEEDED);
@@ -253,13 +264,13 @@ void Relativity_EA_1(int magic)
    static bool ready=false, in_time_range=false;
    bool is_new_M5_bar=is_new_bar(symbol,PERIOD_M5,wait_next_bar_on_load);
    datetime current_time=TimeCurrent();
-   int exit_signal=0, exit_signal_2=0;
+   int exit_signal=TRADE_SIGNAL_NEUTRAL, exit_signal_2=TRADE_SIGNAL_NEUTRAL; // 0
    
    exit_signal=signal_exit(SIGNAL_SET); // The exit signal should be made the priority and doesn't require in_time_range or adr_generated to be true
 
-   if(exit_signal==TRADE_SIGNAL_VOID) exit_all_trades_set(ORDER_SET_ALL,magic); // close all pending and orders for the specific EA's orders. Don't do validation to see if there is an EA_magic_num because the EA should try to exit even if for some reason there is none.
-   else if(exit_signal==TRADE_SIGNAL_BUY) exit_all_trades_set(ORDER_SET_SHORT,magic);
-   else if(exit_signal==TRADE_SIGNAL_SELL) exit_all_trades_set(ORDER_SET_LONG,magic);
+   if(exit_signal==TRADE_SIGNAL_VOID)       exit_all_trades_set(ORDER_SET_ALL,magic,exiting_max_slippage); // close all pending and orders for the specific EA's orders. Don't do validation to see if there is an EA_magic_num because the EA should try to exit even if for some reason there is none.
+   else if(exit_signal==TRADE_SIGNAL_BUY)   exit_all_trades_set(ORDER_SET_SHORT,magic,exiting_max_slippage);
+   else if(exit_signal==TRADE_SIGNAL_SELL)  exit_all_trades_set(ORDER_SET_LONG,magic,exiting_max_slippage);
 
    if(is_new_M5_bar) // only check if it is in the time range once the EA is loaded and, then, afterward at the beginning of every M5 bar
      {
@@ -281,45 +292,53 @@ void Relativity_EA_1(int magic)
      }
    if(in_time_range && ready)
      {
-      int enter_signal=0;
+      int enter_signal=TRADE_SIGNAL_NEUTRAL; // 0
    
       enter_signal=signal_pullback_after_ADR_triggered(); // this is the first signal and will apply to all signal sets so it gets run first
-      int final_signal=signal_compare(enter_signal,signal_entry(SIGNAL_SET),false); // The entry signal requires in_time_range, adr_generated, and EA_magic_num>0 to be true.      
-      
-      if(final_signal>0) // if there is a signal to enter a trade
+      enter_signal=signal_compare(enter_signal,signal_entry(SIGNAL_SET),false); // The entry signal requires in_time_range, adr_generated, and EA_magic_num>0 to be true.      
+
+      if(enter_signal>0) // if there is a signal to enter a trade
         {
-         int days_seconds=(int)(current_time-(iTime(symbol,PERIOD_D1,0))+(gmt_hour_offset*3600));
+         int days_seconds=(int)(current_time-(iTime(symbol,PERIOD_D1,0))+(gmt_hour_offset*3600)); // i am assuming it is okay to typecast a datetime (iTime) into an int since datetime is count of the number of seconds since 1970
          
-         if(final_signal==TRADE_SIGNAL_BUY)
+         if(enter_signal==TRADE_SIGNAL_BUY)
            {
-            // TODO: Make a function out of this
-            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_SELL,magic);
-            int opened_today_count=count_orders(ORDER_SET_LONG,magic,MODE_HISTORY,(max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,days_seconds,current_time);
-            int current_long_count=count_orders(ORDER_SET_LONG,magic,MODE_TRADES,OrdersTotal()-1,0,current_time); // counts all long (active and pending) orders for the current EA
-            int opened_recently_count=count_orders(ORDER_SET_SHORT_LONG_LIMIT_MARKET,magic,MODE_HISTORY,(max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,x_hours*3600,current_time);
+            ENUM_ORDER_SET order_set=ORDER_SET_LONG;
+            ENUM_ORDER_SET order_set2=ORDER_SET_SHORT_LONG_LIMIT_MARKET;
+            
+            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_SELL,magic,exiting_max_slippage);
+            
+            int opened_today_count=count_orders(order_set,magic,MODE_HISTORY,(max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,days_seconds,current_time);
+            int current_long_count=count_orders(order_set,magic,MODE_TRADES,OrdersTotal()-1,0,current_time); // counts all long (active and pending) orders for the current EA
+            int opened_recently_count=count_orders(order_set2,magic,MODE_HISTORY,(max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,x_hours*3600,current_time);
+            
             if(current_long_count<max_directional_trades_at_once && 
                opened_recently_count<max_trades_within_x_hours && 
                opened_today_count<max_directional_trades_each_day) // if you have not yet reached the user's maximum allowed long trades
               {
                if(!only_enter_on_new_bar || 
                   (only_enter_on_new_bar && is_new_M5_bar))
-                     try_to_enter_order(OP_BUY,magic);
+                     try_to_enter_order(OP_BUY,magic,entering_max_slippage);
               }
            }
-         else if(final_signal==TRADE_SIGNAL_SELL)
+         else if(enter_signal==TRADE_SIGNAL_SELL)
            {
-            // TODO: Make a function out of this
-            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_BUY,magic);
-            int opened_today_count=count_orders(ORDER_SET_SHORT,magic,MODE_HISTORY,(max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,days_seconds,current_time);
-            int current_short_count=count_orders(ORDER_SET_SHORT,magic,MODE_TRADES,OrdersTotal()-1,0,current_time); // counts all short (active and pending) orders for the current EA
-            int opened_recently_count=count_orders(ORDER_SET_SHORT_LONG_LIMIT_MARKET,magic,MODE_HISTORY,(max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,x_hours,current_time);
+            ENUM_ORDER_SET order_set=ORDER_SET_SHORT;
+            ENUM_ORDER_SET order_set2=ORDER_SET_SHORT_LONG_LIMIT_MARKET;
+            
+            if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_BUY,magic,exiting_max_slippage);
+            
+            int opened_today_count=count_orders(order_set,magic,MODE_HISTORY,(max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,days_seconds,current_time);
+            int current_short_count=count_orders(order_set,magic,MODE_TRADES,OrdersTotal()-1,0,current_time); // counts all short (active and pending) orders for the current EA
+            int opened_recently_count=count_orders(order_set2,magic,MODE_HISTORY,(max_directional_trades_at_once*max_num_EAs_at_once*max_trades_within_x_hours)-1,x_hours*3600,current_time);
+            
             if(current_short_count<max_directional_trades_at_once && 
                opened_recently_count<max_trades_within_x_hours && 
                opened_today_count<max_directional_trades_each_day) // if you have not yet reached the user's maximum allowed short trades
               {
                if(!only_enter_on_new_bar || 
                   (only_enter_on_new_bar && is_new_M5_bar))
-                     try_to_enter_order(OP_SELL,magic);
+                     try_to_enter_order(OP_SELL,magic,entering_max_slippage);
               }
            }
         }
@@ -334,10 +353,9 @@ void Relativity_EA_1(int magic)
      {
        ready=false; // this makes sure to set it to false so when the time is within the time range again, the ADR can get generated.
        bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
-       if(time_to_exit) exit_all_trades_set(ORDER_SET_ALL,magic); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
+       if(time_to_exit) exit_all_trades_set(ORDER_SET_ALL,magic,exiting_max_slippage); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
      }
 }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -460,7 +478,7 @@ int generate_magic_num(ENUM_SIGNAL_SET)
 
   
   
-  
+  // int max and min values https://docs.mql4.com/basis/types/integer
   
   
   
@@ -566,11 +584,11 @@ bool is_new_bar(string instrument,int timeframe,bool wait_for_next_bar=false)
      }
    else if(current_bar_open_time>bar_time && compare_doubles(open_price,current_bar_open_price,digits)!=0) // if the opening time and price of this bar is different than the opening time and price of the previous one
      {
-      bar_time=current_bar_open_time;
-      open_price=current_bar_open_price;
+      bar_time=current_bar_open_time; // assuring the true value only gets returned for 1 tick and not the very next ones
+      open_price=current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
       return true;
      }
-   else return false; // if it is not a new bar
+   else return false;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -586,12 +604,12 @@ bool time_to_exit(datetime current_time,int hour,int min,int gmt_offset=0)
    if(hour>23) hour=(hour-23)-1;
    else if(hour<0) hour=23+hour+1;
    
-   int timehour=TimeHour(current_time);
-   int timeminute=TimeMinute(current_time);
+   int time_hour=TimeHour(current_time);
+   int time_minute=TimeMinute(current_time);
    int exit_hour=hour*3600;
    int exit_min=min*60;
    
-   if(timehour==exit_hour && timeminute==exit_min) return true; // this will only give the signal to exit for every tick for 1 minute per day
+   if(time_hour==exit_hour && time_minute==exit_min) return true; // this will only give the signal to exit for every tick for 1 minute per day
    else return false;
 }
 //+------------------------------------------------------------------+
@@ -687,23 +705,25 @@ int ADR_calculation()
 //+------------------------------------------------------------------+
 int get_ADR() // get the Average Daily Range
 {
-   static int adr=0;
-   bool is_new_D1_bar=is_new_bar(symbol,PERIOD_D1,wait_next_bar_on_load);
+  static int adr=0;
+  bool is_new_D1_bar=is_new_bar(symbol,PERIOD_D1,wait_next_bar_on_load);
    
-   if(below_ADR_outlier_percent>above_ADR_outlier_percent || num_ADR_months<=0 || num_ADR_months ==NULL || MathMod(H1s_to_roll,.5)!=0)
+  if(below_ADR_outlier_percent>above_ADR_outlier_percent || num_ADR_months<=0 || num_ADR_months==NULL || MathMod(H1s_to_roll,.5)!=0)
+    {
       return -1; // if the user inputed the wrong outlier variables or a H1s_to_roll number that is not divisible by .5, it is not possible to calculate ADR
-   if(adr==0) // if it is the first time the function is called
-     {
+    }  
+  if(adr==0) // if it is the first time the function is called
+    {
       int calculated_adr=ADR_calculation();
       adr=calculated_adr; // make the function remember the calculation the next time it is called
       return adr;
-     }
-   if(is_new_D1_bar) // if it is a fresh new bar
-     {
+    }
+  if(is_new_D1_bar) // if it is a fresh new bar
+    {
       int freshly_calculated_adr=ADR_calculation();
       adr=freshly_calculated_adr; // make the function remember the calculation the next time it is called
-     }
-   return adr; // if it is not the first time the function is called it is the middle of a bar, return the static adr
+    }
+  return adr; // if it is not the first time the function is called it is the middle of a bar, return the static adr
 }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -917,7 +937,7 @@ bool modify(int ticket,double sl,double tp=-1,double entryPrice=-1,datetime expi
             break;
          Sleep(sleep_milisec);
       // TODO: setup an email and SMS alert.
-     Print(OrderSymbol()," , ",order_comment,", An order was attempted to be modified but it did not succeed. (",IntegerToString(GetLastError(),0),"), Retry: ",IntegerToString(i,0),"/"+IntegerToString(retries));
+     Print(OrderSymbol()," , ",order_comment,", An order was attempted to be modified but it did not succeed. Last Error: (",IntegerToString(GetLastError(),0),"), Retry: ",IntegerToString(i,0),"/"+IntegerToString(retries));
      Alert(OrderSymbol()," , ",order_comment,", An order was attempted to be modified but it did not succeed. Check the Journal tab of the Navigator window for errors.");
         }
      }
@@ -930,14 +950,14 @@ bool modify(int ticket,double sl,double tp=-1,double entryPrice=-1,datetime expi
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool exit_order(int ticket,color a_color=clrNONE)
+bool exit_order(int ticket,int max_slippage,color a_color=clrNONE)
   {
    bool result=false;
    if(OrderSelect(ticket,SELECT_BY_TICKET))
      {
       if(OrderType()<=1) // if order type is an OP_BUY or OP_SELL (not a pending order). (OrderType() can be successfully called after a successful selection using OrderSelect())
         {
-         result=OrderClose(ticket,OrderLots(),OrderClosePrice(),exiting_max_slippage,a_color); // current order
+         result=OrderClose(ticket,OrderLots(),OrderClosePrice(),max_slippage,a_color); // current order
         }
       else if(OrderType()>1) // if it is a pending order
         {
@@ -949,7 +969,7 @@ bool exit_order(int ticket,color a_color=clrNONE)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool exit(int ticket,color a_color=clrNONE,int retries=3,int sleep_milisec=500)
+bool try_to_exit_order(int ticket,int max_slippage,color a_color=clrNONE,int retries=3,int sleep_milisec=500)
   {
    bool result=false;
    
@@ -960,12 +980,12 @@ bool exit(int ticket,color a_color=clrNONE,int retries=3,int sleep_milisec=500)
       else if(!IsExpertEnabled()) Print("The EA can't close ticket ",IntegerToString(ticket)," because EAs are not enabled in the trading platform.");
       else if(IsTradeContextBusy()) Print("The EA can't close ticket ",IntegerToString(ticket)," because the trade context is busy.");
       else if(!IsTradeAllowed()) Print("The EA can't close ticket ",IntegerToString(ticket)," because the close order is not allowed in the trading platform.");
-      else result=exit_order(ticket,a_color);
+      else result=exit_order(ticket,max_slippage,a_color);
       if(result)
          break;
       // TODO: setup an email and SMS alert.
       // Make sure to use OrderSymbol() instead of symbol to get the instrument of the order.
-      Print("Closing order# ",DoubleToStr(OrderTicket(),0)," failed ",DoubleToStr(GetLastError(),0));
+      Print("Closing order# ",DoubleToStr(OrderTicket(),0)," failed. Last Error: ",DoubleToStr(GetLastError(),0));
       Sleep(sleep_milisec);
      }
    return result;
@@ -975,14 +995,14 @@ bool exit(int ticket,color a_color=clrNONE,int retries=3,int sleep_milisec=500)
 //+------------------------------------------------------------------+
 // TODO: Create a feature to exit_all at a specific time you have set as a extern variable
 // By default, if the type and magic number is not supplied it is set to -1 so the function exits all orders (including ones from different EAs). But, there is an option to specify the type of orders when calling the function.
-void exit_all(int type=-1,int magic=-1) 
+void exit_all(int type=-1,int magic=-1,int max_slippage=50) 
   {
    for(int i=OrdersTotal()-1;i>=0;i--) // it has to iterate through the array from the highest to lowest
      {
       if(OrderSelect(i,SELECT_BY_POS)) // if an open trade can be found
         {
          if((type==-1 || type==OrderType()) && (magic==-1 || magic==OrderMagicNumber()))
-            exit(OrderTicket());
+            try_to_exit_order(OrderTicket(),max_slippage);
         }
      }
   }
@@ -990,7 +1010,7 @@ void exit_all(int type=-1,int magic=-1)
 //|                                                                  |
 //+------------------------------------------------------------------+
 // This is similar to the exit_all function except that it allows you to choose more sets  to close. It will iterate through all open trades and close them based on the order type and magic number
-void exit_all_trades_set(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1)  // magic==-1 means that all orders/trades will close (including ones managed by other running EAs)
+void exit_all_trades_set(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1,int max_slippage=50)  // magic==-1 means that all orders/trades will close (including ones managed by other running EAs)
   {
    for(int i=OrdersTotal()-1;i>=0;i--) // interate through the index from position 0 to OrdersTotal()-1
      {
@@ -1003,46 +1023,46 @@ void exit_all_trades_set(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1)  // mag
             switch(type)
               {
                case ORDER_SET_BUY:
-                  if(ordertype==OP_BUY) exit(ticket);
+                  if(ordertype==OP_BUY) try_to_exit_order(ticket,max_slippage);
                   break;
                case ORDER_SET_SELL:
-                  if(ordertype==OP_SELL) exit(ticket);
+                  if(ordertype==OP_SELL) try_to_exit_order(ticket,max_slippage);
                   break;
                case ORDER_SET_BUY_LIMIT:
-                  if(ordertype==OP_BUYLIMIT) exit(ticket);
+                  if(ordertype==OP_BUYLIMIT) try_to_exit_order(ticket,max_slippage);
                   break;
                case ORDER_SET_SELL_LIMIT:
-                  if(ordertype==OP_SELLLIMIT) exit(ticket);
+                  if(ordertype==OP_SELLLIMIT) try_to_exit_order(ticket,max_slippage);
                   break;
                /*case ORDER_SET_BUY_STOP:
-                  if(ordertype==OP_BUYSTOP) exit(ticket);
+                  if(ordertype==OP_BUYSTOP) try_to_exit_order(ticket,max_slippage);
                   break;
                case ORDER_SET_SELL_STOP:
-                  if(ordertype==OP_SELLSTOP) exit(ticket);
+                  if(ordertype==OP_SELLSTOP) try_to_exit_order(ticket,max_slippage);
                   break;*/
                case ORDER_SET_LONG:
                   if(ordertype==OP_BUY || ordertype==OP_BUYLIMIT /*|| ordertype==OP_BUYSTOP*/)
-                  exit(ticket);
+                  try_to_exit_order(ticket,max_slippage);
                   break;
                case ORDER_SET_SHORT:
                   if(ordertype==OP_SELL || ordertype==OP_SELLLIMIT /*|| ordertype==OP_SELLSTOP*/)
-                  exit(ticket);
+                  try_to_exit_order(ticket,max_slippage);
                   break;
                case ORDER_SET_LIMIT:
                   if(ordertype==OP_BUYLIMIT || ordertype==OP_SELLLIMIT)
-                  exit(ticket);
+                  try_to_exit_order(ticket,max_slippage);
                   break;
                /*case ORDER_SET_STOP:
                   if(ordertype==OP_BUYSTOP || ordertype==OP_SELLSTOP)
-                  exit(ticket);
+                  try_to_exit_order(ticket,max_slippage);
                   break;*/
                case ORDER_SET_MARKET:
-                  if(ordertype<=1) exit(ticket);
+                  if(ordertype<=1) try_to_exit_order(ticket,max_slippage);
                   break;
                case ORDER_SET_PENDING:
-                  if(ordertype>1) exit(ticket);
+                  if(ordertype>1) try_to_exit_order(ticket,max_slippage);
                   break;
-               default: exit(ticket); // this is the case where type==ORDER_SET_ALL falls into
+               default: try_to_exit_order(ticket,max_slippage); // this is the case where type==ORDER_SET_ALL falls into
               }
            }
         }
@@ -1061,7 +1081,7 @@ bool acceptable_spread(string instrument,bool refresh_rates)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void try_to_enter_order(ENUM_ORDER_TYPE type,int magic=0)
+void try_to_enter_order(ENUM_ORDER_TYPE type,int magic=0,int max_slippage=50)
   {
    double distance_pips;
    double periods_pivot_price;
@@ -1085,10 +1105,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic=0)
    else return;
       
    double lots=calculate_lots();
-   
-   // TODO: you may want to calculate and then add another argument (entering_max_slippage) for the check_for_entry_errors function
 
-   // remember that you could add more arguments to the end instead of accepting the defaults of the check_for_entry_errors function
    check_for_entry_errors(symbol,
                type,
                lots,
@@ -1096,6 +1113,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic=0)
                periods_pivot_price,
                NormalizeDouble(ADR_pips*stoploss_percent,2),
                NormalizeDouble(ADR_pips*takeprofit_percent,2),
+               max_slippage,
                order_comment,
                magic,
                order_expire,
@@ -1112,7 +1130,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic=0)
 //|                                                                  |
 //+------------------------------------------------------------------+
 // the distanceFromCurrentPrice parameter is used to specify what type of order you would like to enter
-int send_and_get_order_ticket(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double periods_pivot_price,double sl_pips,double tp_pips,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
+int send_and_get_order_ticket(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double periods_pivot_price,double sl_pips,double tp_pips,int max_slippage,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
   {
    double entryPrice=0; 
    double price_sl=0, price_tp=0;
@@ -1171,7 +1189,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
    expire_time=(datetime)MarketInfo(instrument,MODE_TIME)+expire; // expiration of the order = current time + expire time
    if(market) // If the user wants market execution (which does NOT allow them to input the sl and tp prices), this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
      {
-      int ticket=OrderSend(instrument,order_type,lots,entryPrice,entering_max_slippage,0,0,comment,magic,expire_time,a_clr);
+      int ticket=OrderSend(instrument,order_type,lots,entryPrice,max_slippage,0,0,comment,magic,expire_time,a_clr);
       if(ticket>0) // if there is a valid ticket
         {
          if(OrderSelect(ticket,SELECT_BY_TICKET))
@@ -1191,12 +1209,12 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
         }
       return ticket;
      }
-   return OrderSend(instrument,order_type,lots,entryPrice,entering_max_slippage,price_sl,price_tp,comment,magic,expire_time,a_clr);
+   return OrderSend(instrument,order_type,lots,entryPrice,max_slippage,price_sl,price_tp,comment,magic,expire_time,a_clr);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int check_for_entry_errors(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double periods_pivot_price,double sl,double tp,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false,int retries=3,int sleep_milisec=500)
+int check_for_entry_errors(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double periods_pivot_price,double sl,double tp,int max_slippage,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false,int retries=3,int sleep_milisec=500)
   {
    int ticket=0;
    for(int i=0;i<retries;i++)
@@ -1206,12 +1224,12 @@ int check_for_entry_errors(string instrument,int cmd,double lots,double distance
       else if(!IsExpertEnabled()) Print("The EA can't enter a trade because EAs are not enabled in trading platform.");
       else if(IsTradeContextBusy()) Print("The EA can't enter a trade because the trade context is busy.");
       else if(!IsTradeAllowed()) Print("The EA can't enter a trade because the trade is not allowed in the trading platform.");
-      else ticket=send_and_get_order_ticket(instrument,cmd,lots,distanceFromCurrentPrice,periods_pivot_price,sl,tp,comment,magic,expire,a_clr,market);
+      else ticket=send_and_get_order_ticket(instrument,cmd,lots,distanceFromCurrentPrice,periods_pivot_price,sl,tp,max_slippage,comment,magic,expire,a_clr,market);
       if(ticket>0) break;
       else
       { 
         // TODO: setup an email and SMS alert.
-        Print(instrument," , ",order_comment,": An order was attempted but it did not succeed. If there are no errors here, market factors may not have met the code's requirements within the send_and_get_order_ticket function. (",IntegerToString(GetLastError(),0),"), Retry: "+IntegerToString(i,0),"/"+IntegerToString(retries));
+        Print(instrument," , ",order_comment,": An order was attempted but it did not succeed. If there are no errors here, market factors may not have met the code's requirements within the send_and_get_order_ticket function. Last Error:, (",IntegerToString(GetLastError(),0),"), Retry: "+IntegerToString(i,0),"/"+IntegerToString(retries));
         Alert(instrument," , ",order_comment,": An order was attempted but it did not succeed. Check the Journal tab of the Navigator window for errors.");
       }
       Sleep(sleep_milisec);
@@ -1330,16 +1348,15 @@ int count_orders(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1,int pool=MODE_TR
         {
          if(magic==-1 || magic==OrderMagicNumber())
            {
-            int ordertype=OrderType();
-            int ticket=OrderTicket();
-            
-            if(x_seconds_before>0) // only count them if they are within X hours
+            if(x_seconds_before>0 && since_time>0) // only count them if they are within X seconds of the specified time
               {
                datetime opened_time=OrderOpenTime();
                datetime x_seconds_ago=since_time-x_seconds_before;
                
                if(opened_time<x_seconds_ago) break; // if the time the order was opened is before the time the user wants to start counting orders, do not count it
               }
+            int ordertype=OrderType();
+            //int ticket=OrderTicket(); // the ticket variable may not be needed in the code of this function
             switch(type)
               {
                case ORDER_SET_BUY:
@@ -1396,7 +1413,7 @@ int count_orders(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1,int pool=MODE_TR
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool virtualstop_check_order(int ticket,int sl,int tp)
+bool virtualstop_check_order(int ticket,int sl,int tp,int max_slippage)
   {
    if(ticket<=0) return true;
    if(!OrderSelect(ticket,SELECT_BY_TICKET)) return false;
@@ -1410,7 +1427,7 @@ bool virtualstop_check_order(int ticket,int sl,int tp)
       if((sl>0 && compare_doubles(OrderClosePrice(),virtual_stoploss,digits)<=0) || 
          (tp>0 && compare_doubles(OrderClosePrice(),virtual_takeprofit,digits)>=0))
         {
-         result=exit_order(ticket);
+         result=exit_order(ticket,max_slippage);
         }
      }
    else if(OrderType()==OP_SELL)
@@ -1420,7 +1437,7 @@ bool virtualstop_check_order(int ticket,int sl,int tp)
       if((sl>0 && compare_doubles(OrderClosePrice(),virtual_stoploss,digits)>=0) || 
          (tp>0 && compare_doubles(OrderClosePrice(),virtual_takeprofit,digits)<=0))
         {
-         result=exit_order(ticket);
+         result=exit_order(ticket,max_slippage);
         }
      }
    return result;
@@ -1429,13 +1446,13 @@ bool virtualstop_check_order(int ticket,int sl,int tp)
 //|                                                                  |
 //+------------------------------------------------------------------+
 // use this function  in case you do not want the broker to know where your stop is
-void virtualstop_check_all_orders(int sl,int tp,int magic=-1)
+void virtualstop_check_all_orders(int sl,int tp,int magic=-1,int max_slippage=50)
   {
    for(int i=0;i<OrdersTotal();i++)
      {
       if(OrderSelect(i,SELECT_BY_POS))
          if(magic==-1 || magic==OrderMagicNumber())
-            virtualstop_check_order(OrderTicket(),sl,tp);
+            virtualstop_check_order(OrderTicket(),sl,tp,max_slippage);
      }
   }
 //+------------------------------------------------------------------+
