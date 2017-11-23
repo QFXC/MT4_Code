@@ -79,8 +79,8 @@ enum ENUM_MM // Money Management
 	int charts_timeframe=PERIOD_M5;
 	string symbol=NULL;
   static int EA_1_magic_num; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
-  static bool uptrend_triggered=false;
-  static bool downtrend_triggered=false;
+  static bool uptrend_triggered=true;
+  static bool downtrend_triggered=true;
    
 // virtual stoploss variables
 	int virtual_sl=0; // TODO: Change to a percent of ADR
@@ -307,6 +307,8 @@ void Relativity_EA_1(int magic)
          else 
            {
             ready=false;
+            uptrend_triggered=true;
+            downtrend_triggered=true;
             return;
            }
         }
