@@ -12,6 +12,8 @@
 // TODO: Always use NormalizeDouble() when computing the price (or lots or ADR?) yourself. This is not necessary for internal functions like OrderOPenPrice(), OrderStopLess(),OrderClosePrice(),Bid,Ask
 // TODO: User the compare_doubles() function to compare two doubles.
 // Remember: It has to be for a broker that will give you D1 data for at least around 6 months in order to calculate the Average Daily Range (ADR).
+// Rmember: This EA calls the OrdersHistoryTotal() function which counts the ordres of the "Account History" tab of the terminal. Set the history there to 3 days.
+
 enum ENUM_SIGNAL_SET
   {
    SIGNAL_SET_NONE=0,
@@ -99,7 +101,7 @@ enum ENUM_MM // Money Management
 	
 	input int max_num_EAs_at_once=28;
 	input int max_directional_trades_at_once=1; // How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
-	input int max_trades_within_x_hours=1; // How many trades are allowed to be opened (even if they are closed now) within the last x_hours?
+	input int max_trades_within_x_hours=1; // 0-x days (x depends on the setting of the Account History tab of the terminal). // How many trades are allowed to be opened (even if they are closed now) within the last x_hours?
 	input int x_hours=3;
 	input int max_directional_trades_each_day=1; // How many trades are allowed to be opened (even if they are close now) after the start of each current day?
 	
@@ -125,10 +127,9 @@ enum ENUM_MM // Money Management
 	string order_comment="Relativity EA"; // TODO: Add the parameter settings for the order to the message. // allows the robot to enter a description for the order. An empty string is a default value
 //exit_order
 	input int exiting_max_slippage=50; // Must be in whole number.
-	input int exit_after_x_hours=2; // TODO: Work on this
 	
-	// TODO: create the ability to exit active trades after a certain amount of time has passed and it has not reached takeprofit or stoploss. (virtual_expire)
-	input int order_expire=// In how many seconds do you want your pending orders to expire?
+	input int active_order_expire=16; // How many hours can a trade be on that hasn't hit stoploss or takeprofit?
+	input int pending_order_expire=// In how many seconds do you want your pending orders to expire?
 	   /*Minutes=**/120
 	   *
 	   /*Seconds in a minute=*/60; 
@@ -138,7 +139,7 @@ enum ENUM_MM // Money Management
 	
 //calculate_lots/mm variables
 	ENUM_MM money_management=MM_RISK_PERCENT_PER_ADR;
-	double risk_per_ADR_percent=0.02; // percent risked when using the MM_RISK_PER_ADR_PERCENT money management calculations. Note: This is not the percent of your balance you will be risking.
+	double risk_percent_per_ADR=0.02; // percent risked when using the MM_RISK_PER_ADR_PERCENT money management calculations. Note: This is not the percent of your balance you will be risking.
 	double mm1_risk_percent=0.02; // percent risked when using the MM_RISK_PERCENT money management calculations
    // these variables will not be used with the MM_RISK_PERCENT money management strategy
 	double lot_size=0.1;
@@ -282,8 +283,9 @@ void Relativity_EA_1(int magic)
 
    if(is_new_M5_bar) // only check if it is in the time range once the EA is loaded and, then, afterward at the beginning of every M5 bar
      {
-      in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);  
-      
+      exit_all_trades_set(ORDER_SET_MARKET,magic,_exiting_max_slippage,active_order_expire*3600,current_time); // only exit trades that have been on for too long and haven't hit stoploss or takeprofit
+      in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);
+
       if(in_time_range && !ready) 
         {
          ADR_pips=get_ADR(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent);
@@ -308,37 +310,36 @@ void Relativity_EA_1(int magic)
       if(enter_signal>0) // if there is a signal to enter a trade
         {
          int days_seconds=(int)(current_time-(iTime(symbol,PERIOD_D1,0))+(gmt_hour_offset*3600)); // i am assuming it is okay to typecast a datetime (iTime) into an int since datetime is count of the number of seconds since 1970
-         int efficient_end_index=MathMax(max_trades_within_x_hours*x_hours,max_directional_trades_each_day*24)*max_directional_trades_at_once*max_num_EAs_at_once-1; // calculating the maximum orders that could have been placed so at least the program doesn't have to iterate through all orders in history (which can slow down the EA)
+         //int efficient_end_index=MathMin((MathMax(max_trades_within_x_hours*x_hours,max_directional_trades_each_day*24)*max_directional_trades_at_once*max_num_EAs_at_once-1),OrdersHistoryTotal()-1); // calculating the maximum orders that could have been placed so at least the program doesn't have to iterate through all orders in history (which can slow down the EA)
          
          if(enter_signal==TRADE_SIGNAL_BUY)
            {
             ENUM_ORDER_SET order_set=ORDER_SET_LONG;
             ENUM_ORDER_SET order_set2=ORDER_SET_SHORT_LONG_LIMIT_MARKET;
             
-            
             if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_SELL,magic,_exiting_max_slippage);
-            int opened_today_count=count_orders (order_set,
+            int opened_today_count=count_orders (order_set, // should be first because the days_seconds variable was just calculated
                                                  magic,
                                                  MODE_HISTORY,
-                                                 efficient_end_index,
+                                                 OrdersHistoryTotal()-1,
                                                  days_seconds,
                                                  current_time);
-            int current_long_count=count_orders (order_set,
+            int opened_recently_count=count_orders(order_set2,
+                                                 magic,
+                                                 MODE_HISTORY,
+                                                 OrdersHistoryTotal()-1,
+                                                 x_hours*3600,
+                                                 current_time);
+            int current_long_count=count_orders (order_set, // should be last because the harder ones should go first
                                                  magic,
                                                  MODE_TRADES,
                                                  OrdersTotal()-1,
                                                  0,
                                                  current_time); // counts all long (active and pending) orders for the current EA
-            int opened_recently_count=count_orders(order_set2,
-                                                 magic,
-                                                 MODE_HISTORY,
-                                                 efficient_end_index,
-                                                 x_hours*3600,
-                                                 current_time);
             
             if(current_long_count<max_directional_trades_at_once && 
                opened_recently_count<max_trades_within_x_hours && 
-               opened_today_count<max_directional_trades_each_day) // if you have not yet reached the user's maximum allowed long trades
+               opened_today_count<max_directional_trades_each_day)
               {
                if(!only_enter_on_new_bar || 
                   (only_enter_on_new_bar && is_new_M5_bar))
@@ -351,28 +352,28 @@ void Relativity_EA_1(int magic)
             ENUM_ORDER_SET order_set2=ORDER_SET_SHORT_LONG_LIMIT_MARKET;
             
             if(exit_opposite_signal) exit_all_trades_set(ORDER_SET_BUY,magic,_exiting_max_slippage);
-            int opened_today_count=count_orders (order_set,
+            int opened_today_count=count_orders (order_set, // should be first because the days_seconds variable was just calculated
                                                  magic,
                                                  MODE_HISTORY,
-                                                 efficient_end_index,
+                                                 OrdersHistoryTotal()-1,
                                                  days_seconds,
                                                  current_time);
-            int current_short_count=count_orders(order_set,
+            int opened_recently_count=count_orders(order_set2,
+                                                 magic,
+                                                 MODE_HISTORY,
+                                                 OrdersHistoryTotal()-1,
+                                                 x_hours*3600,
+                                                 current_time);
+            int current_short_count=count_orders(order_set, // should be last because the harder ones should go first
                                                  magic,
                                                  MODE_TRADES,
                                                  OrdersTotal()-1,
                                                  0,
                                                  current_time); // counts all short (active and pending) orders for the current EA
-            int opened_recently_count=count_orders(order_set2,
-                                                 magic,
-                                                 MODE_HISTORY,
-                                                 efficient_end_index,
-                                                 x_hours*3600,
-                                                 current_time);
             
             if(current_short_count<max_directional_trades_at_once && 
                opened_recently_count<max_trades_within_x_hours && 
-               opened_today_count<max_directional_trades_each_day) // if you have not yet reached the user's maximum allowed short trades
+               opened_today_count<max_directional_trades_each_day)
               {
                if(!only_enter_on_new_bar || 
                   (only_enter_on_new_bar && is_new_M5_bar))
@@ -1061,7 +1062,7 @@ void exit_all(int type=-1,int magic=-1,int max_slippage=50)
 //|                                                                  |
 //+------------------------------------------------------------------+
 // This is similar to the exit_all function except that it allows you to choose more sets  to close. It will iterate through all open trades and close them based on the order type and magic number
-void exit_all_trades_set(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1,int max_slippage=50)  // magic==-1 means that all orders/trades will close (including ones managed by other running EAs)
+void exit_all_trades_set(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1,int max_slippage=50,int exit_seconds=0,datetime current_time=-1)  // magic==-1 means that all orders/trades will close (including ones managed by other running EAs)
   {
    for(int i=OrdersTotal()-1;i>=0;i--) // interate through the index from position 0 to OrdersTotal()-1
      {
@@ -1071,6 +1072,10 @@ void exit_all_trades_set(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1,int max_
            {
             int ordertype=OrderType();
             int ticket=OrderTicket();
+            
+            if(exit_seconds>0)
+              if(current_time-OrderOpenTime()>exit_seconds) break;
+                
             switch(type)
               {
                case ORDER_SET_BUY:
@@ -1156,7 +1161,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic=0,int max_slippage=50)
      }
    else return;
       
-   double lots=calculate_lots(money_management,risk_per_ADR_percent);
+   double lots=calculate_lots(money_management,risk_percent_per_ADR);
 
    check_for_entry_errors(symbol,
                type,
@@ -1168,7 +1173,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic=0,int max_slippage=50)
                max_slippage,
                order_comment,
                magic,
-               order_expire,
+               pending_order_expire,
                arrow_color,
                market_exec); 
   }
@@ -1352,8 +1357,7 @@ void trailingstop_check_all_orders(int trail,int threshold,int step,int magic=-1
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-
-double calculate_lots(ENUM_MM _money_management,double _risk_per_ADR_percent=.02)
+double calculate_lots(ENUM_MM _money_management,double _risk_percent_per_ADR=.02)
   {
     double pips=0;
     double _stoploss_percent=stoploss_percent;
@@ -1368,7 +1372,7 @@ double calculate_lots(ENUM_MM _money_management,double _risk_per_ADR_percent=.02
     double lots=get_lots(_money_management,
                         symbol,
                         lot_size,
-                        _risk_per_ADR_percent,
+                        _risk_percent_per_ADR,
                         pips,
                         mm1_risk_percent,
                         mm2_lots,
@@ -1380,7 +1384,7 @@ double calculate_lots(ENUM_MM _money_management,double _risk_per_ADR_percent=.02
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double get_lots(ENUM_MM method,string instrument,double lots,double _risk_per_ADR_percent,double pips,double risk_mm1_percent,double lots_mm2,double per_mm2,double risk_mm3,double risk_mm4)
+double get_lots(ENUM_MM method,string instrument,double lots,double _risk_percent_per_ADR,double pips,double risk_mm1_percent,double lots_mm2,double per_mm2,double risk_mm3,double risk_mm4)
   {
    double balance=AccountBalance();
    double tick_value=MarketInfo(instrument,MODE_TICKVALUE);
@@ -1388,7 +1392,7 @@ double get_lots(ENUM_MM method,string instrument,double lots,double _risk_per_AD
    switch(method)
      {
       case MM_RISK_PERCENT_PER_ADR:
-         if(pips>0) lots=((balance*_risk_per_ADR_percent)/pips)/tick_value;
+         if(pips>0) lots=((balance*_risk_percent_per_ADR)/pips)/tick_value;
          break;
       case MM_RISK_PERCENT:
          if(pips>0) lots=((balance*risk_mm1_percent)/pips)/tick_value;
@@ -1413,13 +1417,6 @@ double get_lots(ENUM_MM method,string instrument,double lots,double _risk_per_AD
    if(lots>max_lot) lots=max_lot;
    return lots;
   }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-/*int trades_within_x_hours(ENUM_ORDER_SET type=-1,int magic=-1,int pool=MODE_TRADES, int pools_end_index=-1,int opened_x_hours_ago=0)
-  {
-    if
-  }*/
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
