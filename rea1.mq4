@@ -31,6 +31,14 @@ enum ENUM_DIRECTIONAL_MODE
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+enum ENUM_WHICH_RANGE
+  {
+   HIGH_MINUS_LOW=0,
+   OPEN_MINUS_CLOSE_ABSOLUTE=1
+  };
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 enum ENUM_TRADE_SIGNAL  // since ENUM_ORDER_TYPE is not enough, this enum was created to be able to use neutral and void signals
   {
    TRADE_SIGNAL_VOID=-1, // exit all trades
@@ -96,7 +104,7 @@ enum ENUM_MM // Money Management
 	int trail_step=20; // the minimum difference between the proposed new value of the stoploss to the current stoploss price // TODO: Change to a percent of ADR
 	
 	input bool only_enter_on_new_bar=false; // Should you only enter trades when a new bar begins?
-	input bool wait_next_bar_on_load=false; // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade or calculate ADR?
+	input bool wait_next_bar_on_load=false; // This setting currently affects all bars (including D1) so do not set it to true unless code changes are made. // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade or calculate ADR?
 	input bool exit_opposite_signal=true; // Should the EA exit trades when there is a signal in the opposite direction?
   bool long_allowed=true; // Are long trades allowed?
 	bool short_allowed=true; // Are short trades allowed?
@@ -320,7 +328,7 @@ void Relativity_EA_1(int magic)
       enter_signal=signal_pullback_after_ADR_triggered(); // this is the first signal and will apply to all signal sets so it gets run first
       enter_signal=signal_compare(enter_signal,signal_entry(SIGNAL_SET),false); // The entry signal requires in_time_range, adr_generated, and EA_magic_num>0 to be true.      
 
-      if(enter_signal>0) // if there is a signal to enter a trade
+      if(enter_signal>0)
         {
          int days_seconds=(int)(current_time-(iTime(symbol,PERIOD_D1,0))+(gmt_hour_offset*3600)); // i am assuming it is okay to typecast a datetime (iTime) into an int since datetime is count of the number of seconds since 1970
          //int efficient_end_index=MathMin((MathMax(max_trades_within_x_hours*x_hours,max_directional_trades_each_day*24)*max_directional_trades_at_once*max_num_EAs_at_once-1),OrdersHistoryTotal()-1); // calculating the maximum orders that could have been placed so at least the program doesn't have to iterate through all orders in history (which can slow down the EA)
@@ -397,9 +405,9 @@ void Relativity_EA_1(int magic)
      }
     else
      {
-       ready=false; // this makes sure to set it to false so when the time is within the time range again, the ADR can get generated.
-       uptrend_triggered=true;
-       downtrend_triggered=true;
+       ready=false; // this makes sure to set it to false so when the time is within the time range again, the ADR can get generated
+       uptrend_triggered=true; // 
+       downtrend_triggered=true; // 
        bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
        if(time_to_exit) exit_all_trades_set(ORDER_SET_ALL,magic,_exiting_max_slippage); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
      }
@@ -407,10 +415,68 @@ void Relativity_EA_1(int magic)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int signal_x_consecutive_directional_days() // TODO: work on this signal
+bool over_extended_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_WHICH_RANGE range_mode, double days_range_percent_threshold,int days_to_check,int num_to_be_true) // TODO: test if this works with a Script
   {
-    int signal=TRADE_SIGNAL_NEUTRAL;
-    return signal;
+    int answer=false;
+    int uptrend_count=0;
+    int downtrend_count=0;
+    double previous_days_close=-1;
+    int digits=(int)MarketInfo(symbol,MODE_DIGITS);
+    double ADR_points_threshold=NormalizeDouble((ADR_pips*Point)*days_range_percent_threshold,Digits);
+    
+    for(int i=days_to_check-1;i>=0;i++) // days_to_check should be past days to check + today
+      {
+        double days_range=0;
+        
+        if(range_mode==HIGH_MINUS_LOW) 
+          {
+            if(i!=0) days_range=iHigh(symbol,PERIOD_D1,i)-iLow(symbol,PERIOD_D1,i);
+            else if(mode==BUYING_MODE) days_range=Bid-iLow(symbol,PERIOD_D1,i);
+            else days_range=iHigh(symbol,PERIOD_D1,i)-Bid;
+          }
+        if(range_mode==OPEN_MINUS_CLOSE_ABSOLUTE)
+          {
+            if(i!=0) days_range=MathAbs(iOpen(symbol,PERIOD_D1,i)-iClose(symbol,PERIOD_D1,i));
+            else if(mode==BUYING_MODE) days_range=Bid-iOpen(symbol,PERIOD_D1,i); // can be negative
+            else days_range=iOpen(symbol,PERIOD_D1,i)-Bid; // can be negative
+          }
+        if(days_range>=ADR_points_threshold) // only positive day_ranges pass this point
+          { 
+            if(i==days_to_check-1) // the first day is always counted as 1
+              {
+                uptrend_count++;
+                downtrend_count++;
+                break;
+              }
+              
+            double close_price=iClose(symbol,PERIOD_D1,i);
+            previous_days_close=iClose(symbol,PERIOD_D1,i+1); 
+  
+            if(close_price>previous_days_close) 
+              if(mode==BUYING_MODE)
+                {
+                  uptrend_count++;
+                  break;
+                }
+              if(mode==SELLING_MODE)
+                {
+                  break;
+                }
+            if(close_price<previous_days_close)
+              if(mode==BUYING_MODE)
+                {
+                  break;
+                }
+              if(mode==SELLING_MODE)
+                {
+                  downtrend_count++;
+                  break;                  
+                }
+          }
+        else return answer;
+      }
+    if(uptrend_count>=num_to_be_true || downtrend_count>=num_to_be_true) return !answer;
+    else return answer;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -770,22 +836,17 @@ int get_ADR(int hours_to_roll,double low_outlier,double high_outlier,double chan
   {
     static int adr=0;
     int _num_ADR_months=num_ADR_months;
-    bool is_new_D1_bar=is_new_bar(symbol,PERIOD_D1,wait_next_bar_on_load);
+    bool is_new_D1_bar=is_new_bar(symbol,PERIOD_D1,false);
      
     if(low_outlier>high_outlier || _num_ADR_months<=0 || _num_ADR_months==NULL || MathMod(hours_to_roll,.5)!=0)
       {
         return -1; // if the user inputed the wrong outlier variables or a H1s_to_roll number that is not divisible by .5, it is not possible to calculate ADR
       }  
-    if(adr==0) // if it is the first time the function is called
+    if(adr==0 || is_new_D1_bar) // if it is the first time the function is called
       {
         int calculated_adr=ADR_calculation(low_outlier,high_outlier,change_ADR);
         adr=calculated_adr; // make the function remember the calculation the next time it is called
         return adr;
-      }
-    if(is_new_D1_bar) // if it is a fresh new bar
-      {
-        int freshly_calculated_adr=ADR_calculation(low_outlier,high_outlier,change_ADR);
-        adr=freshly_calculated_adr; // make the function remember the calculation the next time it is called
       }
     return adr; // if it is not the first time the function is called it is the middle of a bar, return the static adr
   }
