@@ -79,6 +79,8 @@ enum ENUM_MM // Money Management
 	int charts_timeframe=PERIOD_M5;
 	string symbol=NULL;
   static int EA_1_magic_num; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
+  static bool uptrend_triggered=false;
+  static bool downtrend_triggered=false;
    
 // virtual stoploss variables
 	int virtual_sl=0; // TODO: Change to a percent of ADR
@@ -281,9 +283,16 @@ void Relativity_EA_1(int magic)
    else if(exit_signal==TRADE_SIGNAL_BUY)   exit_all_trades_set(ORDER_SET_SHORT,magic,_exiting_max_slippage);
    else if(exit_signal==TRADE_SIGNAL_SELL)  exit_all_trades_set(ORDER_SET_LONG,magic,_exiting_max_slippage);
 
+   // Breakeven (comment out if this functionality is not required)
+   //if(breakeven_threshold>0) breakeven_check_all_orders(breakeven_threshold,breakeven_plus,order_magic);
+   
+   // Trailing Stop (comment out of this functionality is not required)
+   //if(trail_value>0) trailingstop_check_all_orders(trail_value,trail_threshold,trail_step,order_magic);
+   //   virtualstop_check(virtual_sl,virtual_tp); 
+
    if(is_new_M5_bar) // only check if it is in the time range once the EA is loaded and, then, afterward at the beginning of every M5 bar
      {
-      exit_all_trades_set(ORDER_SET_MARKET,magic,_exiting_max_slippage,active_order_expire*3600,current_time); // only exit trades that have been on for too long and haven't hit stoploss or takeprofit
+      exit_all_trades_set(ORDER_SET_MARKET,magic,_exiting_max_slippage,active_order_expire*3600,current_time); // This runs every 5 minutes (whether the time is in_time_range or not). It only exit trades that have been on for too long and haven't hit stoploss or takeprofit.
       in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);
 
       if(in_time_range && !ready) 
@@ -292,6 +301,8 @@ void Relativity_EA_1(int magic)
          if(ADR_pips>0 && magic>0) 
            {
             ready=true; // the ADR that has just been calculated won't generate again until after the cycle of not being in the time range completes
+            uptrend_triggered=false;
+            downtrend_triggered=false;
            }
          else 
            {
@@ -337,9 +348,9 @@ void Relativity_EA_1(int magic)
                                                  0,
                                                  current_time); // counts all long (active and pending) orders for the current EA
             
-            if(current_long_count<max_directional_trades_at_once && 
-               opened_recently_count<max_trades_within_x_hours && 
-               opened_today_count<max_directional_trades_each_day)
+            if(current_long_count<max_directional_trades_at_once &&  // just long
+               opened_recently_count<max_trades_within_x_hours &&    // long and short
+               opened_today_count<max_directional_trades_each_day)   // just long
               {
                if(!only_enter_on_new_bar || 
                   (only_enter_on_new_bar && is_new_M5_bar))
@@ -371,26 +382,22 @@ void Relativity_EA_1(int magic)
                                                  0,
                                                  current_time); // counts all short (active and pending) orders for the current EA
             
-            if(current_short_count<max_directional_trades_at_once && 
-               opened_recently_count<max_trades_within_x_hours && 
-               opened_today_count<max_directional_trades_each_day)
+            if(current_short_count<max_directional_trades_at_once && // just short
+               opened_recently_count<max_trades_within_x_hours &&    // short and long
+               opened_today_count<max_directional_trades_each_day)   // just short
               {
                if(!only_enter_on_new_bar || 
                   (only_enter_on_new_bar && is_new_M5_bar))
                      try_to_enter_order(OP_SELL,magic,entering_max_slippage);
               }
            }
-        }
-   // Breakeven (comment out if this functionality is not required)
-   //if(breakeven_threshold>0) breakeven_check_all_orders(breakeven_threshold,breakeven_plus,order_magic);
-   
-   // Trailing Stop (comment out of this functionality is not required)
-   //if(trail_value>0) trailingstop_check_all_orders(trail_value,trail_threshold,trail_step,order_magic);
-   //   virtualstop_check(virtual_sl,virtual_tp);     
+        }    
      }
     else
      {
        ready=false; // this makes sure to set it to false so when the time is within the time range again, the ADR can get generated.
+       uptrend_triggered=true;
+       downtrend_triggered=true;
        bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
        if(time_to_exit) exit_all_trades_set(ORDER_SET_ALL,magic,_exiting_max_slippage); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
      }
@@ -407,14 +414,26 @@ int signal_x_consecutive_directional_days() // TODO: work on this signal
 //|                                                                  |
 //+------------------------------------------------------------------+
 int signal_pullback_after_ADR_triggered()
-   {
-   int signal=TRADE_SIGNAL_NEUTRAL;
-   if(uptrend_ADR_threshold_price_met(true)>0) return signal=TRADE_SIGNAL_BUY;
+  {
+    int signal=TRADE_SIGNAL_NEUTRAL;
+    
+    if(!uptrend_triggered)
+      {
+        if(uptrend_ADR_threshold_price_met(true)>0)
+          {
+            return signal=TRADE_SIGNAL_BUY;
+          }
+      }
    // for a buying signal, take the level that adr was triggered and subtract the pullback_pips to get the pullback_entry_price
    // if the pullback_entry_price is met or exceeded, signal = TRADE_SIGNAL_BUY
-   
-   else if(downtrend_ADR_threshold_price_met(true)>0) return signal=TRADE_SIGNAL_SELL;
-   else return signal;
+    if(!downtrend_triggered)
+      {
+      if(downtrend_ADR_threshold_price_met(true)>0) 
+        {
+          return signal=TRADE_SIGNAL_SELL;
+        }
+      }
+    return signal;
    }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -849,8 +868,14 @@ double uptrend_ADR_threshold_price_met(bool get_current_bid_instead=false)
        // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
        LOP=periods_pivot_price(BUYING_MODE);
        if(current_bid-LOP>=pip_move_threshold) 
-         if(get_current_bid_instead) return current_bid; // TODO: should you return the current_bid or LOP+pip_move_threshold? // check if it is actually true by taking the new calculation of Low Of Period into account
-         else return LOP+pip_move_threshold;
+         if(get_current_bid_instead)
+           {
+            return current_bid; // TODO: should you return the current_bid or LOP+pip_move_threshold? // check if it is actually true by taking the new calculation of Low Of Period into account
+           }
+         else 
+           {
+            return LOP+pip_move_threshold;
+           }
        else return -1;
      }         
    else return -1;
@@ -891,7 +916,7 @@ double downtrend_ADR_threshold_price_met(bool get_current_bid_instead=false)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool breakeven_check_order(int ticket,int threshold,int plus) 
+bool breakeven_check_order(int ticket,int threshold_pips,int plus_pips) 
   {
    if(ticket<=0) return true; // if it is a valid ticket, return true
    if(!OrderSelect(ticket,SELECT_BY_TICKET)) return false; // if there is no ticket, it cannot be process so return false
@@ -901,18 +926,18 @@ bool breakeven_check_order(int ticket,int threshold,int plus)
    double order_sl=OrderStopLoss();
    if(OrderType()==OP_BUY) // if it is a buy order
      {
-      double new_sl=OrderOpenPrice()+(plus*point); // calculate the price of the new stoploss
+      double new_sl=OrderOpenPrice()+(plus_pips*point); // calculate the price of the new stoploss
       double profit_in_pts=OrderClosePrice()-OrderOpenPrice(); // calculate how many points in profit the trade is in so far
       if(order_sl==0 || compare_doubles(new_sl,order_sl,digits)==1) // if there is no stoploss or the potential new stoploss is greater than the current stoploss
-         if(compare_doubles(profit_in_pts,threshold*point,digits)>=0) // if the profit in points so far > provided threshold, then set the order to breakeven
+         if(compare_doubles(profit_in_pts,threshold_pips*point,digits)>=0) // if the profit in points so far > provided threshold, then set the order to breakeven
             result=modify(ticket,new_sl);
      }
    else if(OrderType()==OP_SELL)
      {
-      double new_sl=OrderOpenPrice()-(plus*point);
+      double new_sl=OrderOpenPrice()-(plus_pips*point);
       double profit_in_pts=OrderOpenPrice()-OrderClosePrice();
       if(order_sl==0 || compare_doubles(new_sl,order_sl,digits)==-1)
-         if(compare_doubles(profit_in_pts,threshold*point,digits)>=0)
+         if(compare_doubles(profit_in_pts,threshold_pips*point,digits)>=0)
             result=modify(ticket,new_sl); 
      }
    return result;
@@ -1062,7 +1087,7 @@ void exit_all(int type=-1,int magic=-1,int max_slippage=50)
 //|                                                                  |
 //+------------------------------------------------------------------+
 // This is similar to the exit_all function except that it allows you to choose more sets  to close. It will iterate through all open trades and close them based on the order type and magic number
-void exit_all_trades_set(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1,int max_slippage=50,int exit_seconds=0,datetime current_time=-1)  // magic==-1 means that all orders/trades will close (including ones managed by other running EAs)
+void exit_all_trades_set(ENUM_ORDER_SET type_needed=ORDER_SET_ALL,int magic=-1,int max_slippage=50,int exit_seconds=0,datetime current_time=-1)  // magic==-1 means that all orders/trades will close (including ones managed by other running EAs)
   {
    for(int i=OrdersTotal()-1;i>=0;i--) // interate through the index from position 0 to OrdersTotal()-1
      {
@@ -1070,53 +1095,53 @@ void exit_all_trades_set(ENUM_ORDER_SET type=ORDER_SET_ALL,int magic=-1,int max_
         {
          if(magic==OrderMagicNumber() || magic==-1)
            {
-            int ordertype=OrderType();
+            int actual_type=OrderType();
             int ticket=OrderTicket();
             
-            if(exit_seconds>0)
-              if(current_time-OrderOpenTime()>exit_seconds) break;
+            if(exit_seconds>0 && current_time>0)
+              if((current_time-OrderOpenTime())<exit_seconds) break;  // TODO: be sure that this still can get the open time of the current selected ticket
                 
-            switch(type)
+            switch(type_needed)
               {
                case ORDER_SET_BUY:
-                  if(ordertype==OP_BUY) try_to_exit_order(ticket,max_slippage);
+                  if(actual_type==OP_BUY) try_to_exit_order(ticket,max_slippage);
                   break;
                case ORDER_SET_SELL:
-                  if(ordertype==OP_SELL) try_to_exit_order(ticket,max_slippage);
+                  if(actual_type==OP_SELL) try_to_exit_order(ticket,max_slippage);
                   break;
                case ORDER_SET_BUY_LIMIT:
-                  if(ordertype==OP_BUYLIMIT) try_to_exit_order(ticket,max_slippage);
+                  if(actual_type==OP_BUYLIMIT) try_to_exit_order(ticket,max_slippage);
                   break;
                case ORDER_SET_SELL_LIMIT:
-                  if(ordertype==OP_SELLLIMIT) try_to_exit_order(ticket,max_slippage);
+                  if(actual_type==OP_SELLLIMIT) try_to_exit_order(ticket,max_slippage);
                   break;
                /*case ORDER_SET_BUY_STOP:
-                  if(ordertype==OP_BUYSTOP) try_to_exit_order(ticket,max_slippage);
+                  if(actual_type==OP_BUYSTOP) try_to_exit_order(ticket,max_slippage);
                   break;
                case ORDER_SET_SELL_STOP:
-                  if(ordertype==OP_SELLSTOP) try_to_exit_order(ticket,max_slippage);
+                  if(actual_type==OP_SELLSTOP) try_to_exit_order(ticket,max_slippage);
                   break;*/
                case ORDER_SET_LONG:
-                  if(ordertype==OP_BUY || ordertype==OP_BUYLIMIT /*|| ordertype==OP_BUYSTOP*/)
+                  if(actual_type==OP_BUY || actual_type==OP_BUYLIMIT /*|| ordertype==OP_BUYSTOP*/)
                   try_to_exit_order(ticket,max_slippage);
                   break;
                case ORDER_SET_SHORT:
-                  if(ordertype==OP_SELL || ordertype==OP_SELLLIMIT /*|| ordertype==OP_SELLSTOP*/)
+                  if(actual_type==OP_SELL || actual_type==OP_SELLLIMIT /*|| ordertype==OP_SELLSTOP*/)
                   try_to_exit_order(ticket,max_slippage);
                   break;
                case ORDER_SET_LIMIT:
-                  if(ordertype==OP_BUYLIMIT || ordertype==OP_SELLLIMIT)
+                  if(actual_type==OP_BUYLIMIT || actual_type==OP_SELLLIMIT)
                   try_to_exit_order(ticket,max_slippage);
                   break;
                /*case ORDER_SET_STOP:
-                  if(ordertype==OP_BUYSTOP || ordertype==OP_SELLSTOP)
+                  if(actual_type==OP_BUYSTOP || actual_type==OP_SELLSTOP)
                   try_to_exit_order(ticket,max_slippage);
                   break;*/
                case ORDER_SET_MARKET:
-                  if(ordertype<=1) try_to_exit_order(ticket,max_slippage);
+                  if(actual_type<=1) try_to_exit_order(ticket,max_slippage);
                   break;
                case ORDER_SET_PENDING:
-                  if(ordertype>1) try_to_exit_order(ticket,max_slippage);
+                  if(actual_type>1) try_to_exit_order(ticket,max_slippage);
                   break;
                default: try_to_exit_order(ticket,max_slippage); // this is the case where type==ORDER_SET_ALL falls into
               }
@@ -1191,13 +1216,13 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
   {
    double entryPrice=0; 
    double price_sl=0, price_tp=0;
-   bool instant_exec=!market;
    double point=MarketInfo(instrument,MODE_POINT); // getting the value of 1 point for the instrument
    datetime expire_time=0; // 0 means there is no expiration time for a pending order
    int order_type=-1; // -1 means there is no order because actual orders are >=0
    // simplifying the arguments for the function by only allowing OP_BUY and OP_SELL and letting logic determine if it is a market or pending order based off the distanceFromCurrentPrice variable
    if(cmd==OP_BUY) // logic for long trades
      {
+      bool instant_exec=!market;
       if(distanceFromCurrentPrice>0) order_type=OP_BUYLIMIT;
       else if(distanceFromCurrentPrice==0) order_type=OP_BUY;
       else /*if(distanceFromCurrentPrice>0) order_type=OP_BUYSTOP*/ return 0;
@@ -1220,6 +1245,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
      }
    else if(cmd==OP_SELL) // logic for short trades
      {
+      bool instant_exec=!market;
       if(distanceFromCurrentPrice>0) order_type=OP_SELLLIMIT;
       else if(distanceFromCurrentPrice==0) order_type=OP_SELL;
       else /*if(distanceFromCurrentPrice<0) order_type=OP_SELLSTOP*/ return 0;
@@ -1255,18 +1281,39 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
               {
                if(sl_pips>0) price_sl=OrderOpenPrice()-(sl_pips*point);
                if(tp_pips>0) price_tp=OrderOpenPrice()+(tp_pips*point);
+               uptrend_triggered=true;
+               downtrend_triggered=false;
               }
             else if(cmd==OP_SELL)
               {
                if(sl_pips>0) price_sl=OrderOpenPrice()+(sl_pips*point);
                if(tp_pips>0) price_tp=OrderOpenPrice()-(tp_pips*point);
+               uptrend_triggered=false;
+               downtrend_triggered=true;
               }
             bool result=modify(ticket,price_sl,price_tp);
            }
         }
       return ticket;
      }
-   return OrderSend(instrument,order_type,lots,entryPrice,max_slippage,price_sl,price_tp,comment,magic,expire_time,a_clr);
+   int ticket=OrderSend(instrument,order_type,lots,entryPrice,max_slippage,price_sl,price_tp,comment,magic,expire_time,a_clr);
+   if(ticket>0)
+    {
+      if(OrderSelect(ticket,SELECT_BY_TICKET))
+        {
+          if(cmd==OP_BUY)
+            {
+              uptrend_triggered=true;
+              downtrend_triggered=false;
+            }
+          else if(cmd==OP_SELL)
+            {
+              uptrend_triggered=false;
+              downtrend_triggered=true;
+            }
+        }
+    }
+   return ticket;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
