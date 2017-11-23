@@ -424,57 +424,89 @@ bool over_extended_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_WHICH_RANGE range_mode,
     int digits=(int)MarketInfo(symbol,MODE_DIGITS);
     double ADR_points_threshold=NormalizeDouble((ADR_pips*Point)*days_range_percent_threshold,Digits);
     
-    for(int i=days_to_check-1;i>=0;i++) // days_to_check should be past days to check + today
+    if(mode==BUYING_MODE)
       {
-        double days_range=0;
-        
-        if(range_mode==HIGH_MINUS_LOW) 
-          {
-            if(i!=0) days_range=iHigh(symbol,PERIOD_D1,i)-iLow(symbol,PERIOD_D1,i);
-            else if(mode==BUYING_MODE) days_range=Bid-iLow(symbol,PERIOD_D1,i);
-            else days_range=iHigh(symbol,PERIOD_D1,i)-Bid;
-          }
-        if(range_mode==OPEN_MINUS_CLOSE_ABSOLUTE)
-          {
-            if(i!=0) days_range=MathAbs(iOpen(symbol,PERIOD_D1,i)-iClose(symbol,PERIOD_D1,i));
-            else if(mode==BUYING_MODE) days_range=Bid-iOpen(symbol,PERIOD_D1,i); // can be negative
-            else days_range=iOpen(symbol,PERIOD_D1,i)-Bid; // can be negative
-          }
-        if(days_range>=ADR_points_threshold) // only positive day_ranges pass this point
-          { 
-            if(i==days_to_check-1) // the first day is always counted as 1
+        for(int i=days_to_check-1;i>=0;i++) // days_to_check should be past days to check + today
               {
-                uptrend_count++;
-                downtrend_count++;
-                break;
-              }
-              
-            double close_price=iClose(symbol,PERIOD_D1,i);
-            previous_days_close=iClose(symbol,PERIOD_D1,i+1); 
+                double days_range=0;
+                
+                if(range_mode==HIGH_MINUS_LOW)
+                  {
+                    if(i!=0) days_range=iHigh(symbol,PERIOD_D1,i)-iLow(symbol,PERIOD_D1,i);
+                    else days_range=Bid-iLow(symbol,PERIOD_D1,i);
+                  }
+                if(range_mode==OPEN_MINUS_CLOSE_ABSOLUTE)
+                  {
+                    if(i!=0) days_range=MathAbs(iOpen(symbol,PERIOD_D1,i)-iClose(symbol,PERIOD_D1,i));
+                    else days_range=Bid-iOpen(symbol,PERIOD_D1,i); // can be negative
+                  }
+                if(days_range>=ADR_points_threshold) // only positive day_ranges pass this point
+                  { 
+                    if(i==days_to_check-1) // the first day is always counted as 1
+                      {
+                        uptrend_count++;
+                        downtrend_count++;
+                        break;
+                      }
   
-            if(close_price>previous_days_close) 
-              if(mode==BUYING_MODE)
-                {
-                  uptrend_count++;
-                  break;
-                }
-              if(mode==SELLING_MODE)
-                {
-                  break;
-                }
-            if(close_price<previous_days_close)
-              if(mode==BUYING_MODE)
-                {
-                  break;
-                }
-              if(mode==SELLING_MODE)
-                {
-                  downtrend_count++;
-                  break;                  
-                }
-          }
-        else return answer;
+                    double close_price=iClose(symbol,PERIOD_D1,i);
+                    previous_days_close=iClose(symbol,PERIOD_D1,i+1); 
+          
+                    if(close_price>previous_days_close) 
+                      {
+                        uptrend_count++;
+                        break;
+                      }
+                    if(close_price<previous_days_close)
+                      {
+                        break;
+                      }
+                  }
+                else return answer;
+              }
       }
+    if(mode==SELLING_MODE)
+      {
+        for(int i=days_to_check-1;i>=0;i++) // days_to_check should be past days to check + today
+              {
+                double days_range=0;
+                
+                if(range_mode==HIGH_MINUS_LOW) 
+                  {
+                    if(i!=0) days_range=iHigh(symbol,PERIOD_D1,i)-iLow(symbol,PERIOD_D1,i);
+                    else days_range=iHigh(symbol,PERIOD_D1,i)-Bid;
+                  }
+                if(range_mode==OPEN_MINUS_CLOSE_ABSOLUTE)
+                  {
+                    if(i!=0) days_range=MathAbs(iOpen(symbol,PERIOD_D1,i)-iClose(symbol,PERIOD_D1,i));
+                    else days_range=iOpen(symbol,PERIOD_D1,i)-Bid; // can be negative
+                  }
+                if(days_range>=ADR_points_threshold) // only positive day_ranges pass this point
+                  { 
+                    if(i==days_to_check-1) // the first day is always counted as 1
+                      {
+                        uptrend_count++;
+                        downtrend_count++;
+                        break;
+                      }
+                      
+                    double close_price=iClose(symbol,PERIOD_D1,i);
+                    previous_days_close=iClose(symbol,PERIOD_D1,i+1); 
+          
+                  if(close_price>previous_days_close) 
+                      {
+                        break;
+                      }
+                    if(close_price<previous_days_close)
+                      {
+                        downtrend_count++;
+                        break;                  
+                      }
+                  }
+                else return answer;
+              }
+      }
+    
     if(uptrend_count>=num_to_be_true || downtrend_count>=num_to_be_true) return !answer;
     else return answer;
   }
