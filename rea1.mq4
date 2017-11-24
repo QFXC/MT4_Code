@@ -188,6 +188,8 @@ int OnInit()
 //+------------------------------------------------------------------+
 int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set)
   {
+    // TODO: check if the broker has Sunday's as a server time, and, if not, block all the code you wrote to count Sunday's from running
+    
     EA_1_magic_num=generate_magic_num(signal_set);
     bool input_variables_valid=all_user_input_variables_valid();
     
@@ -332,7 +334,7 @@ void Relativity_EA_1(int magic)
         {
          int days_seconds=(int)(current_time-(iTime(symbol,PERIOD_D1,0))+(gmt_hour_offset*3600)); // i am assuming it is okay to typecast a datetime (iTime) into an int since datetime is count of the number of seconds since 1970
          //int efficient_end_index=MathMin((MathMax(max_trades_within_x_hours*x_hours,max_directional_trades_each_day*24)*max_directional_trades_at_once*max_num_EAs_at_once-1),OrdersHistoryTotal()-1); // calculating the maximum orders that could have been placed so at least the program doesn't have to iterate through all orders in history (which can slow down the EA)
-         bool is_new_D1_bar=is_new_bar(symbol,PERIOD_M5,false);
+         bool is_new_D1_bar=is_new_bar(symbol,PERIOD_D1,false);
          
          if(enter_signal==TRADE_SIGNAL_BUY)
            {
@@ -352,7 +354,7 @@ void Relativity_EA_1(int magic)
                                                  OrdersHistoryTotal()-1,
                                                  x_hours*3600,
                                                  current_time);
-            int current_long_count=count_orders (order_set, // should be last because the harder ones should go first
+            int current_long_count=count_orders (order_set, // should be last because the harder and more similar ones should go first
                                                  magic,
                                                  MODE_TRADES,
                                                  OrdersTotal()-1,
@@ -389,7 +391,7 @@ void Relativity_EA_1(int magic)
                                                  OrdersHistoryTotal()-1,
                                                  x_hours*3600,
                                                  current_time);
-            int current_short_count=count_orders(order_set, // should be last because the harder ones should go first
+            int current_short_count=count_orders(order_set, // should be last because the harder and more similar ones should go first
                                                  magic,
                                                  MODE_TRADES,
                                                  OrdersTotal()-1,
@@ -454,6 +456,9 @@ bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_ran
       {
         for(int i=new_days_to_check-1+lower_index;i>=lower_index;i++) // days_to_check should be past days to check + today
           {
+            double open_price=iOpen(symbol,PERIOD_D1,i);
+            double close_price=iClose(symbol,PERIOD_D1,i);
+            
             if(new_days_to_check!=days_to_check) // if there are Sundays in this range
               {
                 int day=TimeDayOfWeek(iTime(symbol,PERIOD_D1,i));
@@ -467,19 +472,18 @@ bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_ran
               }
             else if(range==OPEN_MINUS_CLOSE_ABSOLUTE)
               {
-                if(i!=0) days_range=iClose(symbol,PERIOD_D1,i)-iOpen(symbol,PERIOD_D1,i);
-                else days_range=bid_price-iOpen(symbol,PERIOD_D1,i); // can be negative
+                if(i!=0) days_range=close_price-open_price;
+                else days_range=bid_price-open_price; // can be negative
               }
             if(days_range>=ADR_points_threshold) // only positive day_ranges pass this point
               { 
                 if(i==new_days_to_check-1+lower_index) // the first day is always counted as 1
                   {
-                    uptrend_count++;
-                    downtrend_count++;
+                    if(open_price>close_price) uptrend_count++;
+                    else downtrend_count++;
                     break;
                   }
-                double close_price=iClose(symbol,PERIOD_D1,i);
-                previous_days_close=iClose(symbol,PERIOD_D1,i+1); 
+                previous_days_close=iClose(symbol,PERIOD_D1,i+1); // this is different than the close_price because it is i+1
                 if(close_price>previous_days_close) 
                   {
                     uptrend_count++;
@@ -494,6 +498,9 @@ bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_ran
       {
         for(int i=new_days_to_check-1+lower_index;i>=lower_index;i++) // days_to_check should be past days to check + today
           {
+            double open_price=iOpen(symbol,PERIOD_D1,i);
+            double close_price=iClose(symbol,PERIOD_D1,i);
+            
             if(new_days_to_check!=days_to_check)
               {
                 int day=TimeDayOfWeek(iTime(symbol,PERIOD_D1,i));
@@ -507,19 +514,18 @@ bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_ran
               }
             else if(range==OPEN_MINUS_CLOSE_ABSOLUTE)
               {
-                if(i!=0) days_range=iOpen(symbol,PERIOD_D1,i)-iClose(symbol,PERIOD_D1,i);
-                else days_range=iOpen(symbol,PERIOD_D1,i)-bid_price;
+                if(i!=0) days_range=open_price-close_price;
+                else days_range=open_price-bid_price;
               }
             if(days_range>=ADR_points_threshold) // only positive day_ranges pass this point
               { 
                 if(i==new_days_to_check-1+lower_index) // the first day is always counted as 1
                   {
-                    uptrend_count++;
-                    downtrend_count++;
+                    if(open_price>close_price) downtrend_count++;
+                    else uptrend_count++;
                     break;
                   }  
-                double close_price=iClose(symbol,PERIOD_D1,i);
-                previous_days_close=iClose(symbol,PERIOD_D1,i+1); 
+                previous_days_close=iClose(symbol,PERIOD_D1,i+1); // this is different than close_price because it is i+1
                 if(close_price<previous_days_close)
                   {
                     downtrend_count++;
