@@ -110,7 +110,6 @@ enum ENUM_MM // Money Management
   bool long_allowed=true; // Are long trades allowed?
 	bool short_allowed=true; // Are short trades allowed?
 	
-	input int max_num_EAs_at_once=28;
 	input int max_directional_trades_at_once=1; // How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
 	input int max_trades_within_x_hours=1; // 0-x days (x depends on the setting of the Account History tab of the terminal). // How many trades are allowed to be opened (even if they are closed now) within the last x_hours?
 	input int x_hours=3;
@@ -310,9 +309,27 @@ void Relativity_EA_1(int magic)
         {
          ADR_pips=get_ADR(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent);
          average_spread_yesterday=calculate_avg_spread_yesterday(symbol);
+         bool is_acceptable_spread=acceptable_spread(symbol,false,max_spread_percent,average_spread_yesterday);
          
-         if(!acceptable_spread(symbol,false,max_spread_percent,average_spread_yesterday)) average_spread_yesterday=0; 
-         if(ADR_pips>0 && magic>0 && average_spread_yesterday>0) 
+         if(!is_acceptable_spread)
+          {
+            /*double max_spread=((ADR_pips*Point)*max_spread_percent);
+            double spread_diff=average_spread_yesterday-max_spread;
+            double spread_diff_percent=spread_diff/(ADR_pips*Point);
+            double percent_allows_trading=spread_diff_percent+max_spread_percent;*/
+            
+            double percent_allows_trading=NormalizeDouble(((average_spread_yesterday-((ADR_pips*Point)*max_spread_percent))/(ADR_pips*Point))+max_spread_percent,3);
+            
+            Alert(symbol," can't be traded today because the average spread yesterday does not meet your max_spread_percent (",
+                  DoubleToStr(max_spread_percent,3),") of ADR criteria. The average spread yesterday was ",
+                  DoubleToStr(average_spread_yesterday/Point,3),
+                  ". A max_spread_percent value above ",
+                  DoubleToStr(percent_allows_trading,3),
+                  " would have allowed the EA make trades in this currency pair today.");
+            average_spread_yesterday=-1;
+          } 
+             
+         if(ADR_pips>0 && magic>0 && is_acceptable_spread)
            {
             ready=true; // the ADR that has just been calculated won't generate again until after the cycle of not being in the time range completes
             uptrend_triggered=false;
@@ -414,7 +431,7 @@ void Relativity_EA_1(int magic)
                  try_to_enter_order(OP_SELL,magic,entering_max_slippage);
               }
            }
-        }    
+        }
      }
     else
      {
