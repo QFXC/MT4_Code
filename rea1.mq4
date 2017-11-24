@@ -89,6 +89,7 @@ enum ENUM_MM // Money Management
   static int EA_1_magic_num; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
   static bool uptrend_triggered=true;
   static bool downtrend_triggered=true;
+  static double average_spread_yesterday=0;
    
 // virtual stoploss variables
 	int virtual_sl=0; // TODO: Change to a percent of ADR
@@ -149,7 +150,7 @@ enum ENUM_MM // Money Management
 	
 //calculate_lots/mm variables
 	ENUM_MM money_management=MM_RISK_PERCENT_PER_ADR;
-	double risk_percent_per_ADR=0.02; // percent risked when using the MM_RISK_PER_ADR_PERCENT money management calculations. Note: This is not the percent of your balance you will be risking.
+	double risk_percent_per_ADR=0.025; // percent risked when using the MM_RISK_PER_ADR_PERCENT money management calculations. Note: This is not the percent of your balance you will be risking.
 	double mm1_risk_percent=0.02; // percent risked when using the MM_RISK_PERCENT money management calculations
    // these variables will not be used with the MM_RISK_PERCENT money management strategy
 	double lot_size=0.1;
@@ -308,7 +309,10 @@ void Relativity_EA_1(int magic)
       if(in_time_range && !ready) 
         {
          ADR_pips=get_ADR(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent);
-         if(ADR_pips>0 && magic>0) 
+         average_spread_yesterday=calculate_avg_spread_yesterday(symbol);
+         
+         if(!acceptable_spread(symbol,false,max_spread_percent,average_spread_yesterday)) average_spread_yesterday=0; 
+         if(ADR_pips>0 && magic>0 && average_spread_yesterday>0) 
            {
             ready=true; // the ADR that has just been calculated won't generate again until after the cycle of not being in the time range completes
             uptrend_triggered=false;
@@ -417,6 +421,8 @@ void Relativity_EA_1(int magic)
        ready=false; // this makes sure to set it to false so when the time is within the time range again, the ADR can get generated
        uptrend_triggered=true; // 
        downtrend_triggered=true; // 
+       ADR_pips=0;
+       average_spread_yesterday=0;
        bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
        if(time_to_exit) exit_all_trades_set(ORDER_SET_ALL,magic,_exiting_max_slippage); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
      }
@@ -544,7 +550,7 @@ int signal_pullback_after_ADR_triggered()
     
     if(!uptrend_triggered)
       {
-        if(uptrend_ADR_threshold_price_met(true)>0)
+        if(uptrend_ADR_threshold_price_met(false)>0)
           {
             return signal=TRADE_SIGNAL_BUY;
           }
@@ -553,7 +559,7 @@ int signal_pullback_after_ADR_triggered()
    // if the pullback_entry_price is met or exceeded, signal = TRADE_SIGNAL_BUY
     if(!downtrend_triggered)
       {
-      if(downtrend_ADR_threshold_price_met(true)>0) 
+      if(downtrend_ADR_threshold_price_met(false)>0) 
         {
           return signal=TRADE_SIGNAL_SELL;
         }
@@ -760,32 +766,6 @@ bool is_new_M5_bar(bool wait_for_next_bar=false)
    static double open_price=0;
    datetime current_bar_open_time=iTime(symbol,PERIOD_M5,0);
    double current_bar_open_price=iOpen(symbol,PERIOD_M5,0);
-   int digits=(int)MarketInfo(symbol,MODE_DIGITS);
-   
-   if(bar_time==0 && open_price==0) // If it is the first time the function is called or it is the start of a new bar. This could be after the open time (aka in the middle) of a bar.
-     {
-      bar_time=current_bar_open_time;
-      open_price=current_bar_open_price;
-      if(wait_for_next_bar) return false; // after loading the EA for the first time, if the user wants to wait for the next bar for the bar to be considered new
-      else return true;
-     }
-   else if(current_bar_open_time>bar_time && compare_doubles(open_price,current_bar_open_price,digits)!=0) // if the opening time and price of this bar is different than the opening time and price of the previous one
-     {
-      bar_time=current_bar_open_time; // assuring the true value only gets returned for 1 tick and not the very next ones
-      open_price=current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
-      return true;
-     }
-   else return false;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-bool is_new_H1_bar(bool wait_for_next_bar=false)
-  {
-   static datetime bar_time=0;
-   static double open_price=0;
-   datetime current_bar_open_time=iTime(symbol,PERIOD_H1,0);
-   double current_bar_open_price=iOpen(symbol,PERIOD_H1,0);
    int digits=(int)MarketInfo(symbol,MODE_DIGITS);
    
    if(bar_time==0 && open_price==0) // If it is the first time the function is called or it is the start of a new bar. This could be after the open time (aka in the middle) of a bar.
@@ -1040,15 +1020,11 @@ double uptrend_ADR_threshold_price_met(bool get_current_bid_instead=false)
      {
        // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
        LOP=periods_pivot_price(BUYING_MODE);
-       if(current_bid-LOP>=pip_move_threshold) 
-         if(get_current_bid_instead)
-           {
-            return current_bid; // TODO: should you return the current_bid or LOP+pip_move_threshold? // check if it is actually true by taking the new calculation of Low Of Period into account
-           }
-         else 
-           {
-            return LOP+pip_move_threshold;
-           }
+       if(current_bid-LOP>=pip_move_threshold)
+         {
+           if(get_current_bid_instead) return current_bid; // TODO: should you return the current_bid or LOP+pip_move_threshold? // check if it is actually true by taking the new calculation of Low Of Period into account
+           else return LOP+pip_move_threshold;
+         }
        else return -1;
      }         
    else return -1;
@@ -1077,55 +1053,14 @@ double downtrend_ADR_threshold_price_met(bool get_current_bid_instead=false)
      {
        // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
        HOP=periods_pivot_price(SELLING_MODE);
-       if(HOP-current_bid>=pip_move_threshold) 
-         if(get_current_bid_instead)
-           return current_bid; // TODO: should you return the current_bid or HOP-pip_move_threshold? // check if it is actually true by taking the new calculation of Low Of Period into account
+       if(HOP-current_bid>=pip_move_threshold)
+         {
+           if(get_current_bid_instead) return current_bid; // TODO: should you return the current_bid or HOP-pip_move_threshold? // check if it is actually true by taking the new calculation of Low Of Period into account
            else return HOP-pip_move_threshold;
+         }
        else return -1;
      }         
    else return -1;
-  }
-
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-bool breakeven_check_order(int ticket,int threshold_pips,int plus_pips) 
-  {
-   if(ticket<=0) return true; // if it is a valid ticket, return true
-   if(!OrderSelect(ticket,SELECT_BY_TICKET)) return false; // if there is no ticket, it cannot be process so return false
-   int digits=(int)MarketInfo(OrderSymbol(),MODE_DIGITS); // how many digit broker
-   double point=MarketInfo(OrderSymbol(),MODE_POINT); // get the point for the instrument
-   bool result=true; // initialize the variable result
-   double order_sl=OrderStopLoss();
-   if(OrderType()==OP_BUY) // if it is a buy order
-     {
-      double new_sl=OrderOpenPrice()+(plus_pips*point); // calculate the price of the new stoploss
-      double profit_in_pts=OrderClosePrice()-OrderOpenPrice(); // calculate how many points in profit the trade is in so far
-      if(order_sl==0 || compare_doubles(new_sl,order_sl,digits)==1) // if there is no stoploss or the potential new stoploss is greater than the current stoploss
-         if(compare_doubles(profit_in_pts,threshold_pips*point,digits)>=0) // if the profit in points so far > provided threshold, then set the order to breakeven
-            result=modify(ticket,new_sl);
-     }
-   else if(OrderType()==OP_SELL)
-     {
-      double new_sl=OrderOpenPrice()-(plus_pips*point);
-      double profit_in_pts=OrderOpenPrice()-OrderClosePrice();
-      if(order_sl==0 || compare_doubles(new_sl,order_sl,digits)==-1)
-         if(compare_doubles(profit_in_pts,threshold_pips*point,digits)>=0)
-            result=modify(ticket,new_sl); 
-     }
-   return result;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-void breakeven_check_all_orders(int threshold,int plus,int magic=-1) // a -1 magic number means the there is no magic number in this order or EA
-  {
-   for(int i=0;i<OrdersTotal();i++)
-     {
-      if(OrderSelect(i,SELECT_BY_POS))
-         if(magic==-1 || magic==OrderMagicNumber())
-            breakeven_check_order(OrderTicket(),threshold,plus);
-     }
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1325,13 +1260,62 @@ void exit_all_trades_set(ENUM_ORDER_SET type_needed=ORDER_SET_ALL,int magic=-1,i
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool acceptable_spread(string instrument,bool refresh_rates,double _max_spread_percent)
-{
-   if(refresh_rates) RefreshRates();
-   double spread=MarketInfo(instrument,MODE_SPREAD); // already normalized. I put this check here because the rates were just refereshed.
+bool acceptable_spread(string instrument,bool refresh_rates,double _max_spread_percent,double spread_provided=0)
+  {
+   double spread=0;
+   
+   if(!spread_provided>0)
+    {
+     if(refresh_rates) RefreshRates();
+     spread=MarketInfo(instrument,MODE_SPREAD); // already normalized. I put this check here because the rates were just refereshed.
+    }
+   else
+    {
+      spread=spread_provided;
+    }
    if(compare_doubles(spread,(ADR_pips*_max_spread_percent)*Point,1)<=0) return true; // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
-   else return false;
-}
+
+   return false;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double calculate_avg_spread_yesterday(string instrument)
+  {
+    datetime new_server_day=-1;
+    datetime end_server_day=-1;
+    double spread_total=0;
+    
+    if(TimeDayOfWeek(iTime(symbol,PERIOD_D1,1))!=0) // if not Sunday, analyze yesterday
+      {
+        new_server_day=iTime(symbol,PERIOD_D1,1);
+        end_server_day=iTime(symbol,PERIOD_D1,0)-(5*60);
+      }    
+    else // if Sunday, analyze the day before yesterday
+      {
+        new_server_day=iTime(symbol,PERIOD_D1,2);
+        end_server_day=iTime(symbol,PERIOD_D1,1)-(5*60); // the start of the last bar of the specific day
+      }
+    
+    int new_server_day_bar=iBarShift(instrument,PERIOD_M5,new_server_day,false);
+    int end_server_day_bar=iBarShift(instrument,PERIOD_M5,end_server_day,false);
+    
+    for(int i=new_server_day_bar;i>=end_server_day_bar;i--) // 288 M5 bars in 24 hours
+      {
+        datetime bar_time=iTime(symbol,PERIOD_M5,i);
+        // convert bar_time
+        
+        bool in_time_range=in_time_range(bar_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);
+        if(in_time_range)
+          {
+            double spread=MarketInfo(instrument,MODE_SPREAD);
+            spread_total+=spread;
+          }
+      }
+      
+    double avg_spread=spread_total/(new_server_day_bar-end_server_day_bar);
+    return NormalizeDouble(avg_spread,Digits);
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -1398,11 +1382,11 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
       bool instant_exec=!market;
       if(distanceFromCurrentPrice>0) order_type=OP_BUYLIMIT;
       else if(distanceFromCurrentPrice==0) order_type=OP_BUY;
-      else /*if(distanceFromCurrentPrice>0) order_type=OP_BUYSTOP*/ return 0;
+      else /*if(distanceFromCurrentPrice<0) order_type=OP_BUYSTOP*/ return 0;
       if(order_type==OP_BUYLIMIT /*|| order_type==OP_BUYSTOP*/)
         {
          if(periods_pivot_price<0) return 0;
-         entryPrice=(periods_pivot_price+(ADR_pips*point))-(distanceFromCurrentPrice*point); // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
+         entryPrice=(periods_pivot_price+(ADR_pips*point))-(distanceFromCurrentPrice*point)-average_spread_yesterday; // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
         }
       else if(order_type==OP_BUY)
         {
@@ -1425,7 +1409,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
       if(order_type==OP_SELLLIMIT /*|| order_type==OP_SELLSTOP*/)
         {
          if(periods_pivot_price<0) return 0;
-         entryPrice=(periods_pivot_price-(ADR_pips*point))+(distanceFromCurrentPrice*point); // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
+         entryPrice=(periods_pivot_price-(ADR_pips*point))+(distanceFromCurrentPrice*point)+average_spread_yesterday; // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
         }
       else if(order_type==OP_SELL)
         {
@@ -1512,67 +1496,6 @@ int check_for_entry_errors(string instrument,int cmd,double lots,double distance
       Sleep(sleep_milisec);
      }
    return ticket;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-// Checking and moving trailing stop while the order is open
-bool trailingstop_check_order(int ticket,int trail_pips,int threshold,int step)
-  {
-   if(ticket<=0) return true;
-   if(!OrderSelect(ticket,SELECT_BY_TICKET)) return false;
-   
-   int digits=(int) MarketInfo(OrderSymbol(),MODE_DIGITS);
-   double point=MarketInfo(OrderSymbol(),MODE_POINT);
-   bool result=true;
-   
-   if(OrderType()==OP_BUY)
-     {
-      double new_moving_sl=OrderClosePrice()-(trail_pips*point); // the current price - the trail in pips
-      double threshold_activation_price=OrderOpenPrice()+(threshold*point);
-      double activation_sl=threshold_activation_price-(trail_pips*point);
-      double step_in_pts=new_moving_sl-OrderStopLoss(); // keeping track of the distance between the potential stoploss and the current stoploss
-      if(OrderStopLoss()==0|| compare_doubles(activation_sl,OrderStopLoss(),digits)==1)
-        {
-         if(compare_doubles(OrderClosePrice(),threshold_activation_price,digits)>=0) // if price met the threshold, move the stoploss
-            result=modify(ticket,activation_sl);
-        }
-      else if(compare_doubles(step_in_pts,step*point,digits)>=0) // if price met the step, move the stoploss
-        {
-         result=modify(ticket,new_moving_sl);
-        }
-     }
-   else if(OrderType()==OP_SELL)
-     {
-      double new_moving_sl=OrderClosePrice()+(trail_pips*point);
-      double threshold_activation_price=OrderOpenPrice()-(threshold*point);
-      double activation_sl=threshold_activation_price+(trail_pips*point);
-      double step_in_pts=OrderStopLoss()-new_moving_sl;
-      if(OrderStopLoss()==0|| compare_doubles(activation_sl,OrderStopLoss(),digits)==-1)
-        {
-         if(compare_doubles(OrderClosePrice(),threshold_activation_price,digits)<=0)
-            result=modify(ticket,activation_sl);
-        }
-      else if(compare_doubles(step_in_pts,step*point,digits)>=0)
-        {
-         result=modify(ticket,new_moving_sl);
-        }
-     }
-   return result;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-void trailingstop_check_all_orders(int trail,int threshold,int step,int magic=-1)
-  {
-   for(int i=0;i<OrdersTotal();i++)
-     {
-      if(OrderSelect(i,SELECT_BY_POS))
-        {
-         if(magic==-1 || magic==OrderMagicNumber())
-            trailingstop_check_order(OrderTicket(),trail,threshold,step);
-        }
-     }
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1744,6 +1667,67 @@ bool virtualstop_check_order(int ticket,int sl,int tp,int max_slippage)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+// Checking and moving trailing stop while the order is open
+bool trailingstop_check_order(int ticket,int trail_pips,int threshold,int step)
+  {
+   if(ticket<=0) return true;
+   if(!OrderSelect(ticket,SELECT_BY_TICKET)) return false;
+   
+   int digits=(int) MarketInfo(OrderSymbol(),MODE_DIGITS);
+   double point=MarketInfo(OrderSymbol(),MODE_POINT);
+   bool result=true;
+   
+   if(OrderType()==OP_BUY)
+     {
+      double new_moving_sl=OrderClosePrice()-(trail_pips*point); // the current price - the trail in pips
+      double threshold_activation_price=OrderOpenPrice()+(threshold*point);
+      double activation_sl=threshold_activation_price-(trail_pips*point);
+      double step_in_pts=new_moving_sl-OrderStopLoss(); // keeping track of the distance between the potential stoploss and the current stoploss
+      if(OrderStopLoss()==0|| compare_doubles(activation_sl,OrderStopLoss(),digits)==1)
+        {
+         if(compare_doubles(OrderClosePrice(),threshold_activation_price,digits)>=0) // if price met the threshold, move the stoploss
+            result=modify(ticket,activation_sl);
+        }
+      else if(compare_doubles(step_in_pts,step*point,digits)>=0) // if price met the step, move the stoploss
+        {
+         result=modify(ticket,new_moving_sl);
+        }
+     }
+   else if(OrderType()==OP_SELL)
+     {
+      double new_moving_sl=OrderClosePrice()+(trail_pips*point);
+      double threshold_activation_price=OrderOpenPrice()-(threshold*point);
+      double activation_sl=threshold_activation_price+(trail_pips*point);
+      double step_in_pts=OrderStopLoss()-new_moving_sl;
+      if(OrderStopLoss()==0|| compare_doubles(activation_sl,OrderStopLoss(),digits)==-1)
+        {
+         if(compare_doubles(OrderClosePrice(),threshold_activation_price,digits)<=0)
+            result=modify(ticket,activation_sl);
+        }
+      else if(compare_doubles(step_in_pts,step*point,digits)>=0)
+        {
+         result=modify(ticket,new_moving_sl);
+        }
+     }
+   return result;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void trailingstop_check_all_orders(int trail,int threshold,int step,int magic=-1)
+  {
+   for(int i=0;i<OrdersTotal();i++)
+     {
+      if(OrderSelect(i,SELECT_BY_POS))
+        {
+         if(magic==-1 || magic==OrderMagicNumber())
+            trailingstop_check_order(OrderTicket(),trail,threshold,step);
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 // use this function  in case you do not want the broker to know where your stop is
 void virtualstop_check_all_orders(int sl,int tp,int magic=-1,int max_slippage=50)
   {
@@ -1752,6 +1736,47 @@ void virtualstop_check_all_orders(int sl,int tp,int magic=-1,int max_slippage=50
       if(OrderSelect(i,SELECT_BY_POS))
          if(magic==-1 || magic==OrderMagicNumber())
             virtualstop_check_order(OrderTicket(),sl,tp,max_slippage);
+     }
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool breakeven_check_order(int ticket,int threshold_pips,int plus_pips) 
+  {
+   if(ticket<=0) return true; // if it is a valid ticket, return true
+   if(!OrderSelect(ticket,SELECT_BY_TICKET)) return false; // if there is no ticket, it cannot be process so return false
+   int digits=(int)MarketInfo(OrderSymbol(),MODE_DIGITS); // how many digit broker
+   double point=MarketInfo(OrderSymbol(),MODE_POINT); // get the point for the instrument
+   bool result=true; // initialize the variable result
+   double order_sl=OrderStopLoss();
+   if(OrderType()==OP_BUY) // if it is a buy order
+     {
+      double new_sl=OrderOpenPrice()+(plus_pips*point); // calculate the price of the new stoploss
+      double profit_in_pts=OrderClosePrice()-OrderOpenPrice(); // calculate how many points in profit the trade is in so far
+      if(order_sl==0 || compare_doubles(new_sl,order_sl,digits)==1) // if there is no stoploss or the potential new stoploss is greater than the current stoploss
+         if(compare_doubles(profit_in_pts,threshold_pips*point,digits)>=0) // if the profit in points so far > provided threshold, then set the order to breakeven
+            result=modify(ticket,new_sl);
+     }
+   else if(OrderType()==OP_SELL)
+     {
+      double new_sl=OrderOpenPrice()-(plus_pips*point);
+      double profit_in_pts=OrderOpenPrice()-OrderClosePrice();
+      if(order_sl==0 || compare_doubles(new_sl,order_sl,digits)==-1)
+         if(compare_doubles(profit_in_pts,threshold_pips*point,digits)>=0)
+            result=modify(ticket,new_sl); 
+     }
+   return result;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void breakeven_check_all_orders(int threshold,int plus,int magic=-1) // a -1 magic number means the there is no magic number in this order or EA
+  {
+   for(int i=0;i<OrdersTotal();i++)
+     {
+      if(OrderSelect(i,SELECT_BY_POS))
+         if(magic==-1 || magic==OrderMagicNumber())
+            breakeven_check_order(OrderTicket(),threshold,plus);
      }
   }
 //+------------------------------------------------------------------+
