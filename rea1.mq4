@@ -332,6 +332,7 @@ void Relativity_EA_1(int magic)
         {
          int days_seconds=(int)(current_time-(iTime(symbol,PERIOD_D1,0))+(gmt_hour_offset*3600)); // i am assuming it is okay to typecast a datetime (iTime) into an int since datetime is count of the number of seconds since 1970
          //int efficient_end_index=MathMin((MathMax(max_trades_within_x_hours*x_hours,max_directional_trades_each_day*24)*max_directional_trades_at_once*max_num_EAs_at_once-1),OrdersHistoryTotal()-1); // calculating the maximum orders that could have been placed so at least the program doesn't have to iterate through all orders in history (which can slow down the EA)
+         bool is_new_D1_bar=is_new_bar(symbol,PERIOD_M5,false);
          
          if(enter_signal==TRADE_SIGNAL_BUY)
            {
@@ -363,8 +364,8 @@ void Relativity_EA_1(int magic)
                opened_today_count<max_directional_trades_each_day)   // just long
               {
                //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
-               bool overbought_1=three_day_trend(BUYING_MODE,HIGH_MINUS_LOW,.75,3,false);
-               bool overbought_2=three_day_trend(BUYING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,false);
+               bool overbought_1=three_day_trend(BUYING_MODE,HIGH_MINUS_LOW,.75,3,is_new_D1_bar,false);
+               bool overbought_2=three_day_trend(BUYING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,is_new_D1_bar,false);
                
                if(!overbought_1 && !overbought_2)
                  try_to_enter_order(OP_BUY,magic,entering_max_slippage);
@@ -400,8 +401,8 @@ void Relativity_EA_1(int magic)
                opened_today_count<max_directional_trades_each_day)   // just short
               {
                //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
-               bool oversold_1=three_day_trend(SELLING_MODE,HIGH_MINUS_LOW,.75,3,false);
-               bool oversold_2=three_day_trend(SELLING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,false);
+               bool oversold_1=three_day_trend(SELLING_MODE,HIGH_MINUS_LOW,.75,3,is_new_D1_bar,false);
+               bool oversold_2=three_day_trend(SELLING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,is_new_D1_bar,false);
                
                if(!oversold_1 && !oversold_2)
                  try_to_enter_order(OP_SELL,magic,entering_max_slippage);
@@ -421,7 +422,7 @@ void Relativity_EA_1(int magic)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_range_percent_threshold,int num_to_be_true,bool dont_analyze_today=false) // TODO: test if this works with a Script
+bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_range_percent_threshold,int num_to_be_true,bool _is_new_D1_bar,bool dont_analyze_today=false) // TODO: test if this works with a Script
   {
     static int new_days_to_check=0;
     int days_to_check=3; // the days to check including today // You cannot put this in the parameter list as an argument. You have to create different functions for different day counts you want to check because of that static new_days_days_to_check you made for performance reasons.
@@ -432,9 +433,9 @@ bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_ran
     bool answer=false;
     int uptrend_count=0, downtrend_count=0;
     int sunday_count=0;
-    int lower_index=dont_analyze_today;
+    int lower_index=(int)dont_analyze_today;
     
-    if(is_new_bar(symbol,PERIOD_D1,false) || new_days_to_check==0) // get the new value of the static sunday_count the first time it is run or if it is a new day
+    if(_is_new_D1_bar || new_days_to_check==0) // get the new value of the static sunday_count the first time it is run or if it is a new day
       {
         new_days_to_check=0; // do not delete this line
 
@@ -448,7 +449,6 @@ bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_ran
               }
           }    
       }
-    if(dont_analyze_today) days_to_check+=1;
     if(sunday_count>0) new_days_to_check=sunday_count+days_to_check;
     if(mode==BUYING_MODE)
       {
@@ -457,7 +457,7 @@ bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_ran
             if(new_days_to_check!=days_to_check) // if there are Sundays in this range
               {
                 int day=TimeDayOfWeek(iTime(symbol,PERIOD_D1,i));
-                if(day==0) break; // if Sunday, skip this day            
+                if(day==0) break; // if the bar is Sunday, skip this day            
               }
             double days_range=0;
             if(range==HIGH_MINUS_LOW)
@@ -472,7 +472,7 @@ bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_ran
               }
             if(days_range>=ADR_points_threshold) // only positive day_ranges pass this point
               { 
-                if(i==new_days_to_check-1) // the first day is always counted as 1
+                if(i==new_days_to_check-1+lower_index) // the first day is always counted as 1
                   {
                     uptrend_count++;
                     downtrend_count++;
@@ -497,7 +497,7 @@ bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_ran
             if(new_days_to_check!=days_to_check)
               {
                 int day=TimeDayOfWeek(iTime(symbol,PERIOD_D1,i));
-                if(day==0) break; // if Sunday, skip this day            
+                if(day==0) break; // if the bar is Sunday, skip this day
               }
             double days_range=0;
             if(range==HIGH_MINUS_LOW) 
@@ -512,7 +512,7 @@ bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_ran
               }
             if(days_range>=ADR_points_threshold) // only positive day_ranges pass this point
               { 
-                if(i==new_days_to_check-1) // the first day is always counted as 1
+                if(i==new_days_to_check-1+lower_index) // the first day is always counted as 1
                   {
                     uptrend_count++;
                     downtrend_count++;
@@ -716,6 +716,8 @@ int generate_magic_num(ENUM_SIGNAL_SET)
 //+------------------------------------------------------------------+
 bool in_time_range(datetime time,int start_hour,int start_min,int end_hour,int end_min,int gmt_offset=0)
   {
+   if(DayOfWeek()==0) return false; // if the broker's server time says it is Sunday, you are not in your trading time range
+   
    if(gmt_offset!=0) 
      {
       start_hour+=gmt_offset;
