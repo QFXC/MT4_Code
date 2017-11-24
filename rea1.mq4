@@ -282,7 +282,7 @@ void OnTick()
 void Relativity_EA_1(int magic)
   {
    static bool ready=false, in_time_range=false;
-   bool is_new_M5_bar=is_new_bar(symbol,PERIOD_M5,wait_next_bar_on_load);
+   bool is_new_M5_bar=is_new_M5_bar(wait_next_bar_on_load);
    datetime current_time=TimeCurrent();
    int exit_signal=TRADE_SIGNAL_NEUTRAL, exit_signal_2=TRADE_SIGNAL_NEUTRAL; // 0
    int _exiting_max_slippage=exiting_max_slippage;
@@ -334,7 +334,7 @@ void Relativity_EA_1(int magic)
         {
          int days_seconds=(int)(current_time-(iTime(symbol,PERIOD_D1,0))+(gmt_hour_offset*3600)); // i am assuming it is okay to typecast a datetime (iTime) into an int since datetime is count of the number of seconds since 1970
          //int efficient_end_index=MathMin((MathMax(max_trades_within_x_hours*x_hours,max_directional_trades_each_day*24)*max_directional_trades_at_once*max_num_EAs_at_once-1),OrdersHistoryTotal()-1); // calculating the maximum orders that could have been placed so at least the program doesn't have to iterate through all orders in history (which can slow down the EA)
-         bool is_new_D1_bar=is_new_bar(symbol,PERIOD_D1,false);
+         bool is_new_D1_bar=is_new_D1_bar(false);
          
          if(enter_signal==TRADE_SIGNAL_BUY)
            {
@@ -366,8 +366,8 @@ void Relativity_EA_1(int magic)
                opened_today_count<max_directional_trades_each_day)   // just long
               {
                //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
-               bool overbought_1=three_day_trend(BUYING_MODE,HIGH_MINUS_LOW,.75,3,is_new_D1_bar,false);
-               bool overbought_2=three_day_trend(BUYING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,is_new_D1_bar,false);
+               bool overbought_1=over_extended_trend(3,BUYING_MODE,HIGH_MINUS_LOW,.75,3,is_new_D1_bar,false);
+               bool overbought_2=over_extended_trend(3,BUYING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,is_new_D1_bar,false);
                
                if(!overbought_1 && !overbought_2)
                  try_to_enter_order(OP_BUY,magic,entering_max_slippage);
@@ -403,8 +403,8 @@ void Relativity_EA_1(int magic)
                opened_today_count<max_directional_trades_each_day)   // just short
               {
                //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
-               bool oversold_1=three_day_trend(SELLING_MODE,HIGH_MINUS_LOW,.75,3,is_new_D1_bar,false);
-               bool oversold_2=three_day_trend(SELLING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,is_new_D1_bar,false);
+               bool oversold_1=over_extended_trend(3,SELLING_MODE,HIGH_MINUS_LOW,.75,3,is_new_D1_bar,false);
+               bool oversold_2=over_extended_trend(3,SELLING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,is_new_D1_bar,false);
                
                if(!oversold_1 && !oversold_2)
                  try_to_enter_order(OP_SELL,magic,entering_max_slippage);
@@ -424,10 +424,9 @@ void Relativity_EA_1(int magic)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_range_percent_threshold,int num_to_be_true,bool _is_new_D1_bar,bool dont_analyze_today=false) // TODO: test if this works with a Script
-  {
+bool over_extended_trend(int days_to_check,ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_range_percent_threshold,int num_to_be_true,bool _is_new_D1_bar,bool dont_analyze_today=false)
+    {
     static int new_days_to_check=0;
-    int days_to_check=3; // the days to check including today // You cannot put this in the parameter list as an argument. You have to create different functions for different day counts you want to check because of that static new_days_days_to_check you made for performance reasons.
     int digits=(int)MarketInfo(symbol,MODE_DIGITS);
     double ADR_points_threshold=NormalizeDouble((ADR_pips*Point)*days_range_percent_threshold,digits);
     double previous_days_close=-1;
@@ -456,8 +455,7 @@ bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_ran
       {
         for(int i=new_days_to_check-1+lower_index;i>=lower_index;i++) // days_to_check should be past days to check + today
           {
-            double open_price=iOpen(symbol,PERIOD_D1,i);
-            double close_price=iClose(symbol,PERIOD_D1,i);
+            double open_price=iOpen(symbol,PERIOD_D1,i), close_price=iClose(symbol,PERIOD_D1,i);
             
             if(new_days_to_check!=days_to_check) // if there are Sundays in this range
               {
@@ -477,7 +475,7 @@ bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_ran
               }
             if(days_range>=ADR_points_threshold) // only positive day_ranges pass this point
               { 
-                if(i==new_days_to_check-1+lower_index) // the first day is always counted as 1
+                if(i==new_days_to_check-1+lower_index)
                   {
                     if(open_price>close_price) uptrend_count++;
                     else downtrend_count++;
@@ -498,8 +496,7 @@ bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_ran
       {
         for(int i=new_days_to_check-1+lower_index;i>=lower_index;i++) // days_to_check should be past days to check + today
           {
-            double open_price=iOpen(symbol,PERIOD_D1,i);
-            double close_price=iClose(symbol,PERIOD_D1,i);
+            double open_price=iOpen(symbol,PERIOD_D1,i), close_price=iClose(symbol,PERIOD_D1,i);
             
             if(new_days_to_check!=days_to_check)
               {
@@ -519,7 +516,7 @@ bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_ran
               }
             if(days_range>=ADR_points_threshold) // only positive day_ranges pass this point
               { 
-                if(i==new_days_to_check-1+lower_index) // the first day is always counted as 1
+                if(i==new_days_to_check-1+lower_index)
                   {
                     if(open_price>close_price) downtrend_count++;
                     else uptrend_count++;
@@ -537,7 +534,7 @@ bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_ran
         else return answer;
       }
     return answer;
-  }
+    }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -723,7 +720,6 @@ int generate_magic_num(ENUM_SIGNAL_SET)
 bool in_time_range(datetime time,int start_hour,int start_min,int end_hour,int end_min,int gmt_offset=0)
   {
    if(DayOfWeek()==0) return false; // if the broker's server time says it is Sunday, you are not in your trading time range
-   
    if(gmt_offset!=0) 
      {
       start_hour+=gmt_offset;
@@ -731,9 +727,9 @@ bool in_time_range(datetime time,int start_hour,int start_min,int end_hour,int e
      }
 // Since a non-zero gmt_offset will make the start and end hour go beyond acceptable paremeters (below 0 or above 23), change the start_hour and end_hour to military time.
    if(start_hour>23) start_hour=(start_hour-23)-1;
-   else if(start_hour<0) start_hour=23+start_hour+1;
+   else if(start_hour<0) start_hour=(23+start_hour)+1;
    if(end_hour>23) end_hour=(end_hour-23)-1;
-   else if(end_hour<0) end_hour=23+end_hour+1;
+   else if(end_hour<0) end_hour=(23+end_hour)+1;
    
    int hour=TimeHour(time);
    int minute=TimeMinute(time);
@@ -758,13 +754,65 @@ bool in_time_range(datetime time,int start_hour,int start_min,int end_hour,int e
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool is_new_bar(string instrument,int timeframe,bool wait_for_next_bar=false)
+bool is_new_M5_bar(bool wait_for_next_bar=false)
   {
    static datetime bar_time=0;
    static double open_price=0;
-   datetime current_bar_open_time=iTime(instrument,timeframe,0);
-   double current_bar_open_price=iOpen(instrument,timeframe,0);
-   int digits=(int)MarketInfo(instrument,MODE_DIGITS);
+   datetime current_bar_open_time=iTime(symbol,PERIOD_M5,0);
+   double current_bar_open_price=iOpen(symbol,PERIOD_M5,0);
+   int digits=(int)MarketInfo(symbol,MODE_DIGITS);
+   
+   if(bar_time==0 && open_price==0) // If it is the first time the function is called or it is the start of a new bar. This could be after the open time (aka in the middle) of a bar.
+     {
+      bar_time=current_bar_open_time;
+      open_price=current_bar_open_price;
+      if(wait_for_next_bar) return false; // after loading the EA for the first time, if the user wants to wait for the next bar for the bar to be considered new
+      else return true;
+     }
+   else if(current_bar_open_time>bar_time && compare_doubles(open_price,current_bar_open_price,digits)!=0) // if the opening time and price of this bar is different than the opening time and price of the previous one
+     {
+      bar_time=current_bar_open_time; // assuring the true value only gets returned for 1 tick and not the very next ones
+      open_price=current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
+      return true;
+     }
+   else return false;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool is_new_H1_bar(bool wait_for_next_bar=false)
+  {
+   static datetime bar_time=0;
+   static double open_price=0;
+   datetime current_bar_open_time=iTime(symbol,PERIOD_H1,0);
+   double current_bar_open_price=iOpen(symbol,PERIOD_H1,0);
+   int digits=(int)MarketInfo(symbol,MODE_DIGITS);
+   
+   if(bar_time==0 && open_price==0) // If it is the first time the function is called or it is the start of a new bar. This could be after the open time (aka in the middle) of a bar.
+     {
+      bar_time=current_bar_open_time;
+      open_price=current_bar_open_price;
+      if(wait_for_next_bar) return false; // after loading the EA for the first time, if the user wants to wait for the next bar for the bar to be considered new
+      else return true;
+     }
+   else if(current_bar_open_time>bar_time && compare_doubles(open_price,current_bar_open_price,digits)!=0) // if the opening time and price of this bar is different than the opening time and price of the previous one
+     {
+      bar_time=current_bar_open_time; // assuring the true value only gets returned for 1 tick and not the very next ones
+      open_price=current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
+      return true;
+     }
+   else return false;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool is_new_D1_bar(bool wait_for_next_bar=false)
+  {
+   static datetime bar_time=0;
+   static double open_price=0;
+   datetime current_bar_open_time=iTime(symbol,PERIOD_D1,0);
+   double current_bar_open_price=iOpen(symbol,PERIOD_D1,0);
+   int digits=(int)MarketInfo(symbol,MODE_DIGITS);
    
    if(bar_time==0 && open_price==0) // If it is the first time the function is called or it is the start of a new bar. This could be after the open time (aka in the middle) of a bar.
      {
@@ -806,7 +854,7 @@ bool time_to_exit(datetime current_time,int hour,int min,int gmt_offset=0)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int ADR_calculation(double low_outlier,double high_outlier,double change_ADR)
+int ADR_calculation(double low_outlier,double high_outlier,double change_by)
   {
      int three_mnth_sunday_count=0;
      int three_mnth_num_days=3*22; // There are about 22 business days a month.
@@ -888,17 +936,17 @@ int ADR_calculation(double low_outlier,double high_outlier,double change_ADR)
      // adr doesn't need to be Normalized because it has been converted into an int.
      int adr=(int)((x_mnth_non_sunday_ADR_sum/Point)/x_mnth_non_sunday_count); // converting it away from points to more human understandable numbers
      // int adr=.0080;
-     if(change_ADR==0 || change_ADR==NULL) return adr;
-     else return (int)((adr*change_ADR)+adr); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
+     if(change_by==0 || change_by==NULL) return adr;
+     else return (int)((adr*change_by)+adr); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int get_ADR(int hours_to_roll,double low_outlier,double high_outlier,double change_ADR) // get the Average Daily Range
+int get_ADR(int hours_to_roll,double low_outlier,double high_outlier,double change_by) // get the Average Daily Range
   {
     static int adr=0;
     int _num_ADR_months=num_ADR_months;
-    bool is_new_D1_bar=is_new_bar(symbol,PERIOD_D1,false);
+    bool is_new_D1_bar=is_new_D1_bar(false);
      
     if(low_outlier>high_outlier || _num_ADR_months<=0 || _num_ADR_months==NULL || MathMod(hours_to_roll,.5)!=0)
       {
@@ -906,7 +954,7 @@ int get_ADR(int hours_to_roll,double low_outlier,double high_outlier,double chan
       }  
     if(adr==0 || is_new_D1_bar) // if it is the first time the function is called
       {
-        int calculated_adr=ADR_calculation(low_outlier,high_outlier,change_ADR);
+        int calculated_adr=ADR_calculation(low_outlier,high_outlier,change_by);
         adr=calculated_adr; // make the function remember the calculation the next time it is called
         return adr;
       }
