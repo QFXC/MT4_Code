@@ -31,7 +31,7 @@ enum ENUM_DIRECTIONAL_MODE
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-enum ENUM_WHICH_RANGE
+enum ENUM_RANGE
   {
    HIGH_MINUS_LOW=0,
    OPEN_MINUS_CLOSE_ABSOLUTE=1
@@ -103,7 +103,7 @@ enum ENUM_MM // Money Management
 	int trail_threshold=500; // TODO: Change to a percent of ADR
 	int trail_step=20; // the minimum difference between the proposed new value of the stoploss to the current stoploss price // TODO: Change to a percent of ADR
 	
-	input bool only_enter_on_new_bar=false; // Should you only enter trades when a new bar begins?
+	//input bool only_enter_on_new_bar=false; // Should you only enter trades when a new bar begins?
 	input bool wait_next_bar_on_load=false; // This setting currently affects all bars (including D1) so do not set it to true unless code changes are made. // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade or calculate ADR?
 	input bool exit_opposite_signal=true; // Should the EA exit trades when there is a signal in the opposite direction?
   bool long_allowed=true; // Are long trades allowed?
@@ -326,7 +326,7 @@ void Relativity_EA_1(int magic)
       int enter_signal=TRADE_SIGNAL_NEUTRAL; // 0
    
       enter_signal=signal_pullback_after_ADR_triggered(); // this is the first signal and will apply to all signal sets so it gets run first
-      enter_signal=signal_compare(enter_signal,signal_entry(SIGNAL_SET),false); // The entry signal requires in_time_range, adr_generated, and EA_magic_num>0 to be true.      
+      //enter_signal=signal_compare(enter_signal,signal_entry(SIGNAL_SET),false); // The entry signal requires in_time_range, adr_generated, and EA_magic_num>0 to be true.      
 
       if(enter_signal>0)
         {
@@ -362,9 +362,12 @@ void Relativity_EA_1(int magic)
                opened_recently_count<max_trades_within_x_hours &&    // long and short
                opened_today_count<max_directional_trades_each_day)   // just long
               {
-               if(!only_enter_on_new_bar || 
-                  (only_enter_on_new_bar && is_new_M5_bar))
-                     try_to_enter_order(OP_BUY,magic,entering_max_slippage);
+               //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
+               bool overbought_1=three_day_trend(BUYING_MODE,HIGH_MINUS_LOW,.75,3,false);
+               bool overbought_2=three_day_trend(BUYING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,false);
+               
+               if(!overbought_1 && !overbought_2)
+                 try_to_enter_order(OP_BUY,magic,entering_max_slippage);
               }
            }
          else if(enter_signal==TRADE_SIGNAL_SELL)
@@ -396,9 +399,12 @@ void Relativity_EA_1(int magic)
                opened_recently_count<max_trades_within_x_hours &&    // short and long
                opened_today_count<max_directional_trades_each_day)   // just short
               {
-               if(!only_enter_on_new_bar || 
-                  (only_enter_on_new_bar && is_new_M5_bar))
-                     try_to_enter_order(OP_SELL,magic,entering_max_slippage);
+               //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
+               bool oversold_1=three_day_trend(SELLING_MODE,HIGH_MINUS_LOW,.75,3,false);
+               bool oversold_2=three_day_trend(SELLING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,false);
+               
+               if(!oversold_1 && !oversold_2)
+                 try_to_enter_order(OP_SELL,magic,entering_max_slippage);
               }
            }
         }    
@@ -415,43 +421,64 @@ void Relativity_EA_1(int magic)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool over_extended_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_WHICH_RANGE range_mode, double days_range_percent_threshold,int days_to_check,int num_to_be_true) // TODO: test if this works with a Script
+bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_range_percent_threshold,int num_to_be_true,bool dont_analyze_today=false) // TODO: test if this works with a Script
   {
-    bool answer=false;
-    int uptrend_count=0, downtrend_count=0;
-    double previous_days_close=-1;
+    static int new_days_to_check=0;
+    static
+    int days_to_check=3; // the days to check including today // You cannot put this in the parameter list as an argument. You have to create different functions for different day counts you want to check because of that static new_days_days_to_check you made for performance reasons.
     int digits=(int)MarketInfo(symbol,MODE_DIGITS);
     double ADR_points_threshold=NormalizeDouble((ADR_pips*Point)*days_range_percent_threshold,digits);
+    double previous_days_close=-1;
     double bid_price=Bid;
-    
+    bool answer=false;
+    int uptrend_count=0, downtrend_count=0;
+    int sunday_count=0;
+
+    if(is_new_bar(symbol,PERIOD_D1,false) || new_days_to_check==0) // get the new value of the static sunday_count the first time it is run or if it is a new day
+      {
+        new_days_to_check=0; // do not delete this line
+
+        for(int i=days_to_check-1;i>=0;i--)
+          {
+            int day=TimeDayOfWeek(iTime(symbol,PERIOD_D1,i));
+          
+            if(day==0) // count Sundays
+              {
+                sunday_count++;
+              }
+          }    
+      }
+    if(sunday_count>0) new_days_to_check=sunday_count+days_to_check;
     if(mode==BUYING_MODE)
       {
-        for(int i=days_to_check-1;i>=0;i++) // days_to_check should be past days to check + today
+        for(int i=new_days_to_check-1;i>=0+dont_analyze_today;i++) // days_to_check should be past days to check + today
           {
+            if(new_days_to_check!=days_to_check) // if there are Sundays in this range
+              {
+                int day=TimeDayOfWeek(iTime(symbol,PERIOD_D1,i));
+                if(day==0) break; // if Sunday, skip this day            
+              }
             double days_range=0;
-            
-            if(range_mode==HIGH_MINUS_LOW)
+            if(range==HIGH_MINUS_LOW)
               {
                 if(i!=0) days_range=iHigh(symbol,PERIOD_D1,i)-iLow(symbol,PERIOD_D1,i);
                 else days_range=bid_price-iLow(symbol,PERIOD_D1,i);
               }
-            else if(range_mode==OPEN_MINUS_CLOSE_ABSOLUTE)
+            else if(range==OPEN_MINUS_CLOSE_ABSOLUTE)
               {
                 if(i!=0) days_range=iClose(symbol,PERIOD_D1,i)-iOpen(symbol,PERIOD_D1,i);
                 else days_range=bid_price-iOpen(symbol,PERIOD_D1,i); // can be negative
               }
             if(days_range>=ADR_points_threshold) // only positive day_ranges pass this point
               { 
-                if(i==days_to_check-1) // the first day is always counted as 1
+                if(i==new_days_to_check-1) // the first day is always counted as 1
                   {
                     uptrend_count++;
                     downtrend_count++;
                     break;
                   }
-
                 double close_price=iClose(symbol,PERIOD_D1,i);
                 previous_days_close=iClose(symbol,PERIOD_D1,i+1); 
-      
                 if(close_price>previous_days_close) 
                   {
                     uptrend_count++;
@@ -464,32 +491,34 @@ bool over_extended_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_WHICH_RANGE range_mode,
       }
     else if(mode==SELLING_MODE)
       {
-        for(int i=days_to_check-1;i>=0;i++) // days_to_check should be past days to check + today
+        for(int i=new_days_to_check-1;i>=0;i++) // days_to_check should be past days to check + today
           {
+            if(new_days_to_check!=days_to_check)
+              {
+                int day=TimeDayOfWeek(iTime(symbol,PERIOD_D1,i));
+                if(day==0) break; // if Sunday, skip this day            
+              }
             double days_range=0;
-            
-            if(range_mode==HIGH_MINUS_LOW) 
+            if(range==HIGH_MINUS_LOW) 
               {
                 if(i!=0) days_range=iHigh(symbol,PERIOD_D1,i)-iLow(symbol,PERIOD_D1,i);
                 else days_range=iHigh(symbol,PERIOD_D1,i)-bid_price;
               }
-            else if(range_mode==OPEN_MINUS_CLOSE_ABSOLUTE)
+            else if(range==OPEN_MINUS_CLOSE_ABSOLUTE)
               {
                 if(i!=0) days_range=iOpen(symbol,PERIOD_D1,i)-iClose(symbol,PERIOD_D1,i);
                 else days_range=iOpen(symbol,PERIOD_D1,i)-bid_price;
               }
             if(days_range>=ADR_points_threshold) // only positive day_ranges pass this point
               { 
-                if(i==days_to_check-1) // the first day is always counted as 1
+                if(i==new_days_to_check-1) // the first day is always counted as 1
                   {
                     uptrend_count++;
                     downtrend_count++;
                     break;
-                  }
-                  
+                  }  
                 double close_price=iClose(symbol,PERIOD_D1,i);
                 previous_days_close=iClose(symbol,PERIOD_D1,i+1); 
-      
                 if(close_price<previous_days_close)
                   {
                     downtrend_count++;
@@ -542,7 +571,7 @@ int signal_entry(ENUM_SIGNAL_SET signal_set) // gets called for every tick
 */
    if(signal_set==SIGNAL_SET_1)
      {
-      signal=signal_compare(signal,signal_x_consecutive_directional_days(),false);
+      //signal=signal_compare(signal,signal_x_consecutive_directional_days(),false);
       return signal;
      }
    if(signal_set==SIGNAL_SET_2)
@@ -775,7 +804,7 @@ int ADR_calculation(double low_outlier,double high_outlier,double change_ADR)
      
      for(int i=three_mnth_num_days;i>0;i--) // count the number of Sundays in the past 6 months
         {
-        int day=DayOfWeek();
+        int day=TimeDayOfWeek(iTime(symbol,PERIOD_D1,i));
         
         if(day==0) // count Sundays
           {
@@ -789,7 +818,7 @@ int ADR_calculation(double low_outlier,double high_outlier,double change_ADR)
      
      for(int i=six_mnth_adjusted_num_days;i>0;i--) // get the raw ADR (outliers are included but not Sunday's outliers) for the approximate past 6 months
      {
-      int day=DayOfWeek();
+      int day=TimeDayOfWeek(iTime(symbol,PERIOD_D1,i));
      
       if(day>0) // if the day of week is not Sunday
         {
@@ -807,7 +836,7 @@ int ADR_calculation(double low_outlier,double high_outlier,double change_ADR)
      
      for(int i=six_mnth_adjusted_num_days;i>0;i--) // refine the ADR (outliers and Sundays are NOT included) for the approximate past 6 months
        {
-        int day=DayOfWeek();
+        int day=TimeDayOfWeek(iTime(symbol,PERIOD_D1,i));
              
         if(day>0) // if the day of week is not Sunday
           {
@@ -831,7 +860,7 @@ int ADR_calculation(double low_outlier,double high_outlier,double change_ADR)
      
      for(int i=x_mnth_adjusted_num_days;i>0;i--) // find the counts of all days that are significantly below or above ADR
        {
-        int day=DayOfWeek();
+        int day=TimeDayOfWeek(iTime(symbol,PERIOD_D1,i));
              
         if(day>0) // if the day of week is not Sunday
           {
@@ -880,24 +909,24 @@ int get_ADR(int hours_to_roll,double low_outlier,double high_outlier,double chan
 int get_moves_start_bar(int _H1s_to_roll,int gmt_offset,double _max_weekend_gap_percent,bool _include_last_week=true)
   {
    datetime week_start_open_time=iTime(symbol,PERIOD_W1,0)+(gmt_offset*3600); // The iTime of the week bar gives you the time that the week is 0:00 on the chart so I shifted the time to start when the markets actually start.
-   int week_start_bar=iBarShift(symbol,PERIOD_M5,week_start_open_time,false);
-   int move_start_bar=_H1s_to_roll*12;
+   int weeks_start_bar=iBarShift(symbol,PERIOD_M5,week_start_open_time,false);
+   int moves_start_bar=_H1s_to_roll*12;
   
-   if(move_start_bar<=week_start_bar)
+   if(moves_start_bar<=weeks_start_bar)
      {
-      return move_start_bar;
+      return moves_start_bar;
      }
    else if(_include_last_week)
      {
       double weekend_gap_points=MathAbs(iClose(symbol,PERIOD_W1,1)-iOpen(symbol,PERIOD_W1,0));
       double max_weekend_gap_points=NormalizeDouble((ADR_pips*Point)*_max_weekend_gap_percent,Digits); // TODO: this may not need to be normalized
       
-      if(weekend_gap_points>=max_weekend_gap_points) return week_start_bar;
-      else return move_start_bar;
+      if(weekend_gap_points>=max_weekend_gap_points) return weeks_start_bar;
+      else return moves_start_bar;
      }
    else
      {
-      return week_start_bar;
+      return weeks_start_bar;
      }
   }
 //+------------------------------------------------------------------+
