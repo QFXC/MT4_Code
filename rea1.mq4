@@ -424,7 +424,6 @@ void Relativity_EA_1(int magic)
 bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_range_percent_threshold,int num_to_be_true,bool dont_analyze_today=false) // TODO: test if this works with a Script
   {
     static int new_days_to_check=0;
-    static
     int days_to_check=3; // the days to check including today // You cannot put this in the parameter list as an argument. You have to create different functions for different day counts you want to check because of that static new_days_days_to_check you made for performance reasons.
     int digits=(int)MarketInfo(symbol,MODE_DIGITS);
     double ADR_points_threshold=NormalizeDouble((ADR_pips*Point)*days_range_percent_threshold,digits);
@@ -433,12 +432,13 @@ bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_ran
     bool answer=false;
     int uptrend_count=0, downtrend_count=0;
     int sunday_count=0;
-
+    int lower_index=dont_analyze_today;
+    
     if(is_new_bar(symbol,PERIOD_D1,false) || new_days_to_check==0) // get the new value of the static sunday_count the first time it is run or if it is a new day
       {
         new_days_to_check=0; // do not delete this line
 
-        for(int i=days_to_check-1;i>=0;i--)
+        for(int i=days_to_check-1+lower_index;i>=lower_index;i--)
           {
             int day=TimeDayOfWeek(iTime(symbol,PERIOD_D1,i));
           
@@ -448,10 +448,11 @@ bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_ran
               }
           }    
       }
+    if(dont_analyze_today) days_to_check+=1;
     if(sunday_count>0) new_days_to_check=sunday_count+days_to_check;
     if(mode==BUYING_MODE)
       {
-        for(int i=new_days_to_check-1;i>=0+dont_analyze_today;i++) // days_to_check should be past days to check + today
+        for(int i=new_days_to_check-1+lower_index;i>=lower_index;i++) // days_to_check should be past days to check + today
           {
             if(new_days_to_check!=days_to_check) // if there are Sundays in this range
               {
@@ -491,7 +492,7 @@ bool three_day_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE range,double days_ran
       }
     else if(mode==SELLING_MODE)
       {
-        for(int i=new_days_to_check-1;i>=0;i++) // days_to_check should be past days to check + today
+        for(int i=new_days_to_check-1+lower_index;i>=lower_index;i++) // days_to_check should be past days to check + today
           {
             if(new_days_to_check!=days_to_check)
               {
