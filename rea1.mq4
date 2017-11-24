@@ -417,12 +417,12 @@ void Relativity_EA_1(int magic)
 //+------------------------------------------------------------------+
 bool over_extended_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_WHICH_RANGE range_mode, double days_range_percent_threshold,int days_to_check,int num_to_be_true) // TODO: test if this works with a Script
   {
-    int answer=false;
-    int uptrend_count=0;
-    int downtrend_count=0;
+    bool answer=false;
+    int uptrend_count=0, downtrend_count=0;
     double previous_days_close=-1;
     int digits=(int)MarketInfo(symbol,MODE_DIGITS);
-    double ADR_points_threshold=NormalizeDouble((ADR_pips*Point)*days_range_percent_threshold,Digits);
+    double ADR_points_threshold=NormalizeDouble((ADR_pips*Point)*days_range_percent_threshold,digits);
+    double bid_price=Bid;
     
     if(mode==BUYING_MODE)
       {
@@ -433,12 +433,12 @@ bool over_extended_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_WHICH_RANGE range_mode,
             if(range_mode==HIGH_MINUS_LOW)
               {
                 if(i!=0) days_range=iHigh(symbol,PERIOD_D1,i)-iLow(symbol,PERIOD_D1,i);
-                else days_range=Bid-iLow(symbol,PERIOD_D1,i);
+                else days_range=bid_price-iLow(symbol,PERIOD_D1,i);
               }
-            if(range_mode==OPEN_MINUS_CLOSE_ABSOLUTE)
+            else if(range_mode==OPEN_MINUS_CLOSE_ABSOLUTE)
               {
                 if(i!=0) days_range=iClose(symbol,PERIOD_D1,i)-iOpen(symbol,PERIOD_D1,i);
-                else days_range=Bid-iOpen(symbol,PERIOD_D1,i); // can be negative
+                else days_range=bid_price-iOpen(symbol,PERIOD_D1,i); // can be negative
               }
             if(days_range>=ADR_points_threshold) // only positive day_ranges pass this point
               { 
@@ -471,12 +471,12 @@ bool over_extended_trend(ENUM_DIRECTIONAL_MODE mode,ENUM_WHICH_RANGE range_mode,
             if(range_mode==HIGH_MINUS_LOW) 
               {
                 if(i!=0) days_range=iHigh(symbol,PERIOD_D1,i)-iLow(symbol,PERIOD_D1,i);
-                else days_range=iHigh(symbol,PERIOD_D1,i)-Bid;
+                else days_range=iHigh(symbol,PERIOD_D1,i)-bid_price;
               }
-            if(range_mode==OPEN_MINUS_CLOSE_ABSOLUTE)
+            else if(range_mode==OPEN_MINUS_CLOSE_ABSOLUTE)
               {
                 if(i!=0) days_range=iOpen(symbol,PERIOD_D1,i)-iClose(symbol,PERIOD_D1,i);
-                else days_range=iOpen(symbol,PERIOD_D1,i)-Bid;
+                else days_range=iOpen(symbol,PERIOD_D1,i)-bid_price;
               }
             if(days_range>=ADR_points_threshold) // only positive day_ranges pass this point
               { 
