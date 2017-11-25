@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Quant FX Capital"
 #property link      "https://www.quantfxcapital.com"
-#property version   "1.01"
+#property version   "1.02"
 #property strict
 //#property show_inputs // This can only be used for scripts. I added this because, by default, it will not show any external inputs. This is to override this behaviour so it deliberately shows the inputs.
 // TODO: When strategy testing, make sure you have all the M5, D1, and W1 data because it is reference in the code.
@@ -134,7 +134,7 @@ enum ENUM_MM // Money Management
 	
 	input int entering_max_slippage=5; // Must be in whole number.
 //input int unfavorable_slippage=5;
-	string order_comment="Relativity EA"; // TODO: Add the parameter settings for the order to the message. // allows the robot to enter a description for the order. An empty string is a default value
+	string EA_name="Relativity EA"; // TODO: Add the parameter settings for the order to the message. // allows the robot to enter a description for the order. An empty string is a default value
 //exit_order
 	input int exiting_max_slippage=50; // Must be in whole number.
 	
@@ -152,7 +152,7 @@ enum ENUM_MM // Money Management
 	double risk_percent_per_ADR=0.025; // percent risked when using the MM_RISK_PER_ADR_PERCENT money management calculations. Note: This is not the percent of your balance you will be risking.
 	double mm1_risk_percent=0.02; // percent risked when using the MM_RISK_PERCENT money management calculations
    // these variables will not be used with the MM_RISK_PERCENT money management strategy
-	double lot_size=0.1;
+	double lot_size=0.0;
 	/*double mm2_lots=0.1;
 	double mm2_per=1000;
 	double mm3_risk=50;
@@ -314,7 +314,7 @@ void Relativity_EA_1(int magic)
          
          if(is_acceptable_spread==false) 
            {
-            /*Steps to calculate percent_allows_trading:
+            /*Steps that were used to calculate percent_allows_trading:
             
             double max_spread=((ADR_pips*Point)*max_spread_percent);
             double spread_diff=average_spread_yesterday-max_spread;
@@ -346,7 +346,7 @@ void Relativity_EA_1(int magic)
            }
         }
      }
-   if(ready==true && in_time_range==true)
+   if(ready && in_time_range)
      {
       int enter_signal=TRADE_SIGNAL_NEUTRAL; // 0
    
@@ -389,6 +389,7 @@ void Relativity_EA_1(int magic)
                opened_today_count<max_directional_trades_each_day)   // just long
               {
                //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
+               RefreshRates();
                bool overbought_1=over_extended_trend(3,BUYING_MODE,HIGH_MINUS_LOW,.75,3,is_new_D1_bar,false);
                bool overbought_2=over_extended_trend(3,BUYING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,is_new_D1_bar,false);
                
@@ -426,6 +427,7 @@ void Relativity_EA_1(int magic)
                opened_today_count<max_directional_trades_each_day)   // just short
               {
                //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
+               RefreshRates();
                bool oversold_1=over_extended_trend(3,SELLING_MODE,HIGH_MINUS_LOW,.75,3,is_new_D1_bar,false);
                bool oversold_2=over_extended_trend(3,SELLING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,is_new_D1_bar,false);
                
@@ -445,7 +447,6 @@ void Relativity_EA_1(int magic)
        
        if(is_new_M5_bar)
         {
-         exit_all_trades_set(ORDER_SET_MARKET,magic,_exiting_max_slippage,active_order_expire*3600,current_time); // This runs every 5 minutes (whether the time is in_time_range or not). It only exit trades that have been on for too long and haven't hit stoploss or takeprofit.
          bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
          if(time_to_exit) exit_all_trades_set(ORDER_SET_ALL,magic,_exiting_max_slippage); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
         }
@@ -460,7 +461,7 @@ bool over_extended_trend(int days_to_check,ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE
     int digits=(int)MarketInfo(symbol,MODE_DIGITS);
     double ADR_points_threshold=NormalizeDouble((ADR_pips*Point)*days_range_percent_threshold,digits);
     double previous_days_close=-1;
-    double bid_price=Bid;
+    double bid_price=MarketInfo(symbol,MODE_BID); // RefreshRates() always has to be called before getting the price. In this case, it was run before calling this function.
     bool answer=false;
     int uptrend_count=0, downtrend_count=0;
     int sunday_count=0;
@@ -574,6 +575,7 @@ int signal_pullback_after_ADR_triggered()
     
     if(!uptrend_triggered)
       {
+        RefreshRates();
         if(uptrend_ADR_threshold_price_met(false)>0)
           {
             return signal=TRADE_SIGNAL_BUY;
@@ -583,11 +585,12 @@ int signal_pullback_after_ADR_triggered()
    // if the pullback_entry_price is met or exceeded, signal = TRADE_SIGNAL_BUY
     if(!downtrend_triggered)
       {
-      if(downtrend_ADR_threshold_price_met(false)>0) 
-        {
-          return signal=TRADE_SIGNAL_SELL;
+        RefreshRates();
+        if(downtrend_ADR_threshold_price_met(false)>0) 
+          {
+            return signal=TRADE_SIGNAL_SELL;
+          }
         }
-      }
     return signal;
    }
 //+------------------------------------------------------------------+
@@ -1028,7 +1031,7 @@ double uptrend_ADR_threshold_price_met(bool get_current_bid_instead=false)
    static double LOP=periods_pivot_price(BUYING_MODE);
    double point=MarketInfo(symbol,MODE_POINT);
    double pip_move_threshold=ADR_pips*point;
-   double current_bid=Bid;
+   double current_bid=MarketInfo(symbol,MODE_BID); // TODO: always make sure RefreshRates() was called before. In this case, it was called before running this function.
    
    if(LOP==-1) // this part is necessary in case periods_pivot_price ever returns 0
      {
@@ -1061,7 +1064,7 @@ double downtrend_ADR_threshold_price_met(bool get_current_bid_instead=false)
    static double HOP=periods_pivot_price(SELLING_MODE);
    double point=MarketInfo(symbol,MODE_POINT);
    double pip_move_threshold=ADR_pips*point;
-   double current_bid=Bid;
+   double current_bid=MarketInfo(symbol,MODE_BID); // TODO: always make sure RefreshRates() was called before. In this case, it was called before running this function.
    
    if(HOP==-1) // this part is necessary in case periods_pivot_price ever returns 0
      {
@@ -1146,13 +1149,13 @@ bool modify(int ticket,double sl,double tp=-1,double entryPrice=-1,datetime expi
             break;
          Sleep(sleep_milisec);
       // TODO: setup an email and SMS alert.
-     Print(OrderSymbol()," , ",order_comment,", An order was attempted to be modified but it did not succeed. Last Error: (",IntegerToString(GetLastError(),0),"), Retry: ",IntegerToString(i,0),"/"+IntegerToString(retries));
-     Alert(OrderSymbol()," , ",order_comment,", An order was attempted to be modified but it did not succeed. Check the Journal tab of the Navigator window for errors.");
+     Print(OrderSymbol()," , ",EA_name,", An order was attempted to be modified but it did not succeed. Last Error: (",IntegerToString(GetLastError(),0),"), Retry: ",IntegerToString(i,0),"/"+IntegerToString(retries));
+     Alert(OrderSymbol()," , ",EA_name,", An order was attempted to be modified but it did not succeed. Check the Journal tab of the Navigator window for errors.");
         }
      }
    else
    {   
-      Print(OrderSymbol()," , ",order_comment,"Modifying the order was not successfull. The ticket couldn't be selected.");
+      Print(OrderSymbol()," , ",EA_name,", Modifying the order was not successfull. The ticket couldn't be selected.");
    }
    return result;
   }
@@ -1336,9 +1339,7 @@ double calculate_avg_spread_yesterday(string instrument)
             spread_total+=spread;
           }
       }
-      
-    double avg_spread=spread_total/(new_server_day_bar-end_server_day_bar);
-    return NormalizeDouble(avg_spread,Digits);
+    return NormalizeDouble(spread_total/(new_server_day_bar-end_server_day_bar),Digits); // return the average spread
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1380,7 +1381,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic=0,int max_slippage=50)
                NormalizeDouble(ADR_pips*takeprofit_percent,2),
                max_slippage,
                spread,
-               order_comment,
+               EA_name,
                magic,
                pending_order_expire,
                arrow_color,
@@ -1393,17 +1394,33 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic=0,int max_slippage=50)
 /*double calculate_entry_price()
    {
    }*/
+   
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+ 
+string generate_comment(int magic,double sl_pips, double tp_pips,double spread_points)
+  {
+    string comment;
+    return comment=StringConcatenate("EA: ",EA_name,"Magic#: ",IntegerToString(magic),", CCY Pair: ",symbol," Requested TP: ",DoubleToStr(tp_pips)," Requested SL: ",DoubleToStr(sl_pips),"Spread slighly before order: ",DoubleToStr(spread_points));
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 // the distanceFromCurrentPrice parameter is used to specify what type of order you would like to enter
 int send_and_get_order_ticket(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double periods_pivot_price,double sl_pips,double tp_pips,int max_slippage,double spread_points,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
   {
+  
+  
+   // TODO: MarketInfo(symbol,MODE_STOPLEVEL); will tell you what the minimum distance in points that a stoploss or takeprofit can be
+   
+   
+   
    double entryPrice=0; 
    double price_sl=0, price_tp=0;
    double point=MarketInfo(instrument,MODE_POINT); // getting the value of 1 point for the instrument
    datetime expire_time=0; // 0 means there is no expiration time for a pending order
    int order_type=-1; // -1 means there is no order because actual orders are >=0
+   double min_distance=MarketInfo(symbol,MODE_STOPLEVEL);
    // simplifying the arguments for the function by only allowing OP_BUY and OP_SELL and letting logic determine if it is a market or pending order based off the distanceFromCurrentPrice variable
    if(cmd==OP_BUY) // logic for long trades
      {
@@ -1422,10 +1439,19 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
          // TODO: create an alert informing the user that the trade was not executed because of the spread being too wide
          else return 0;
         }
+      tp_pips=tp_pips+(spread_points/point); // increase the take profit so you can get the full pips of profit you wanted if the take profit price is hit
       if(instant_exec) // if the user wants instant execution (in which the system allows them to input sl and tp prices)
         {
-         if(sl_pips>0) price_sl=entryPrice-(sl_pips*point);
-         if(tp_pips>0) price_tp=entryPrice+(tp_pips*point)+spread_points; // increase the take profit so you can get the full pips of profit you wanted if the take profit price is hit
+         if(sl_pips>0) 
+          {
+            if(sl_pips<(min_distance/point)) price_sl=entryPrice-min_distance;
+            else price_sl=entryPrice-(sl_pips*point);
+          }
+         if(tp_pips>(spread_points/point)) 
+          {
+            if(tp_pips<(min_distance/point)) price_tp=entryPrice+min_distance;
+            else price_tp=entryPrice+(tp_pips*point);
+          }    
         }
      }
    else if(cmd==OP_SELL) // logic for short trades
@@ -1445,16 +1471,28 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
          // TODO: create an alert informing the user that the trade was not executed because the spread was too wide         
          else return 0;
         }
+      tp_pips=tp_pips+(spread_points/point); // increase the take profit so you can get the full pips of profit you wanted if the take profit price is hit
       if(instant_exec) // if the user wants instant execution (in which allows them to input the sl and tp prices)
         {
-         if(sl_pips>0) price_sl=entryPrice+(sl_pips*point);
-         if(tp_pips>0) price_tp=entryPrice-(tp_pips*point)-spread_points; // increase the take profit so you can get the full pips of profit you wanted if the take profit price is hit
+         if(sl_pips>0) 
+          {
+            if(sl_pips<(min_distance/point)) price_sl=entryPrice+min_distance;
+            else price_sl=entryPrice+(sl_pips*point);          
+          }
+         if(tp_pips>(spread_points/point)) 
+          {
+            if(tp_pips<(min_distance/point)) price_tp=entryPrice-min_distance;
+            else price_tp=entryPrice-(tp_pips*point); 
+          }
         }
      }
-   if(order_type<0) return 0; // if there is no order
-   else if(order_type==0 || order_type==1) expire_time=0; // if it is NOT a pending order, set the expire_time to 0 because it cannot have an expire_time
+   comment=generate_comment(magic,sl_pips,tp_pips,spread_points);
+   if(order_type<0) 
+     return 0; // if there is no order
+   else if(order_type==0 || order_type==1) 
+     expire_time=0; // if it is NOT a pending order, set the expire_time to 0 because it cannot have an expire_time
    else if(expire>0) // if the user wants pending orders to expire
-   expire_time=(datetime)MarketInfo(instrument,MODE_TIME)+expire; // expiration of the order = current time + expire time
+     expire_time=(datetime)MarketInfo(instrument,MODE_TIME)+expire; // expiration of the order = current time + expire time
    if(market) // If the user wants market execution (which does NOT allow them to input the sl and tp prices), this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
      {
       int ticket=OrderSend(instrument,order_type,lots,entryPrice,max_slippage,0,0,comment,magic,expire_time,a_clr);
@@ -1462,17 +1500,34 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
         {
          if(OrderSelect(ticket,SELECT_BY_TICKET))
            {
+            tp_pips=tp_pips+(spread_points/point); // increase the take profit so you can get the full pips of profit you wanted if the take profit price is hit
             if(cmd==OP_BUY)
               {
-               if(sl_pips>0) price_sl=OrderOpenPrice()-(sl_pips*point);
-               if(tp_pips>0) price_tp=OrderOpenPrice()+(tp_pips*point)+spread_points; // increase the take profit so you can get the full pips of profit you wanted if the take profit price is hit
+               if(sl_pips>0) 
+                {
+                  if(sl_pips<(min_distance/point)) price_sl=OrderOpenPrice()-min_distance;
+                  else price_sl=OrderOpenPrice()-(sl_pips*point);
+                }
+               if(tp_pips>(spread_points/point)) 
+                 {
+                  if(tp_pips<(min_distance/point)) price_sl=OrderOpenPrice()+min_distance;                   
+                  else price_tp=OrderOpenPrice()+(tp_pips*point);
+                 }
                uptrend_triggered=true;
                downtrend_triggered=false;
               }
             else if(cmd==OP_SELL)
               {
-               if(sl_pips>0) price_sl=OrderOpenPrice()+(sl_pips*point);
-               if(tp_pips>0) price_tp=OrderOpenPrice()-(tp_pips*point)-spread_points; // increase the take profit so you can get the full pips of profit you wanted if the take profit price is hit
+               if(sl_pips>0) 
+                 {
+                  if(sl_pips<(min_distance/point)) price_sl=OrderOpenPrice()+min_distance;
+                  price_sl=OrderOpenPrice()+(sl_pips*point);
+                 }
+               if(tp_pips>(spread_points/point)) 
+                 {
+                  if(tp_pips<(min_distance/point)) price_sl=OrderOpenPrice()-min_distance; 
+                  price_tp=OrderOpenPrice()-(tp_pips*point);
+                 }
                uptrend_triggered=false;
                downtrend_triggered=true;
               }
@@ -1518,8 +1573,8 @@ int check_for_entry_errors(string instrument,int cmd,double lots,double distance
       else
       { 
         // TODO: setup an email and SMS alert.
-        Print(instrument," , ",order_comment,": An order was attempted but it did not succeed. If there are no errors here, market factors may not have met the code's requirements within the send_and_get_order_ticket function. Last Error:, (",IntegerToString(GetLastError(),0),"), Retry: "+IntegerToString(i,0),"/"+IntegerToString(retries));
-        Alert(instrument," , ",order_comment,": An order was attempted but it did not succeed. Check the Journal tab of the Navigator window for errors.");
+        Print(instrument," , ",EA_name,": An order was attempted but it did not succeed. If there are no errors here, market factors may not have met the code's requirements within the send_and_get_order_ticket function. Last Error:, (",IntegerToString(GetLastError(),0),"), Retry: "+IntegerToString(i,0),"/"+IntegerToString(retries));
+        Alert(instrument," , ",EA_name,": An order was attempted but it did not succeed. Check the Journal tab of the Navigator window for errors.");
       }
       Sleep(sleep_milisec);
      }
@@ -1542,7 +1597,7 @@ double calculate_lots(ENUM_MM _money_management,double _risk_percent_per_ADR,dou
 
     double lots=get_lots(_money_management,
                         symbol,
-                        lot_size,
+                        lot_size, // the global variable
                         _risk_percent_per_ADR,
                         pips,
                         mm1_risk_percent
@@ -1583,7 +1638,7 @@ double get_lots(ENUM_MM method,string instrument,double lots,double _risk_percen
    double max_lot=MarketInfo(instrument,MODE_MAXLOT);
    int lot_digits=(int) -MathLog10(MarketInfo(instrument,MODE_LOTSTEP)); // MathLog10 returns the logarithm of a number (in this case, the MODE_LOTSTEP) base 10. So, this finds out how many digits in the lot the broker accepts.
    lots=NormalizeDouble(lots,lot_digits);
-   // If the lots value is below or above the broker's MODE_MINLOT or MODE_MAXLOT, the lots will be change to one of those lot sizes. This is in order to prevent Error 131 - invalid trade volume error
+   // If the lots value is below or above the broker's MODE_MINLOT or MODE_MAXLOT, the lots will be change to one of those lot sizes. This is in order to prevent Error 131 - invalid trade volume
    if(lots<min_lot) lots=min_lot;
    if(lots>max_lot) lots=max_lot;
    return lots;
