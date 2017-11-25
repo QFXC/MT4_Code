@@ -286,6 +286,7 @@ void Relativity_EA_1(int magic)
    datetime current_time=TimeCurrent();
    int exit_signal=TRADE_SIGNAL_NEUTRAL, exit_signal_2=TRADE_SIGNAL_NEUTRAL; // 0
    int _exiting_max_slippage=exiting_max_slippage;
+   //string _symbol=symbol;
    
    exit_signal=signal_exit(SIGNAL_SET); // The exit signal should be made the priority and doesn't require in_time_range or adr_generated to be true
 
@@ -304,16 +305,18 @@ void Relativity_EA_1(int magic)
      {
       exit_all_trades_set(ORDER_SET_MARKET,magic,_exiting_max_slippage,active_order_expire*3600,current_time); // This runs every 5 minutes (whether the time is in_time_range or not). It only exit trades that have been on for too long and haven't hit stoploss or takeprofit.
       in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);
-
-      if(in_time_range && !ready) 
+      
+      if(in_time_range==true && ready==false && average_spread_yesterday!=-1) 
         {
          ADR_pips=get_ADR(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent);
          average_spread_yesterday=calculate_avg_spread_yesterday(symbol);
          bool is_acceptable_spread=acceptable_spread(symbol,false,max_spread_percent,average_spread_yesterday);
          
-         if(!is_acceptable_spread)
-          {
-            /*double max_spread=((ADR_pips*Point)*max_spread_percent);
+         if(is_acceptable_spread==false) 
+           {
+            /*Steps to calculate percent_allows_trading:
+            
+            double max_spread=((ADR_pips*Point)*max_spread_percent);
             double spread_diff=average_spread_yesterday-max_spread;
             double spread_diff_percent=spread_diff/(ADR_pips*Point);
             double percent_allows_trading=spread_diff_percent+max_spread_percent;*/
@@ -326,10 +329,10 @@ void Relativity_EA_1(int magic)
                   ". A max_spread_percent value above ",
                   DoubleToStr(percent_allows_trading,3),
                   " would have allowed the EA make trades in this currency pair today.");
-            average_spread_yesterday=-1;
-          } 
-             
-         if(ADR_pips>0 && magic>0 && is_acceptable_spread)
+            average_spread_yesterday=-1; // keep this at -1 because an if statement depends on it
+            return; // do not remove this line
+           }
+         if(ADR_pips>0 && magic>0)
            {
             ready=true; // the ADR that has just been calculated won't generate again until after the cycle of not being in the time range completes
             uptrend_triggered=false;
@@ -339,7 +342,8 @@ void Relativity_EA_1(int magic)
            {
             ready=false;
             uptrend_triggered=true;
-            downtrend_triggered=true;
+            downtrend_triggered=true;;
+            // never assign average_spread_yesterday to anything in this scope
             return;
            }
         }
@@ -439,7 +443,7 @@ void Relativity_EA_1(int magic)
        uptrend_triggered=true; // 
        downtrend_triggered=true; // 
        ADR_pips=0;
-       average_spread_yesterday=0;
+       average_spread_yesterday=0; // do not change this from 0
        bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
        if(time_to_exit) exit_all_trades_set(ORDER_SET_ALL,magic,_exiting_max_slippage); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
      }
