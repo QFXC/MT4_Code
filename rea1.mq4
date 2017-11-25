@@ -153,10 +153,10 @@ enum ENUM_MM // Money Management
 	double mm1_risk_percent=0.02; // percent risked when using the MM_RISK_PERCENT money management calculations
    // these variables will not be used with the MM_RISK_PERCENT money management strategy
 	double lot_size=0.1;
-	double mm2_lots=0.1;
+	/*double mm2_lots=0.1;
 	double mm2_per=1000;
 	double mm3_risk=50;
-	double mm4_risk=50;
+	double mm4_risk=50;*/
 
 // Market Trends
   input int H1s_to_roll=3; // How many hours should you roll to determine a short term market trend? (You are only allowed to input values divisible by 0.5.)
@@ -310,7 +310,7 @@ void Relativity_EA_1(int magic)
         {
          ADR_pips=get_ADR(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent);
          average_spread_yesterday=calculate_avg_spread_yesterday(symbol);
-         bool is_acceptable_spread=acceptable_spread(symbol,false,max_spread_percent,average_spread_yesterday);
+         bool is_acceptable_spread=acceptable_spread(symbol,max_spread_percent,average_spread_yesterday,false);
          
          if(is_acceptable_spread==false) 
            {
@@ -438,8 +438,8 @@ void Relativity_EA_1(int magic)
     else
      {
        ready=false; // this makes sure to set it to false so when the time is within the time range again, the ADR can get generated
-       uptrend_triggered=true; // 
-       downtrend_triggered=true; // 
+       uptrend_triggered=true;
+       downtrend_triggered=true;
        ADR_pips=0;
        average_spread_yesterday=0; // do not change this from 0
        
@@ -1284,13 +1284,13 @@ void exit_all_trades_set(ENUM_ORDER_SET type_needed=ORDER_SET_ALL,int magic=-1,i
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool acceptable_spread(string instrument,bool refresh_rates,double _max_spread_percent,double spread_provided=0)
+bool acceptable_spread(string instrument,double _max_spread_percent,double spread_provided=0,bool refresh_rates=false)
   {
    double spread=0;
    
-   if(!spread_provided>0)
+   if(refresh_rates) RefreshRates();
+   if(spread_provided==0)
     {
-     if(refresh_rates) RefreshRates();
      spread=MarketInfo(instrument,MODE_SPREAD); // already normalized. I put this check here because the rates were just refereshed.
     }
    else
@@ -1366,8 +1366,10 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic=0,int max_slippage=50)
       arrow_color=arrow_color_short;
      }
    else return;
-      
-   double lots=calculate_lots(money_management,risk_percent_per_ADR);
+   
+   RefreshRates(); // TODO: should you RefreshRates()?
+   double spread=MarketInfo(symbol,MODE_SPREAD); 
+   double lots=calculate_lots(money_management,risk_percent_per_ADR,spread);
 
    check_for_entry_errors(symbol,
                type,
@@ -1377,11 +1379,13 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic=0,int max_slippage=50)
                NormalizeDouble(ADR_pips*stoploss_percent,2),
                NormalizeDouble(ADR_pips*takeprofit_percent,2),
                max_slippage,
+               spread,
                order_comment,
                magic,
                pending_order_expire,
                arrow_color,
-               market_exec); 
+               market_exec);
+               
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1393,7 +1397,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic=0,int max_slippage=50)
 //|                                                                  |
 //+------------------------------------------------------------------+
 // the distanceFromCurrentPrice parameter is used to specify what type of order you would like to enter
-int send_and_get_order_ticket(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double periods_pivot_price,double sl_pips,double tp_pips,int max_slippage,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
+int send_and_get_order_ticket(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double periods_pivot_price,double sl_pips,double tp_pips,int max_slippage,double spread_points,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
   {
    double entryPrice=0; 
    double price_sl=0, price_tp=0;
@@ -1410,18 +1414,18 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
       if(order_type==OP_BUYLIMIT /*|| order_type==OP_BUYSTOP*/)
         {
          if(periods_pivot_price<0) return 0;
-         entryPrice=(periods_pivot_price+(ADR_pips*point))-(distanceFromCurrentPrice*point)-average_spread_yesterday; // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
+         entryPrice=(periods_pivot_price+(ADR_pips*point))-(distanceFromCurrentPrice*point)+average_spread_yesterday /*(which should make close to MODE_ASK which is similar to what the immediate buy order does)*/; // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
         }
       else if(order_type==OP_BUY)
         {
-         if(acceptable_spread(instrument,true,max_spread_percent)) entryPrice=MarketInfo(instrument,MODE_ASK);// Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+         if(acceptable_spread(instrument,max_spread_percent,spread_points,true)) entryPrice=MarketInfo(instrument,MODE_ASK);// Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
          // TODO: create an alert informing the user that the trade was not executed because of the spread being too wide
          else return 0;
         }
-      if(instant_exec) // if the user wants instant execution (which the system allows them to input sl and tp prices)
+      if(instant_exec) // if the user wants instant execution (in which the system allows them to input sl and tp prices)
         {
-         if(sl_pips>0) price_sl=entryPrice-(sl_pips*point); // check if the stoploss and take profit prices can be determined
-         if(tp_pips>0) price_tp=entryPrice+(tp_pips*point);
+         if(sl_pips>0) price_sl=entryPrice-(sl_pips*point);
+         if(tp_pips>0) price_tp=entryPrice+(tp_pips*point)+spread_points; // increase the take profit so you can get the full pips of profit you wanted if the take profit price is hit
         }
      }
    else if(cmd==OP_SELL) // logic for short trades
@@ -1433,18 +1437,18 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
       if(order_type==OP_SELLLIMIT /*|| order_type==OP_SELLSTOP*/)
         {
          if(periods_pivot_price<0) return 0;
-         entryPrice=(periods_pivot_price-(ADR_pips*point))+(distanceFromCurrentPrice*point)+average_spread_yesterday; // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
+         entryPrice=(periods_pivot_price-(ADR_pips*point))+(distanceFromCurrentPrice*point)-average_spread_yesterday /*(which should make it close to MODE_BID which is similar to what the immediate buy order does*/; // setting the entryPrice this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
         }
       else if(order_type==OP_SELL)
         {
-         if(acceptable_spread(instrument,true,max_spread_percent)) entryPrice=MarketInfo(instrument,MODE_BID); // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+         if(acceptable_spread(instrument,max_spread_percent,spread_points,true)) entryPrice=MarketInfo(instrument,MODE_BID); // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
          // TODO: create an alert informing the user that the trade was not executed because the spread was too wide         
          else return 0;
         }
-      if(instant_exec) // if the user wants instant execution (which allows them to input the sl and tp prices)
+      if(instant_exec) // if the user wants instant execution (in which allows them to input the sl and tp prices)
         {
-         if(sl_pips>0) price_sl=entryPrice+(sl_pips*point); // check if the stoploss and take profit prices can be determined
-         if(tp_pips>0) price_tp=entryPrice-(tp_pips*point);
+         if(sl_pips>0) price_sl=entryPrice+(sl_pips*point);
+         if(tp_pips>0) price_tp=entryPrice-(tp_pips*point)-spread_points; // increase the take profit so you can get the full pips of profit you wanted if the take profit price is hit
         }
      }
    if(order_type<0) return 0; // if there is no order
@@ -1461,14 +1465,14 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
             if(cmd==OP_BUY)
               {
                if(sl_pips>0) price_sl=OrderOpenPrice()-(sl_pips*point);
-               if(tp_pips>0) price_tp=OrderOpenPrice()+(tp_pips*point);
+               if(tp_pips>0) price_tp=OrderOpenPrice()+(tp_pips*point)+spread_points; // increase the take profit so you can get the full pips of profit you wanted if the take profit price is hit
                uptrend_triggered=true;
                downtrend_triggered=false;
               }
             else if(cmd==OP_SELL)
               {
                if(sl_pips>0) price_sl=OrderOpenPrice()+(sl_pips*point);
-               if(tp_pips>0) price_tp=OrderOpenPrice()-(tp_pips*point);
+               if(tp_pips>0) price_tp=OrderOpenPrice()-(tp_pips*point)-spread_points; // increase the take profit so you can get the full pips of profit you wanted if the take profit price is hit
                uptrend_triggered=false;
                downtrend_triggered=true;
               }
@@ -1499,7 +1503,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int check_for_entry_errors(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double periods_pivot_price,double sl,double tp,int max_slippage,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false,int retries=3,int sleep_milisec=500)
+int check_for_entry_errors(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double periods_pivot_price,double sl,double tp,int max_slippage,double spread_points,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false,int retries=3,int sleep_milisec=500)
   {
    int ticket=0;
    for(int i=0;i<retries;i++)
@@ -1509,7 +1513,7 @@ int check_for_entry_errors(string instrument,int cmd,double lots,double distance
       else if(!IsExpertEnabled()) Print("The EA can't enter a trade because EAs are not enabled in trading platform.");
       else if(IsTradeContextBusy()) Print("The EA can't enter a trade because the trade context is busy.");
       else if(!IsTradeAllowed()) Print("The EA can't enter a trade because the trade is not allowed in the trading platform.");
-      else ticket=send_and_get_order_ticket(instrument,cmd,lots,distanceFromCurrentPrice,periods_pivot_price,sl,tp,max_slippage,comment,magic,expire,a_clr,market);
+      else ticket=send_and_get_order_ticket(instrument,cmd,lots,distanceFromCurrentPrice,periods_pivot_price,sl,tp,max_slippage,spread_points,comment,magic,expire,a_clr,market);
       if(ticket>0) break;
       else
       { 
@@ -1524,34 +1528,34 @@ int check_for_entry_errors(string instrument,int cmd,double lots,double distance
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double calculate_lots(ENUM_MM _money_management,double _risk_percent_per_ADR=.02)
+double calculate_lots(ENUM_MM _money_management,double _risk_percent_per_ADR,double spread_points)
   {
     double pips=0;
     double _stoploss_percent=stoploss_percent;
 
     if(_money_management==MM_RISK_PERCENT_PER_ADR)
-      pips=ADR_pips;
+      pips=ADR_pips+(spread_points/Point); // Increase the Average Daily (pip) Range by adding the average (pip) spread because it is additional pips at risk everytime a trade is entered. As a result, the lots that get calculated will be lower (which will reduce the risk).
     else if(ADR_pips>0 && _stoploss_percent>0)
-      pips=NormalizeDouble(ADR_pips*_stoploss_percent,2); // could be 0 if stoploss_percent is set to 0 
+      pips=NormalizeDouble((ADR_pips*_stoploss_percent)+(spread_points/Point),2); // it could be 0 if stoploss_percent is set to 0 
     else 
-      pips=ADR_pips;
+      pips=ADR_pips+(spread_points/Point);
 
     double lots=get_lots(_money_management,
                         symbol,
                         lot_size,
                         _risk_percent_per_ADR,
                         pips,
-                        mm1_risk_percent,
-                        mm2_lots,
+                        mm1_risk_percent
+                        /*,mm2_lots,
                         mm2_per,
                         mm3_risk,
-                        mm4_risk);
+                        mm4_risk*/);
    return lots;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double get_lots(ENUM_MM method,string instrument,double lots,double _risk_percent_per_ADR,double pips,double risk_mm1_percent,double lots_mm2,double per_mm2,double risk_mm3,double risk_mm4)
+double get_lots(ENUM_MM method,string instrument,double lots,double _risk_percent_per_ADR,double pips,double risk_mm1_percent/*,double lots_mm2,double per_mm2,double risk_mm3,double risk_mm4*/)
   {
    double balance=AccountBalance();
    double tick_value=MarketInfo(instrument,MODE_TICKVALUE);
