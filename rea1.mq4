@@ -1378,7 +1378,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic=0,int max_slippage=50)
                distance_pips, // the distance_pips you are sending to the function should always be positive
                periods_pivot_price,
                NormalizeDouble(ADR_pips*stoploss_percent,2),
-               NormalizeDouble(ADR_pips*takeprofit_percent,2),
+               NormalizeDouble(ADR_pips*takeprofit_percent,2)*Point,
                max_slippage,
                spread,
                EA_name,
@@ -1398,29 +1398,25 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic=0,int max_slippage=50)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+ 
-string generate_comment(int magic,double sl_pips, double tp_pips,double spread_points)
+string generate_comment(int magic,double sl_pips, double tp_pips,double spread_pts)
   {
     string comment;
-    return comment=StringConcatenate("EA: ",EA_name,"Magic#: ",IntegerToString(magic),", CCY Pair: ",symbol," Requested TP: ",DoubleToStr(tp_pips)," Requested SL: ",DoubleToStr(sl_pips),"Spread slighly before order: ",DoubleToStr(spread_points));
+    return comment=StringConcatenate("EA: ",EA_name,"Magic#: ",IntegerToString(magic),", CCY Pair: ",symbol," Requested TP: ",DoubleToStr(tp_pips)," Requested SL: ",DoubleToStr(sl_pips),"Spread slighly before order: ",DoubleToStr(spread_pts/Point));
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 // the distanceFromCurrentPrice parameter is used to specify what type of order you would like to enter
-int send_and_get_order_ticket(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double periods_pivot_price,double sl_pips,double tp_pips,int max_slippage,double spread_points,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
+int send_and_get_order_ticket(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double periods_pivot_price,double sl_pips,double tp_pts,int max_slippage,double spread_pts,string _EA_name=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
   {
-  
-  
-   // TODO: MarketInfo(symbol,MODE_STOPLEVEL); will tell you what the minimum distance in points that a stoploss or takeprofit can be
-   
-   
-   
    double entryPrice=0; 
    double price_sl=0, price_tp=0;
    double point=MarketInfo(instrument,MODE_POINT); // getting the value of 1 point for the instrument
    datetime expire_time=0; // 0 means there is no expiration time for a pending order
    int order_type=-1; // -1 means there is no order because actual orders are >=0
-   double min_distance=MarketInfo(symbol,MODE_STOPLEVEL);
+   double min_distance_pts=MarketInfo(symbol,MODE_STOPLEVEL);
+   tp_pts=tp_pts+spread_pts; // increase the take profit so the user can get the full pips of profit you wanted if the take profit price is hit
+   
    // simplifying the arguments for the function by only allowing OP_BUY and OP_SELL and letting logic determine if it is a market or pending order based off the distanceFromCurrentPrice variable
    if(cmd==OP_BUY) // logic for long trades
      {
@@ -1435,22 +1431,21 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
         }
       else if(order_type==OP_BUY)
         {
-         if(acceptable_spread(instrument,max_spread_percent,spread_points,true)) entryPrice=MarketInfo(instrument,MODE_ASK);// Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+         if(acceptable_spread(instrument,max_spread_percent,spread_pts,true)) entryPrice=MarketInfo(instrument,MODE_ASK);// Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
          // TODO: create an alert informing the user that the trade was not executed because of the spread being too wide
          else return 0;
         }
-      tp_pips=tp_pips+(spread_points/point); // increase the take profit so you can get the full pips of profit you wanted if the take profit price is hit
-      if(instant_exec) // if the user wants instant execution (in which the system allows them to input sl and tp prices)
+      if(instant_exec) // if the user wants instant execution (in which the broker's system allows them to input sl and tp prices with the SendOrder)
         {
          if(sl_pips>0) 
           {
-            if(sl_pips<(min_distance/point)) price_sl=entryPrice-min_distance;
+            if(sl_pips<(min_distance_pts/point)) price_sl=entryPrice-min_distance_pts;
             else price_sl=entryPrice-(sl_pips*point);
           }
-         if(tp_pips>(spread_points/point)) 
+         if(tp_pts>(spread_pts)) // TODO: should you use the compare_doubles function?
           {
-            if(tp_pips<(min_distance/point)) price_tp=entryPrice+min_distance;
-            else price_tp=entryPrice+(tp_pips*point);
+            if(tp_pts<(min_distance_pts)) price_tp=entryPrice+min_distance_pts;
+            else price_tp=entryPrice+(tp_pts);
           }    
         }
      }
@@ -1467,26 +1462,25 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
         }
       else if(order_type==OP_SELL)
         {
-         if(acceptable_spread(instrument,max_spread_percent,spread_points,true)) entryPrice=MarketInfo(instrument,MODE_BID); // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+         if(acceptable_spread(instrument,max_spread_percent,spread_pts,true)) entryPrice=MarketInfo(instrument,MODE_BID); // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
          // TODO: create an alert informing the user that the trade was not executed because the spread was too wide         
          else return 0;
         }
-      tp_pips=tp_pips+(spread_points/point); // increase the take profit so you can get the full pips of profit you wanted if the take profit price is hit
       if(instant_exec) // if the user wants instant execution (in which allows them to input the sl and tp prices)
         {
          if(sl_pips>0) 
           {
-            if(sl_pips<(min_distance/point)) price_sl=entryPrice+min_distance;
+            if(sl_pips<(min_distance_pts/point)) price_sl=entryPrice+min_distance_pts;
             else price_sl=entryPrice+(sl_pips*point);          
           }
-         if(tp_pips>(spread_points/point)) 
+         if(tp_pts>(spread_pts)) 
           {
-            if(tp_pips<(min_distance/point)) price_tp=entryPrice-min_distance;
-            else price_tp=entryPrice-(tp_pips*point); 
+            if(tp_pts<(min_distance_pts)) price_tp=entryPrice-min_distance_pts;
+            else price_tp=entryPrice-(tp_pts); 
           }
         }
      }
-   comment=generate_comment(magic,sl_pips,tp_pips,spread_points);
+   string generated_comment=generate_comment(magic,sl_pips,tp_pts,spread_pts);
    if(order_type<0) 
      return 0; // if there is no order
    else if(order_type==0 || order_type==1) 
@@ -1495,23 +1489,22 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
      expire_time=(datetime)MarketInfo(instrument,MODE_TIME)+expire; // expiration of the order = current time + expire time
    if(market) // If the user wants market execution (which does NOT allow them to input the sl and tp prices), this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
      {
-      int ticket=OrderSend(instrument,order_type,lots,entryPrice,max_slippage,0,0,comment,magic,expire_time,a_clr);
+      int ticket=OrderSend(instrument,order_type,lots,entryPrice,max_slippage,0,0,generated_comment,magic,expire_time,a_clr);
       if(ticket>0) // if there is a valid ticket
         {
          if(OrderSelect(ticket,SELECT_BY_TICKET))
            {
-            tp_pips=tp_pips+(spread_points/point); // increase the take profit so you can get the full pips of profit you wanted if the take profit price is hit
             if(cmd==OP_BUY)
               {
                if(sl_pips>0) 
                 {
-                  if(sl_pips<(min_distance/point)) price_sl=OrderOpenPrice()-min_distance;
+                  if(sl_pips<(min_distance_pts/point)) price_sl=OrderOpenPrice()-min_distance_pts;
                   else price_sl=OrderOpenPrice()-(sl_pips*point);
                 }
-               if(tp_pips>(spread_points/point)) 
+               if(tp_pts>(spread_pts)) 
                  {
-                  if(tp_pips<(min_distance/point)) price_sl=OrderOpenPrice()+min_distance;                   
-                  else price_tp=OrderOpenPrice()+(tp_pips*point);
+                  if(tp_pts<(min_distance_pts)) price_sl=OrderOpenPrice()+min_distance_pts;                   
+                  else price_tp=OrderOpenPrice()+(tp_pts);
                  }
                uptrend_triggered=true;
                downtrend_triggered=false;
@@ -1520,13 +1513,13 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
               {
                if(sl_pips>0) 
                  {
-                  if(sl_pips<(min_distance/point)) price_sl=OrderOpenPrice()+min_distance;
+                  if(sl_pips<(min_distance_pts/point)) price_sl=OrderOpenPrice()+min_distance_pts;
                   price_sl=OrderOpenPrice()+(sl_pips*point);
                  }
-               if(tp_pips>(spread_points/point)) 
+               if(tp_pts>(spread_pts)) 
                  {
-                  if(tp_pips<(min_distance/point)) price_sl=OrderOpenPrice()-min_distance; 
-                  price_tp=OrderOpenPrice()-(tp_pips*point);
+                  if(tp_pts<(min_distance_pts)) price_sl=OrderOpenPrice()-min_distance_pts; 
+                  price_tp=OrderOpenPrice()-(tp_pts);
                  }
                uptrend_triggered=false;
                downtrend_triggered=true;
@@ -1536,7 +1529,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
         }
       return ticket;
      }
-   int ticket=OrderSend(instrument,order_type,lots,entryPrice,max_slippage,price_sl,price_tp,comment,magic,expire_time,a_clr);
+   int ticket=OrderSend(instrument,order_type,lots,entryPrice,max_slippage,price_sl,price_tp,generated_comment,magic,expire_time,a_clr);
    if(ticket>0)
     {
       if(OrderSelect(ticket,SELECT_BY_TICKET))
@@ -1558,7 +1551,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double dista
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int check_for_entry_errors(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double periods_pivot_price,double sl,double tp,int max_slippage,double spread_points,string comment=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false,int retries=3,int sleep_milisec=500)
+int check_for_entry_errors(string instrument,int cmd,double lots,double distanceFromCurrentPrice,double periods_pivot_price,double sl,double tp_pts,int max_slippage,double spread_points,string _EA_name=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false,int retries=3,int sleep_milisec=500)
   {
    int ticket=0;
    for(int i=0;i<retries;i++)
@@ -1568,7 +1561,7 @@ int check_for_entry_errors(string instrument,int cmd,double lots,double distance
       else if(!IsExpertEnabled()) Print("The EA can't enter a trade because EAs are not enabled in trading platform.");
       else if(IsTradeContextBusy()) Print("The EA can't enter a trade because the trade context is busy.");
       else if(!IsTradeAllowed()) Print("The EA can't enter a trade because the trade is not allowed in the trading platform.");
-      else ticket=send_and_get_order_ticket(instrument,cmd,lots,distanceFromCurrentPrice,periods_pivot_price,sl,tp,max_slippage,spread_points,comment,magic,expire,a_clr,market);
+      else ticket=send_and_get_order_ticket(instrument,cmd,lots,distanceFromCurrentPrice,periods_pivot_price,sl,tp_pts,max_slippage,spread_points,_EA_name,magic,expire,a_clr,market);
       if(ticket>0) break;
       else
       { 
