@@ -330,11 +330,10 @@ void Relativity_EA_1(int magic)
                   DoubleToStr(percent_allows_trading,3),
                   " would have allowed the EA make trades in this currency pair today.");
             average_spread_yesterday=-1; // keep this at -1 because an if statement depends on it
-            return; // do not remove this line
            }
-         if(ADR_pips>0 && magic>0)
+         if(ADR_pips>0 && magic>0 && is_acceptable_spread==true)
            {
-            ready=true; // the ADR that has just been calculated won't generate again until after the cycle of not being in the time range completes
+            ready=true; // the ADR and average spread yesterday that has just been calculated won't generate again until after the cycle of not being in the time range completes
             uptrend_triggered=false;
             downtrend_triggered=false;
            }
@@ -344,11 +343,10 @@ void Relativity_EA_1(int magic)
             uptrend_triggered=true;
             downtrend_triggered=true;;
             // never assign average_spread_yesterday to anything in this scope
-            return;
            }
         }
      }
-   if(in_time_range && ready)
+   if(ready==true && in_time_range==true)
      {
       int enter_signal=TRADE_SIGNAL_NEUTRAL; // 0
    
@@ -444,8 +442,13 @@ void Relativity_EA_1(int magic)
        downtrend_triggered=true; // 
        ADR_pips=0;
        average_spread_yesterday=0; // do not change this from 0
-       bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
-       if(time_to_exit) exit_all_trades_set(ORDER_SET_ALL,magic,_exiting_max_slippage); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
+       
+       if(is_new_M5_bar)
+        {
+         exit_all_trades_set(ORDER_SET_MARKET,magic,_exiting_max_slippage,active_order_expire*3600,current_time); // This runs every 5 minutes (whether the time is in_time_range or not). It only exit trades that have been on for too long and haven't hit stoploss or takeprofit.
+         bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
+         if(time_to_exit) exit_all_trades_set(ORDER_SET_ALL,magic,_exiting_max_slippage); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
+        }
      }
   }
 //+------------------------------------------------------------------+
