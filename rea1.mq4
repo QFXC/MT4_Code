@@ -108,11 +108,15 @@ enum ENUM_MM // Money Management
   bool long_allowed=true; // Are long trades allowed?
 	bool short_allowed=true; // Are short trades allowed?
 	
+	input string space_1="----------------------------------------------------------------------------------------";
+	
 	input int max_directional_trades_at_once=1; //max_directional_trades_at_once: How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
 	input int max_trades_within_x_hours=1; //max_trades_within_x_hours: 0-x days (x depends on the setting of the Account History tab of the terminal). // How many trades are allowed to be opened (even if they are closed now) within the last x_hours?
 	input int x_hours=3;
 	input int max_directional_trades_each_day=1; //max_directional_trades_each_day: How many trades are allowed to be opened (even if they are close now) after the start of each current day?
-	
+  
+  input string space_2="----------------------------------------------------------------------------------------";
+  
 // time filters - only allow EA to enter trades between a range of time in a day
 	input int start_time_hour=0; //start_time_hour: eligible time to start a trade. 0-23
 	input int start_time_minute=30; //start_time_minute: 0-59
@@ -121,7 +125,9 @@ enum ENUM_MM // Money Management
   input int exit_time_hour=23; //exit_time_hour: should be before the trading range start_time and after trading range end_time
   input int exit_time_minute=30; //exit_time_minute: 0-59
 	input int gmt_hour_offset=-3; //gmt_hour_offset: -3 if using Gain Capital. The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). Adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
-   
+  
+  input string space_3="----------------------------------------------------------------------------------------";
+  
 // enter_order
   input ENUM_SIGNAL_SET SIGNAL_SET=SIGNAL_SET_1; //SIGNAL_SET: Which signal set would you like to test? (the details of each signal set are found in the signal_entry function)
   // TODO: make sure you have coded for the scenerios when each of these is set to 0
@@ -129,9 +135,9 @@ enum ENUM_MM // Money Management
   input double stoploss_percent=1.0; //stoploss_percent: Must be a positive number.
 	input double pullback_percent=-0.50; //pullback_percent:  If you want a buy or sell limit order, it must be negative.
 	input double max_spread_percent=.04; //max_spread_percent: Must be positive. What percent of ADR should the spread be less than? (Only for immediate orders and not pending.)
-	input bool based_on_raw_ADR=true;
+	input bool based_on_raw_ADR=true; //based_on_raw_ADR: Should the max_spread_percent be calculated from the raw ADR?
 	
-	input int entering_max_slippage_pips=5; //entering_max_slippage_pips: Must be in whole number.
+	input int entering_max_slippage_pips=5; //entering_max_slippage_pips: Must be in whole number. // TODO: Is this really pips and not points?
 //input int unfavorable_slippage=5;
 	string EA_name="ADR Relativity"; // allows the robot to enter a description for the order. An empty string is a default value
 //exit_order
@@ -143,9 +149,11 @@ enum ENUM_MM // Money Management
 	color arrow_color_short=clrRed;
 	color arrow_color_long=clrGreen;
 	
+  input string space_4="----------------------------------------------------------------------------------------";
+  
 //calculate_lots/mm variables
 	ENUM_MM money_management=MM_RISK_PERCENT_PER_ADR;
-	input double risk_percent_per_ADR=0.025; //risk_percent_per_ADR: percent risked when using the MM_RISK_PER_ADR_PERCENT money management calculations. Note: This is not the percent of your balance you will be risking.
+	input double risk_percent_per_ADR=0.025; //risk_percent_per_ADR: percent risked when using the MM_RISK_PER_ADR_PERCENT money management calculations. Any amount of digits after the decimal point. Note: This is not the percent of your balance you will be risking.
 	double mm1_risk_percent=0.02; //mm1_risk_percent: percent risked when using the MM_RISK_PERCENT money management calculations
    // these variables will not be used with the MM_RISK_PERCENT money management strategy
 	double lot_size=0.0;
@@ -153,18 +161,23 @@ enum ENUM_MM // Money Management
 	double mm2_per=1000;
 	double mm3_risk=50;
 	double mm4_risk=50;*/
-
+	
+  input string space_5="----------------------------------------------------------------------------------------";
+  
 // Market Trends
   input int H1s_to_roll=3; //H1s_to_roll: How many hours should you roll to determine a short term market trend? (You are only allowed to input values divisible by 0.5.)
   input double max_weekend_gap_percent=.1; //max_weekend_gap_percent: What is the maximum weekend gap (as a percent of ADR) for H1s_to_roll to not take the previous week into account?
   input bool include_last_week=true; //include_last_week: Should the EA take Friday's moves into account when starting to determine length of the current move?
   static double ADR_pts;
-
+  
+  input string space_6="----------------------------------------------------------------------------------------";
+  
 // timeframe changes
   bool is_new_D1_bar;
   bool is_new_M5_bar;
   input bool wait_next_M5_on_load=false; //wait_next_M5_on_load: This setting currently affects all bars (including D1) so do not set it to true unless code changes are made. // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade or calculate ADR?
-
+  
+  input string space_7="----------------------------------------------------------------------------------------";
 // ADR()
   input int num_ADR_months=2; //num_ADR_months: How months back should you use to calculate the average ADR? (Divisible by 1)
   input double change_ADR_percent=-.25; //change_ADR_percent: this can be a 0, negative, or positive decimal or whole number. 
@@ -461,29 +474,27 @@ void Relativity_EA_1(int magic)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double MyPoint;
-bool AutoAdjustTo5Digits=true;
+double my_point;
+/*input*/ bool auto_adjust_broker_digits=true;
 
-void SetMyPoint()
-{  
-   MyPoint = Point();
-   if(AutoAdjustTo5Digits==true && (Digits()==3 || Digits()==5))
-   {
-      Alert("Digits=", Digits(), " Broker quotes given in 5-digit mode. Old values of SL, TP and slippage will be multiplied by 10");
-      MyPoint = Point()*10;
-   }
-}
+void get_my_point()
+  {  
+    my_point=Point();
+    if(auto_adjust_broker_digits==true && (Digits()==5 || Digits()==3))
+      {
+        Alert("Your broker's rates have ",IntegerToString(Digits())," digits after the decimal point. Therefore, to keep the math in the EA as it was intended, all pip values will be automatically multiplied by 10. You do not have to do anything.");
+        my_point=Point()*10;
+      }
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------
-input int ma_period=150;
-input int ma_shift=0;
-input ENUM_MA_METHOD ma_method=MODE_SMA;
-input ENUM_APPLIED_PRICE ma_applied=PRICE_MEDIAN;
-input int ma_index=1;
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
+ int ma_period=150;
+ int ma_shift=0;
+ ENUM_MA_METHOD ma_method=MODE_SMA;
+ ENUM_APPLIED_PRICE ma_applied=PRICE_MEDIAN;
+ int ma_index=1;
+
 int signal_MA_crossover(double a1,double a2,double b1,double b2)
   {
    ENUM_TRADE_SIGNAL signal=TRADE_SIGNAL_NEUTRAL;
@@ -500,7 +511,7 @@ int signal_MA_crossover(double a1,double a2,double b1,double b2)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int signal_ma()
+int signal_MA()
   {
    double ma=iMA(NULL,0,ma_period,ma_shift,ma_method,ma_applied,ma_index);
    double ma1=iMA(NULL,0,ma_period,ma_shift,ma_method,ma_applied,ma_index+1);
@@ -1030,17 +1041,18 @@ double get_ADR_pts(int hours_to_roll,double low_outlier,double high_outlier/*,do
 //+------------------------------------------------------------------+
 void try_to_calculate_ADR(int hours_to_roll,double low_outlier,double high_outlier,double change_by) // get the Average Daily Range
   {
-     ADR_pts=get_ADR_pts(hours_to_roll,low_outlier,high_outlier);
+     double raw_ADR_pts=get_ADR_pts(hours_to_roll,low_outlier,high_outlier);
      
      if(ADR_pts>0 && (change_by==0 || change_by==NULL))
       { 
-        Alert("The ADR for ",Symbol()," was generated and it is ",DoubleToStr(ADR_pts/Point/10),".");
+        Alert("The raw ADR for ",Symbol()," was generated and it is ",DoubleToStr(raw_ADR_pts/Point/10)," pips.");
+        ADR_pts=raw_ADR_pts;
       }
      else if(ADR_pts>0)
       {
-        ADR_pts=NormalizeDouble((ADR_pts*change_by)+ADR_pts,Digits);
-        Alert("The ADR for ",Symbol()," was just generated. It is ",DoubleToStr(ADR_pts/Point/10)," pips.");
-        ADR_pts=((ADR_pts*change_by)+ADR_pts); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
+        double changed_ADR_pts=NormalizeDouble((ADR_pts*change_by)+ADR_pts,Digits); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
+        Alert("The raw ADR for ",Symbol()," was just generated. It is ",DoubleToStr(raw_ADR_pts/Point/10)," pips. As requested by the user, it has been changed to ",DoubleToStr(changed_ADR_pts/Point/10)," pips.");
+        ADR_pts=changed_ADR_pts;
       }
   }
 //+------------------------------------------------------------------+
@@ -1051,9 +1063,14 @@ int get_moves_start_bar(int _H1s_to_roll,int gmt_offset,double _max_weekend_gap_
    datetime week_start_open_time=iTime(symbol,PERIOD_W1,0)+(gmt_offset*3600); // The iTime of the week bar gives you the time that the week is 0:00 on the chart so I shifted the time to start when the markets actually start.
    int weeks_start_bar=iBarShift(symbol,PERIOD_M5,week_start_open_time,false);
    int moves_start_bar=_H1s_to_roll*12;
+   
+   datetime time_anchor=iTime(symbol,PERIOD_M5,moves_start_bar);
+   double price_anchor=iOpen(symbol,PERIOD_M5,moves_start_bar);
+   if(!ObjectFind("Move_Start")) ObjectCreate("Move_Start",OBJ_VLINE,0,time_anchor,price_anchor);
   
    if(moves_start_bar<=weeks_start_bar)
      {
+      ObjectSet("Move_Start",OBJPROP_PRICE1,iTime(symbol,PERIOD_M5,moves_start_bar));
       return moves_start_bar;
      }
    else if(_include_last_week)
@@ -1062,10 +1079,15 @@ int get_moves_start_bar(int _H1s_to_roll,int gmt_offset,double _max_weekend_gap_
       double max_weekend_gap_points=NormalizeDouble(ADR_pts*_max_weekend_gap_percent,Digits);
       
       if(weekend_gap_points>=max_weekend_gap_points) return weeks_start_bar; // TODO: use compare_doubles()?
-      else return moves_start_bar;
+      else 
+        {
+          ObjectSet("Move_Start",OBJPROP_PRICE1,iTime(symbol,PERIOD_M5,moves_start_bar));
+          return moves_start_bar;
+        }
      }
    else
      {
+      ObjectSet("Move_Start",OBJPROP_PRICE1,iTime(symbol,PERIOD_M5,weeks_start_bar));
       return weeks_start_bar;
      }
   }
@@ -1075,61 +1097,97 @@ int get_moves_start_bar(int _H1s_to_roll,int gmt_offset,double _max_weekend_gap_
 double periods_pivot_price(ENUM_DIRECTIONAL_MODE mode)
   {
     if(mode==BUYING_MODE)
-      return iLow(symbol,
-                PERIOD_M5,
-                iLowest(symbol,
-                        PERIOD_M5,
-                        MODE_LOW,
-                        WHOLE_ARRAY,
-                        get_moves_start_bar(H1s_to_roll,
-                                            gmt_hour_offset,
-                                            max_weekend_gap_percent,
-                                            include_last_week))); // get the price of the bar that has the lowest price for the determined period
-    else if(mode==SELLING_MODE) 
-      return iHigh(symbol,
-                 PERIOD_M5,
-                 iHighest(symbol,
+      {
+        double pivot_price=iLow(symbol,
+                  PERIOD_M5,
+                  iLowest(symbol,
                           PERIOD_M5,
-                          MODE_HIGH,
+                          MODE_LOW,
                           WHOLE_ARRAY,
                           get_moves_start_bar(H1s_to_roll,
                                               gmt_hour_offset,
                                               max_weekend_gap_percent,
-                                              include_last_week))); // get the price of the bar that has the highest price for the determined period
-    else 
-      return -1;
+                                              include_last_week))); // get the price of the bar that has the lowest price for the determined period
+         return pivot_price;
+       }
+    else if(mode==SELLING_MODE)
+      {
+        double pivot_price=iHigh(symbol,
+                   PERIOD_M5,
+                   iHighest(symbol,
+                            PERIOD_M5,
+                            MODE_HIGH,
+                            WHOLE_ARRAY,
+                            get_moves_start_bar(H1s_to_roll,
+                                                gmt_hour_offset,
+                                                max_weekend_gap_percent,
+                                                include_last_week))); // get the price of the bar that has the highest price for the determined period
+        return pivot_price;
+      }
+    else return -1;
+      
+
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 double uptrend_ADR_threshold_price_met(bool get_current_bid_instead=false)
   {
-   static double LOP=periods_pivot_price(BUYING_MODE);
-   double point=MarketInfo(symbol,MODE_POINT);
-   double current_bid=MarketInfo(symbol,MODE_BID); // TODO: always make sure RefreshRates() was called before. In this case, it was called before running this function.
+    static double LOP=periods_pivot_price(BUYING_MODE);
+    double point=MarketInfo(symbol,MODE_POINT);
+    double current_bid=MarketInfo(symbol,MODE_BID); // TODO: always make sure RefreshRates() was called before. In this case, it was called before running this function.
+    string instrument=Symbol();
    
-   if(LOP==-1) // this part is necessary in case periods_pivot_price ever returns 0
+    if(!ObjectFind(instrument+"_LOP_up"))
+      {
+        ObjectCreate(instrument+"_LOP_up",OBJ_HLINE,0,TimeCurrent(),LOP);
+        ObjectSet(instrument+"_LOP_up",OBJPROP_COLOR,Green);
+      }
+    if(!ObjectFind(instrument+"_HOP_up")) 
+      {
+        ObjectCreate(instrument+"_HOP_up",OBJ_HLINE,0,TimeCurrent(),current_bid);
+        ObjectSet(instrument+"_HOP_up",OBJPROP_COLOR,Green);
+      }
+    if(!ObjectFind(instrument+"_HOP_Trigger"))
+      {
+        ObjectCreate(instrument+"_HOP_Trigger",OBJ_HLINE,0,TimeCurrent(),LOP+ADR_pts);
+        ObjectSet(instrument+"_HOP_Trigger",OBJPROP_COLOR,Green);
+      }
+   
+    if(LOP==-1) // this part is necessary in case periods_pivot_price ever returns 0
      {
        return -1;
      }
-   else if(current_bid<LOP) // if the low of the range was surpassed // TODO: use compare_doubles()?
+    else if(current_bid<LOP) // if the low of the range was surpassed // TODO: use compare_doubles()?
      {
        // since the bottom of the range was surpassed, you have to reset the LOP. You might as well take this opportunity to take the period into account.
        LOP=periods_pivot_price(BUYING_MODE);
+       ObjectSet(instrument+"_LOP_up",OBJPROP_PRICE1,LOP);
+       ObjectSet(instrument+"_HOP_Trigger",OBJPROP_PRICE1,LOP+ADR_pts);
        return -1;
      } 
-   else if(current_bid-LOP>=ADR_pts) // if the pip move meets or exceed the ADR_Pips in points, return the current bid. Note: this will return true over and over again // TODO: use compare_doubles()?
+    else if(current_bid-LOP>=ADR_pts) // if the pip move meets or exceed the ADR_Pips in points, return the current bid. Note: this will return true over and over again // TODO: use compare_doubles()?
      {
        // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
        LOP=periods_pivot_price(BUYING_MODE);
+       ObjectSet(instrument+"_LOP_up",OBJPROP_PRICE1,LOP);
+       ObjectSet(instrument+"_HOP_up",OBJPROP_PRICE1,current_bid);
+       ObjectSet(instrument+"_HOP_Trigger",OBJPROP_PRICE1,LOP+ADR_pts);
        if(current_bid-LOP>=ADR_pts) // TODO: use compare_doubles()?
          {
-           if(get_current_bid_instead) return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
-           else return LOP+ADR_pts;
+          if(get_current_bid_instead) 
+             {
+                return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
+             }
+          else 
+             {
+                double triggered_price=LOP+ADR_pts;
+                return triggered_price;
+             }
          }
        else return -1;
      }         
-   else return -1;
+    else return -1;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1139,6 +1197,23 @@ double downtrend_ADR_threshold_price_met(bool get_current_bid_instead=false)
    static double HOP=periods_pivot_price(SELLING_MODE);
    double point=MarketInfo(symbol,MODE_POINT);
    double current_bid=MarketInfo(symbol,MODE_BID); // TODO: always make sure RefreshRates() was called before. In this case, it was called before running this function.
+   string instrument=Symbol();
+   
+    if(!ObjectFind(instrument+"_HOP_down"))
+      {
+        ObjectCreate("_HOP_down",OBJ_HLINE,0,TimeCurrent(),HOP);
+        ObjectSet(instrument+"_HOP_down",OBJPROP_COLOR,Red);
+      }
+    if(!ObjectFind(instrument+"_LOP_down")) 
+      {
+        ObjectCreate(instrument+"_LOP_down",OBJ_HLINE,0,TimeCurrent(),current_bid);
+        ObjectSet(instrument+"_LOP_down",OBJPROP_COLOR,Red);
+      }
+    if(!ObjectFind(instrument+"_LOP_Trigger"))
+      {
+        ObjectCreate(instrument+"_LOP_Trigger",OBJ_HLINE,0,TimeCurrent(),HOP-ADR_pts);
+        ObjectSet(instrument+"_LOP_Trigger",OBJPROP_COLOR,Red);
+      }
    
    if(HOP==-1) // this part is necessary in case periods_pivot_price ever returns 0
      {
@@ -1148,16 +1223,28 @@ double downtrend_ADR_threshold_price_met(bool get_current_bid_instead=false)
      {
        // since the bottom of the range was surpassed, you have to reset the LOP. You might as well take this opportunity to take the period into account.
        HOP=periods_pivot_price(SELLING_MODE);
+       ObjectSet(instrument+"_HOP",OBJPROP_PRICE1,HOP);
+       ObjectSet(instrument+"_LOP_Trigger",OBJPROP_PRICE1,HOP-ADR_pts);
        return -1;
      } 
    else if(HOP-current_bid>=ADR_pts) // if the pip move meets or exceed the ADR_Pips in points, return the current bid. Note: this will return true over and over again // TODO: use compare_doubles()?
      {
        // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
        HOP=periods_pivot_price(SELLING_MODE);
+       ObjectSet(instrument+"_HOP_down",OBJPROP_PRICE1,HOP);
+       ObjectSet(instrument+"_HOP_down",OBJPROP_PRICE1,current_bid);
+       ObjectSet(instrument+"_LOP_Trigger",OBJPROP_PRICE1,HOP-ADR_pts);
        if(HOP-current_bid>=ADR_pts) // TODO: use compare_doubles()?
          {
-           if(get_current_bid_instead) return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
-           else return HOP-ADR_pts;
+           if(get_current_bid_instead) 
+             {
+               return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
+             }
+           else 
+             {
+               double triggered_price=HOP-ADR_pts;
+               return triggered_price;
+             }
          }
        else return -1;
      }         
