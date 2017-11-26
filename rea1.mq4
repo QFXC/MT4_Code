@@ -7,7 +7,6 @@
 #property link      "https://www.quantfxcapital.com"
 #property version   "1.04"
 #property strict
-//#property show_inputs // This can only be used for scripts. I added this because, by default, it will not show any external inputs. This is to override this behaviour so it deliberately shows the inputs.
 // TODO: When strategy testing, make sure you have all the M5, D1, and W1 data because it is reference in the code.
 // TODO: Always use NormalizeDouble() when computing the price (or lots or ADR?) yourself. This is not necessary for internal functions like OrderOPenPrice(), OrderStopLess(),OrderClosePrice(),Bid,Ask
 // TODO: Use the compare_doubles() function to compare two doubles.
@@ -130,6 +129,7 @@ enum ENUM_MM // Money Management
   input double stoploss_percent=1.0; //stoploss_percent: Must be a positive number.
 	input double pullback_percent=-0.50; //pullback_percent:  If you want a buy or sell limit order, it must be negative.
 	input double max_spread_percent=.04; //max_spread_percent: Must be positive. What percent of ADR should the spread be less than? (Only for immediate orders and not pending.)
+	input bool based_on_raw_ADR=true;
 	
 	input int entering_max_slippage_pips=5; //entering_max_slippage_pips: Must be in whole number.
 //input int unfavorable_slippage=5;
@@ -198,7 +198,7 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set)
     int range_start_time=(start_time_hour*3600)+(start_time_minute*60);
     int range_end_time=(end_time_hour*3600)+(end_time_minute*60);
     int exit_time=(exit_time_hour*3600)+(exit_time_minute*60);
-    ADR_pts=get_ADR_pts(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent);
+    try_to_calculate_ADR(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent);
    // Print("The EA will not work properly. The input variables max_trades_in_direction, max_num_EAs_at_once, and max_trades_within_x_hours can't be 0 or negative.");
   
   Alert(Symbol(),"'s Tick Value: ",tick_value);
@@ -220,7 +220,7 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set)
     }
   else
     {
-      Alert("The initialization of the EA succeeded.");
+      Alert("The initialization of the EA finished successfully.");
       return(INIT_SUCCEEDED);
     }
   }
@@ -230,13 +230,14 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set)
 // Runs once when the EA is turned off
 void OnDeinit(const int reason)
   {
-//--- The first way to get the uninitialization reason code
-   Print(__FUNCTION__,"_Uninitalization reason code = ",reason);
-/*
-//The second way to get the uninitialization reason code
+
+   //The first way to get the uninitialization reason code
+   /*Print(__FUNCTION__,"_Uninitalization reason code = ",reason);*/
+
+   //The second way to get the uninitialization reason code
    Print(__FUNCTION__,"_UninitReason = ",getUninitReasonText(_UninitReason));
-*/
-  Alert("If there are no errors, then the ",EA_name," EA for ",Symbol(), " has been successfully deinitialized.");
+
+  Alert("If there are no errors, then the ",EA_name," EA for ",Symbol()," has been successfully deinitialized.");
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -314,9 +315,9 @@ void Relativity_EA_1(int magic)
       
       if(in_time_range==true && ready==false && average_spread_yesterday!=-1) 
         {
-         ADR_pts=get_ADR_pts(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent);
+         try_to_calculate_ADR(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent);
          average_spread_yesterday=calculate_avg_spread_yesterday(symbol);
-         bool is_acceptable_spread=acceptable_spread(symbol,max_spread_percent,average_spread_yesterday,false);
+         bool is_acceptable_spread=acceptable_spread(symbol,max_spread_percent,based_on_raw_ADR,average_spread_yesterday,false);
          
          if(is_acceptable_spread==false) 
            {
@@ -460,6 +461,21 @@ void Relativity_EA_1(int magic)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+double MyPoint;
+bool AutoAdjustTo5Digits=true;
+
+void SetMyPoint()
+{  
+   MyPoint = Point();
+   if(AutoAdjustTo5Digits==true && (Digits()==3 || Digits()==5))
+   {
+      Alert("Digits=", Digits(), " Broker quotes given in 5-digit mode. Old values of SL, TP and slippage will be multiplied by 10");
+      MyPoint = Point()*10;
+   }
+}
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------
 input int ma_period=150;
 input int ma_shift=0;
 input ENUM_MA_METHOD ma_method=MODE_SMA;
@@ -907,7 +923,7 @@ bool time_to_exit(datetime current_time,int hour,int min,int gmt_offset=0)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double ADR_calculation(double low_outlier,double high_outlier,double change_by)
+double ADR_calculation(double low_outlier,double high_outlier/*,double change_by*/)
   {
      int three_mnth_sunday_count=0;
      int three_mnth_num_days=3*22; // There are about 22 business days a month.
@@ -987,23 +1003,12 @@ double ADR_calculation(double low_outlier,double high_outlier,double change_by)
           }
        }
      double adr_pts=NormalizeDouble((x_mnth_non_sunday_ADR_sum/x_mnth_non_sunday_count),digits); 
-     
-     if(change_by==0 || change_by==NULL)
-      { 
-        Alert("The ADR for ",Symbol()," was generated and it is ",DoubleToStr(adr_pts/Point/10),".");
-        return adr_pts;
-      }
-     else 
-      {
-        adr_pts=NormalizeDouble((adr_pts*change_by)+adr_pts,digits);
-        Alert("The ADR for ",Symbol()," was just generated. It is ",DoubleToStr(adr_pts/Point/10)," pips.");
-        return ((adr_pts*change_by)+adr_pts); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
-      }
+     return adr_pts;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double get_ADR_pts(int hours_to_roll,double low_outlier,double high_outlier,double change_by) // get the Average Daily Range
+double get_ADR_pts(int hours_to_roll,double low_outlier,double high_outlier/*,double change_by*/) // get the Average Daily Range
   {
     static double _adr_pts=0;
     int _num_ADR_months=num_ADR_months;
@@ -1014,11 +1019,29 @@ double get_ADR_pts(int hours_to_roll,double low_outlier,double high_outlier,doub
       }  
     if(_adr_pts==0 || is_new_D1_bar) // if it is the first time the function is called
       {
-        double calculated_adr_pts=ADR_calculation(low_outlier,high_outlier,change_by);
+        double calculated_adr_pts=ADR_calculation(low_outlier,high_outlier/*,change_by*/);
         _adr_pts=calculated_adr_pts; // make the function remember the calculation the next time it is called
         return _adr_pts;
       }
     return _adr_pts; // if it is not the first time the function is called it is the middle of a bar, return the static adr
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void try_to_calculate_ADR(int hours_to_roll,double low_outlier,double high_outlier,double change_by) // get the Average Daily Range
+  {
+     ADR_pts=get_ADR_pts(hours_to_roll,low_outlier,high_outlier);
+     
+     if(ADR_pts>0 && (change_by==0 || change_by==NULL))
+      { 
+        Alert("The ADR for ",Symbol()," was generated and it is ",DoubleToStr(ADR_pts/Point/10),".");
+      }
+     else if(ADR_pts>0)
+      {
+        ADR_pts=NormalizeDouble((ADR_pts*change_by)+ADR_pts,Digits);
+        Alert("The ADR for ",Symbol()," was just generated. It is ",DoubleToStr(ADR_pts/Point/10)," pips.");
+        ADR_pts=((ADR_pts*change_by)+ADR_pts); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
+      }
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1336,7 +1359,7 @@ void exit_all_trades_set(int max_slippage_pips,ENUM_ORDER_SET type_needed=ORDER_
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool acceptable_spread(string instrument,double _max_spread_percent,double spread_pts_provided=0,bool refresh_rates=false)
+bool acceptable_spread(string instrument,double _max_spread_percent,bool _based_on_raw_ADR=true,double spread_pts_provided=0,bool refresh_rates=false)
   {
    double _spread_pts=0;
    
@@ -1349,8 +1372,14 @@ bool acceptable_spread(string instrument,double _max_spread_percent,double sprea
     {
       _spread_pts=spread_pts_provided;
     }
-   if(compare_doubles(_spread_pts,(ADR_pts*_max_spread_percent),Digits)<=0) return true; // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
-
+   if(_based_on_raw_ADR)
+    {
+      if(compare_doubles(_spread_pts,(((ADR_pts*change_ADR_percent)+ADR_pts)*_max_spread_percent),Digits)<=0) return true; // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+    }
+   else
+    {
+      if(compare_doubles(_spread_pts,(ADR_pts*_max_spread_percent),Digits)<=0) return true; // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+    }
    return false;
   }
 //+------------------------------------------------------------------+
@@ -1523,7 +1552,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
         }
       else if(order_type==OP_BUY)
         {
-         if(acceptable_spread(instrument,max_spread_percent,spread_pts,true))
+         if(acceptable_spread(instrument,max_spread_percent,based_on_raw_ADR,spread_pts,true))
           {
             entry_price=MarketInfo(instrument,MODE_ASK);// Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
           }
@@ -1560,7 +1589,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
         }
       else if(order_type==OP_SELL)
         {
-         if(acceptable_spread(instrument,max_spread_percent,spread_pts,true)) 
+         if(acceptable_spread(instrument,max_spread_percent,based_on_raw_ADR,spread_pts,true)) 
           {
           entry_price=MarketInfo(instrument,MODE_BID); // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
          // TODO: create an alert informing the user that the trade was not executed because the spread was too wide  
