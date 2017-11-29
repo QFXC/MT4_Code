@@ -113,7 +113,7 @@ enum ENUM_MM // Money Management
 	
 	input int max_directional_trades_at_once=1; //max_directional_trades_at_once: How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
 	input int max_trades_within_x_hours=1; //max_trades_within_x_hours: 0-x days (x depends on the setting of the Account History tab of the terminal). // How many trades are allowed to be opened (even if they are closed now) within the last x_hours?
-	input double x_hours=3; //Any whole or fraction of an hour.
+	input double x_hours=3; //x_hours: Any whole or fraction of an hour.
 	input int max_directional_trades_each_day=1; //max_directional_trades_each_day: How many trades are allowed to be opened (even if they are close now) after the start of each current day?
   
   input string space_2="----------------------------------------------------------------------------------------";
@@ -166,7 +166,7 @@ enum ENUM_MM // Money Management
   input string space_5="----------------------------------------------------------------------------------------";
   
 // Market Trends
-  input int H1s_to_roll=24; //H1s_to_roll: How many hours should you roll to determine a short term market trend? (You are only allowed to input values divisible by 0.5.)
+  input double H1s_to_roll=3.5; //H1s_to_roll: Only divisible by .5 // How many hours should you roll to determine a short term market trend?
   input double max_weekend_gap_percent=.15; //max_weekend_gap_percent: What is the maximum weekend gap (as a percent of ADR) for H1s_to_roll to not take the previous week into account?
   input bool include_last_week=true; //include_last_week: Should the EA take Friday's moves into account when starting to determine length of the current move?
   static double ADR_pts;
@@ -1076,12 +1076,12 @@ double ADR_calculation(double low_outlier,double high_outlier/*,double change_by
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double get_raw_ADR_pts(int hours_to_roll,double low_outlier,double high_outlier/*,double change_by*/) // get the Average Daily Range
+double get_raw_ADR_pts(double hours_to_roll,double low_outlier,double high_outlier/*,double change_by*/) // get the Average Daily Range
   {
     static double _adr_pts=0;
     int _num_ADR_months=num_ADR_months;
      
-    if(low_outlier>high_outlier || _num_ADR_months<=0 || _num_ADR_months==NULL || MathMod(hours_to_roll,.5)!=0)
+    if(low_outlier>high_outlier || _num_ADR_months<=0 || _num_ADR_months==NULL || MathMod(hours_to_roll,.5)!=0) // TODO: hours_to_roll is not used in this function except for this line
       {
         return -1; // if the user inputed the wrong outlier variables or a H1s_to_roll number that is not divisible by .5, it is not possible to calculate ADR
       }  
@@ -1096,7 +1096,7 @@ double get_raw_ADR_pts(int hours_to_roll,double low_outlier,double high_outlier/
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void get_changed_ADR_pts(int hours_to_roll,double low_outlier,double high_outlier,double change_by) // get the Average Daily Range
+void get_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_outlier,double change_by) // get the Average Daily Range
   {
      double raw_ADR_pts=get_raw_ADR_pts(hours_to_roll,low_outlier,high_outlier);
      
@@ -1127,9 +1127,9 @@ void get_changed_ADR_pts(int hours_to_roll,double low_outlier,double high_outlie
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+  
-int get_moves_start_bar(int _H1s_to_roll,int gmt_offset,double _max_weekend_gap_percent,bool _include_last_week=true)
+int get_moves_start_bar(double _H1s_to_roll,int gmt_offset,double _max_weekend_gap_percent,bool _include_last_week=true)
   {
-   int moves_start_bar=_H1s_to_roll*12;
+   int moves_start_bar=(int)_H1s_to_roll*12; // any double divisible by .5 will always be an integer when multiplied by an even number like 12 so it is okay to convert it into an int
    datetime week_start_open_time=iTime(symbol,PERIOD_W1,0)+(gmt_offset*3600); // The iTime of the week bar gives you the time that the week is 0:00 on the chart so I shifted the time to start when the markets actually start.
    int weeks_start_bar=iBarShift(symbol,PERIOD_M5,week_start_open_time,false);
 
