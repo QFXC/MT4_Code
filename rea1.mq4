@@ -2282,96 +2282,69 @@ void cleanup_all_pending_orders(int max_ccy_directional_trades)
         }
       } 
   }
-  
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void cleanup_risky_pending_orders() // deletes pending orders where the single currency of the market order would be the same direction of the single currency in the pending order
+void cleanup_risky_pending_orders() // deletes pending orders of the entire account (no matter which EA/magic number) where the single currency of the market order would be the same direction of the single currency in the pending order
   { 
     static int last_trades_count=0;
     int trades_count=count_orders(ORDER_SET_MARKET,-1,MODE_TRADES,OrdersTotal()-1);
     
-    if(last_trades_count<trades_count) // every time a limit order gets triggered and becomes a market order
+    if(last_trades_count<trades_count) // true if a limit order gets triggered and becomes a market order
       {
-        int market_trade=OrderSelect(last_market_trade_ticket(),SELECT_BY_TICKET);
-        if(market_trade<=0) return;
-        int market_trades_direction=OrderType();
+        if(OrderSelect(last_market_trade_ticket(),SELECT_BY_TICKET)==false) return;
+        int market_trades_direction=OrderType(); // i already know it is a market order ticket because the function last_market_trade_ticket only returns market order tickets
         string market_trades_symbol=OrderSymbol();
-        string market_trades_1st_ccy=StringSubstr(market_trades_symbol,0,3);
-        string market_trades_2nd_ccy=StringSubstr(market_trades_symbol,3,3);
+        string market_trades_1st_ccy=StringSubstr(market_trades_symbol,0,3); // this only works if the first 3 characters of the symbol is a currency
+        string market_trades_2nd_ccy=StringSubstr(market_trades_symbol,3,3); // this only works if the next 3 characters of the symbol is a currency
         
-        for(int j=OrdersTotal()-1;j>=0;j--)
+        for(int i=OrdersTotal()-1;i>=0;i--)
           {
-            if(OrderSelect(j,SELECT_BY_POS,MODE_TRADES))
+            if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
               {
                 int pending_orders_direction=OrderType();
                 if(pending_orders_direction<=1) // if it is a market order
                   break;
                 else
                   {
-                    int pending_order=OrderTicket();
                     string pending_orders_symbol=OrderSymbol();
                     string pending_orders_1st_ccy=StringSubstr(pending_orders_symbol,0,3);
-                    string pending_orders_2nd_ccy=StringSubstr(pending_orders_symbol,3,3);             
+                    string pending_orders_2nd_ccy=StringSubstr(pending_orders_symbol,3,3);
+                    bool delete_pending_order=false;           
                     
                     if(market_trades_direction==OP_BUY && pending_orders_direction==OP_BUYLIMIT)
                       {
-                        if(market_trades_1st_ccy==pending_orders_1st_ccy) 
-                          {
-                            try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
-                            last_trades_count=trades_count;
-                          }
-                        if(market_trades_2nd_ccy==pending_orders_2nd_ccy) 
-                          {
-                            try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter  
-                            last_trades_count=trades_count;      
-                          }              
+                        if(market_trades_1st_ccy==pending_orders_1st_ccy) delete_pending_order=true;
+                        else if(market_trades_2nd_ccy==pending_orders_2nd_ccy) delete_pending_order=true;      
                       }
                     else if(market_trades_direction==OP_SELL && pending_orders_direction==OP_SELLLIMIT)
                       {
-                        if(market_trades_1st_ccy==pending_orders_1st_ccy)
-                          {
-                            try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
-                            last_trades_count=trades_count;
-                          }
-                        if(market_trades_2nd_ccy==pending_orders_2nd_ccy)
-                          {
-                            try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter    
-                            last_trades_count=trades_count;
-                          }                                           
+                        if(market_trades_1st_ccy==pending_orders_1st_ccy) delete_pending_order=true;
+                        else if(market_trades_2nd_ccy==pending_orders_2nd_ccy) delete_pending_order=true;       
                       }
                     else if(market_trades_direction==OP_BUY && pending_orders_direction==OP_SELLLIMIT)
                       {
-                        if(market_trades_1st_ccy==pending_orders_2nd_ccy) 
-                          {
-                            try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
-                            last_trades_count=trades_count;
-                          }
-                        if(market_trades_2nd_ccy==pending_orders_1st_ccy) 
-                          {
-                            try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter 
-                            last_trades_count=trades_count;
-                          }
+                        if(market_trades_1st_ccy==pending_orders_2nd_ccy) delete_pending_order=true;
+                        else if(market_trades_2nd_ccy==pending_orders_1st_ccy) delete_pending_order=true;
                       }
                     else if(market_trades_direction==OP_SELL && pending_orders_direction==OP_BUYLIMIT)
                       {
-                        if(market_trades_1st_ccy==pending_orders_2nd_ccy) 
-                          {
-                            try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
-                            last_trades_count=trades_count;
-                          }
-                        if(market_trades_2nd_ccy==pending_orders_1st_ccy) 
-                          {
-                            try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
-                            last_trades_count=trades_count;
-                          }
+                        if(market_trades_1st_ccy==pending_orders_2nd_ccy) delete_pending_order=true;
+                        else if(market_trades_2nd_ccy==pending_orders_1st_ccy) delete_pending_order=true;
+                      }
+                    if(delete_pending_order==true)
+                      {
+                        try_to_exit_order(OrderTicket(),exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
+                        last_trades_count=trades_count;
                       }
                   }
               }
           }  
       }
   }
-
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int last_market_trade_ticket() 
 {
   datetime order_time=-1;
