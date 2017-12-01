@@ -338,6 +338,9 @@ void OnTick()
    int _exiting_max_slippage=exiting_max_slippage_pips;
    bool Relativity_EA_2_on=false;
    
+   cleanup_pending_orders();
+
+   
    Relativity_EA(EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
    
    if(Relativity_EA_2_on) Relativity_EA(EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
@@ -373,7 +376,7 @@ void Relativity_EA(int magic,datetime current_time,int exit_signal,int exit_sign
         {
          get_changed_ADR_pts(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent);
          average_spread_yesterday=calculate_avg_spread_yesterday(symbol);
-                 
+         
          /*static bool flag=true;
          if(flag) 
           {
@@ -2198,14 +2201,12 @@ int count_similar_orders(ENUM_DIRECTIONAL_MODE mode) // With pool, you can defin
     string this_first_ccy=StringSubstr(this_instrument,0,3);
     string this_second_ccy=StringSubstr(this_instrument,3,3);
    
-    Alert(this_first_ccy," ",this_second_ccy);
-    
     for(int i=OrdersTotal()-1;i>=0;i--) // You have to start iterating from the lower part (or 0) of the order array because the newest trades get sent to the start. Interate through the index from a not excessive index position (the middle of an index) to OrdersTotal()-1 // the oldest order in the list has index position 0
      {
       if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) // Problem: if the pool is MODE_HISTORY, that can be a lot of data to search. So make sure you calculated a not-excessive pools_end_index (the oldest order that is acceptable).
         {
         int other_trades_type=OrderType();
-        if(other_trades_type>1) 
+        if(other_trades_type>1) // if it is a pending order, break
           break;
         else
           {
@@ -2227,3 +2228,159 @@ int count_similar_orders(ENUM_DIRECTIONAL_MODE mode) // With pool, you can defin
       }
    return count;
   }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void cleanup_all_pending_orders(int max_ccy_directional_trades) 
+  { 
+    for(int i=OrdersTotal()-1;i>=0;i--) // You have to start iterating from the lower part (or 0) of the order array because the newest trades get sent to the start. Interate through the index from a not excessive index position (the middle of an index) to OrdersTotal()-1 // the oldest order in the list has index position 0
+     {
+      if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) // Problem: if the pool is MODE_HISTORY, that can be a lot of data to search. So make sure you calculated a not-excessive pools_end_index (the oldest order that is acceptable).
+        {
+        int market_orders_direction=OrderType();
+        if(market_orders_direction>1) // if it is a pending order
+          break;
+        else
+          {
+            string market_orders_symbol=OrderSymbol();
+            string market_orders_1st_ccy=StringSubstr(market_orders_symbol,0,3);
+            string market_orders_2nd_ccy=StringSubstr(market_orders_symbol,3,3);
+            for(int j=OrdersTotal()-1;j>=0;j--)
+              {
+                if(OrderSelect(j,SELECT_BY_POS,MODE_TRADES)) // Problem: if the pool is MODE_HISTORY, that can be a lot of data to search. So make sure you calculated a not-excessive pools_end_index (the oldest order that is acceptable).
+                  {
+                    int pending_orders_direction=OrderType();
+                    if(pending_orders_direction<=1) // if it is a market order
+                      break;
+                    else
+                      {
+                        int pending_order=OrderTicket();
+                        string pending_orders_symbol=OrderSymbol();
+                        string pending_orders_1st_ccy=StringSubstr(pending_orders_symbol,0,3);
+                        string pending_orders_2nd_ccy=StringSubstr(pending_orders_symbol,3,3);             
+                        
+                        if(market_orders_direction==OP_BUY && pending_orders_direction==OP_BUYLIMIT)
+                          {
+                            if(market_orders_1st_ccy==pending_orders_1st_ccy) try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
+                            if(market_orders_2nd_ccy==pending_orders_2nd_ccy) try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter                      
+                          }
+                        else if(market_orders_direction==OP_SELL && pending_orders_direction==OP_SELLLIMIT)
+                          {
+                            if(market_orders_1st_ccy==pending_orders_1st_ccy) try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
+                            if(market_orders_2nd_ccy==pending_orders_2nd_ccy) try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter                                               
+                          }
+                        else if(market_orders_direction==OP_BUY && pending_orders_direction==OP_SELLLIMIT)
+                          {
+                            if(market_orders_1st_ccy==pending_orders_2nd_ccy) try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
+                            if(market_orders_2nd_ccy==pending_orders_1st_ccy) try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter 
+                          }
+                        else if(market_orders_direction==OP_SELL && pending_orders_direction==OP_BUYLIMIT)
+                          {
+                            if(market_orders_1st_ccy==pending_orders_2nd_ccy) try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
+                            if(market_orders_2nd_ccy==pending_orders_1st_ccy) try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter 
+                          }
+                    }
+                  }
+              }  
+          }
+        }
+      } 
+  }
+  
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void cleanup_pending_orders() // deletes pending orders where the single currency of the market order would be the same direction of the single currency in the pending order
+  { 
+    static int last_trades_count=0;
+    int trades_count=count_orders(ORDER_SET_MARKET,-1,MODE_TRADES,OrdersTotal()-1);
+    
+    if(last_trades_count<trades_count) // every time a limit order gets triggered and becomes a market order
+      {
+        int market_trades_direction;
+        do
+          {
+            int i=0; 
+            OrderSelect(i,SELECT_BY_POS,MODE_TRADES); // select the most recent market order in the index     
+            market_trades_direction=OrderType();
+            i++;
+          }
+        while(market_trades_direction>1 && !IsStopped()); // select the morst recent market order in the index
+     
+        string market_trades_symbol=OrderSymbol();
+        string market_trades_1st_ccy=StringSubstr(market_trades_symbol,0,3);
+        string market_trades_2nd_ccy=StringSubstr(market_trades_symbol,3,3);
+        
+        for(int j=OrdersTotal()-1;j>=0;j--)
+          {
+            if(OrderSelect(j,SELECT_BY_POS,MODE_TRADES))
+              {
+                int pending_orders_direction=OrderType();
+                if(pending_orders_direction<=1) // if it is a market order
+                  break;
+                else
+                  {
+                    int pending_order=OrderTicket();
+                    string pending_orders_symbol=OrderSymbol();
+                    string pending_orders_1st_ccy=StringSubstr(pending_orders_symbol,0,3);
+                    string pending_orders_2nd_ccy=StringSubstr(pending_orders_symbol,3,3);             
+                    
+                    if(market_trades_direction==OP_BUY && pending_orders_direction==OP_BUYLIMIT)
+                      {
+                        if(market_trades_1st_ccy==pending_orders_1st_ccy) 
+                          {
+                            try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
+                            last_trades_count=trades_count;
+                          }
+                        if(market_trades_2nd_ccy==pending_orders_2nd_ccy) 
+                          {
+                            try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter  
+                            last_trades_count=trades_count;      
+                          }              
+                      }
+                    else if(market_trades_direction==OP_SELL && pending_orders_direction==OP_SELLLIMIT)
+                      {
+                        if(market_trades_1st_ccy==pending_orders_1st_ccy)
+                          {
+                            try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
+                            last_trades_count=trades_count;
+                          }
+                        if(market_trades_2nd_ccy==pending_orders_2nd_ccy)
+                          {
+                            try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter    
+                            last_trades_count=trades_count;
+                          }                                           
+                      }
+                    else if(market_trades_direction==OP_BUY && pending_orders_direction==OP_SELLLIMIT)
+                      {
+                        if(market_trades_1st_ccy==pending_orders_2nd_ccy) 
+                          {
+                            try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
+                            last_trades_count=trades_count;
+                          }
+                        if(market_trades_2nd_ccy==pending_orders_1st_ccy) 
+                          {
+                            try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter 
+                            last_trades_count=trades_count;
+                          }
+                      }
+                    else if(market_trades_direction==OP_SELL && pending_orders_direction==OP_BUYLIMIT)
+                      {
+                        if(market_trades_1st_ccy==pending_orders_2nd_ccy) 
+                          {
+                            try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
+                            last_trades_count=trades_count;
+                          }
+                        if(market_trades_2nd_ccy==pending_orders_1st_ccy) 
+                          {
+                            try_to_exit_order(pending_order,exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
+                            last_trades_count=trades_count;
+                          }
+                      }
+                  }
+              }
+          }  
+      }
+  }
+
+  
