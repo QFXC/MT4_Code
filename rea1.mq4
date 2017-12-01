@@ -338,8 +338,7 @@ void OnTick()
    int _exiting_max_slippage=exiting_max_slippage_pips;
    bool Relativity_EA_2_on=false;
    
-   cleanup_pending_orders();
-
+   cleanup_risky_pending_orders(); // it cleans them up only if there was a new market order detected
    
    Relativity_EA(EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
    
@@ -435,7 +434,6 @@ void Relativity_EA(int magic,datetime current_time,int exit_signal,int exit_sign
          
          if(enter_signal==TRADE_SIGNAL_BUY)
            {
-            if(count_similar_orders(BUYING_MODE)>1) return; // count all similar orders for all magic numbers in the account
             ENUM_ORDER_SET order_set=ORDER_SET_LONG;
             ENUM_ORDER_SET order_set2=ORDER_SET_SHORT_LONG_LIMIT_MARKET;
             
@@ -474,9 +472,7 @@ void Relativity_EA(int magic,datetime current_time,int exit_signal,int exit_sign
               }
            }
          else if(enter_signal==TRADE_SIGNAL_SELL)
-           {
-            if(count_similar_orders(SELLING_MODE)>1) return; // count all similar orders for all magic numbers in the account
-            
+           {   
             ENUM_ORDER_SET order_set=ORDER_SET_SHORT;
             ENUM_ORDER_SET order_set2=ORDER_SET_SHORT_LONG_LIMIT_MARKET;
             
@@ -2194,16 +2190,16 @@ int compare_doubles(double var1,double var2,int precision) // For the precision 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int count_similar_orders(ENUM_DIRECTIONAL_MODE mode) // With pool, you can define whether to count current orders (MODE_TRADES) or closed and cancelled orders (MODE_HISTORY).
+int count_similar_orders(ENUM_DIRECTIONAL_MODE mode)
   {
     int count=0;
     string this_instrument=OrderSymbol();
     string this_first_ccy=StringSubstr(this_instrument,0,3);
     string this_second_ccy=StringSubstr(this_instrument,3,3);
    
-    for(int i=OrdersTotal()-1;i>=0;i--) // You have to start iterating from the lower part (or 0) of the order array because the newest trades get sent to the start. Interate through the index from a not excessive index position (the middle of an index) to OrdersTotal()-1 // the oldest order in the list has index position 0
+    for(int i=OrdersTotal()-1;i>=0;i--) // You have to start iterating from the lower part (or 0) of the order array because the newest trades get sent to the start. 
      {
-      if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) // Problem: if the pool is MODE_HISTORY, that can be a lot of data to search. So make sure you calculated a not-excessive pools_end_index (the oldest order that is acceptable).
+      if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
         {
         int other_trades_type=OrderType();
         if(other_trades_type>1) // if it is a pending order, break
@@ -2290,23 +2286,16 @@ void cleanup_all_pending_orders(int max_ccy_directional_trades)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void cleanup_pending_orders() // deletes pending orders where the single currency of the market order would be the same direction of the single currency in the pending order
+void cleanup_risky_pending_orders() // deletes pending orders where the single currency of the market order would be the same direction of the single currency in the pending order
   { 
     static int last_trades_count=0;
     int trades_count=count_orders(ORDER_SET_MARKET,-1,MODE_TRADES,OrdersTotal()-1);
     
     if(last_trades_count<trades_count) // every time a limit order gets triggered and becomes a market order
       {
-        int market_trades_direction;
-        do
-          {
-            int i=0; 
-            OrderSelect(i,SELECT_BY_POS,MODE_TRADES); // select the most recent market order in the index     
-            market_trades_direction=OrderType();
-            i++;
-          }
-        while(market_trades_direction>1 && !IsStopped()); // select the morst recent market order in the index
-     
+        int market_trade=OrderSelect(last_market_trade_ticket(),SELECT_BY_TICKET);
+        if(market_trade<=0) return;
+        int market_trades_direction=OrderType();
         string market_trades_symbol=OrderSymbol();
         string market_trades_1st_ccy=StringSubstr(market_trades_symbol,0,3);
         string market_trades_2nd_ccy=StringSubstr(market_trades_symbol,3,3);
@@ -2383,4 +2372,33 @@ void cleanup_pending_orders() // deletes pending orders where the single currenc
       }
   }
 
-  
+int last_market_trade_ticket() 
+{
+  datetime order_time=-1;
+  int count=0;
+  int ticket=0;
+
+  for(int i=OrdersTotal()-1;i>=0;i--) 
+    {
+      if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) 
+        {
+          if(OrderType()<=1 && OrderOpenTime()>order_time) 
+            {     
+              order_time=OrderOpenTime();
+            }
+        }
+    }
+  for(int i=OrdersTotal()-1;i>=0;i--) 
+    {
+      if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+        {
+          if(OrderType()<=1 && OrderOpenTime()==order_time) 
+            {
+              count++;
+              ticket=OrderTicket();
+            }
+        }
+    }
+   if(count>0) Print("Warning! There are ",count," market trades that have the same time and this situation may result in a single currency in two different currency pairs being traded in the same direction."); // TODO: create an email alert
+   return(ticket);
+}
