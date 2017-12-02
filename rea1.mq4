@@ -119,16 +119,18 @@ enum ENUM_MM // Money Management
   input string space_2="----------------------------------------------------------------------------------------";
   
 // time filters - only allow EA to enter trades between a range of time in a day
+	input int gmt_hour_offset=-2; //gmt_hour_offset: -2 if using Gain Capital. The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). Adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
 	input int start_time_hour=0; //start_time_hour: 0-23
 	input int start_time_minute=30; //start_time_minute: 0-59
-	input int end_time_hour=23; //end_time_hour: 0-23
+	input int end_time_hour=19; //end_time_hour: 0-23
 	input int end_time_minute=0; //end_time_minute: 0-59
 	input bool trade_friday=false;
-	/*input*/ int fri_end_time_hour=14; //fri_end_time_hour: 0-23
+	/*input*/ int fri_end_time_hour=23; //fri_end_time_hour: 0-23
 	/*input*/ int fri_end_time_minute=0; //fri_end_time_minute: 0-59
+	input bool exit_trades_EOD=true;
   input int exit_time_hour=23; //exit_time_hour: should be before the trading range start_time and after trading range end_time
   input int exit_time_minute=30; //exit_time_minute: 0-59
-	input int gmt_hour_offset=-2; //gmt_hour_offset: -3 if using Gain Capital. The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). Adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
+  /*input*/ bool exit_before_friday_close=true;
   
   input string space_3="----------------------------------------------------------------------------------------";
   
@@ -220,9 +222,6 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set)
     
     Print("tick_value: ",DoubleToStr(tick_value));
     Print("Point: ",DoubleToStr(point));
-    Print("Point: ",DoubleToStr(Point));
-    Print("Point: ",DoubleToStr(Point()));
-    Print("new_point (Point*10): ",DoubleToStr(new_point));
     Print("spread before the function calls: ",DoubleToStr(spread));
     Print("ADR_pts: ",DoubleToStr(ADR_pts)); 
     Print("bid_price: ",DoubleToStr(bid_price));
@@ -231,8 +230,6 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set)
     Print("max_lot: ",DoubleToStr(max_lot));
     Print("lot_digits: ",IntegerToString(lot_digits)," after the decimal point.");
     Print("broker digits: ",IntegerToString(digits)," after the decimal point.");
-    Print("broker digits: ",IntegerToString(Digits())," after the decimal point.");
-
       // TODO: check if the broker has Sunday's as a server time, and, if not, block all the code you wrote to count Sunday's from running
       
       
@@ -331,14 +328,14 @@ string getUninitReasonText(int reasonCode)
   
 void OnTimer()
   {
-   datetime current_time=(datetime)MarketInfo(symbol,MODE_TIME);
+   datetime current_time=(datetime)MarketInfo(Symbol(),MODE_TIME);
    int exit_signal=TRADE_SIGNAL_NEUTRAL, exit_signal_2=TRADE_SIGNAL_NEUTRAL; // 0
    int _exiting_max_slippage=exiting_max_slippage_pips;
    bool Relativity_EA_2_on=false;
    is_new_M5_bar=is_new_M5_bar(wait_next_M5_on_load);
    is_new_D1_bar=is_new_D1_bar();
    
-   bool answer=Relativity_EA_ran(symbol,EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
+   bool answer=Relativity_EA_ran(Symbol(),EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
    
    if(Relativity_EA_2_on) Relativity_EA_ran(symbol,EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
   }
@@ -372,11 +369,15 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
       exit_all_trades_set(_exiting_max_slippage,ORDER_SET_MARKET,magic,(int)(active_order_expire*3600),current_time); // This runs every 5 minutes (whether the time is in_time_range or not). It only exit trades that have been on for too long and haven't hit stoploss or takeprofit.
       in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,fri_end_time_hour,fri_end_time_minute,gmt_hour_offset);
       get_moves_start_bar(H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week); // this is here so the vertical line can get moved every 5 minutes
-
+      
+      /*Print("in time range ",in_time_range);
+      Print("ready ",ready);
+      Print("avg spread yesterday ",average_spread_yesterday);*/
+      
       if(in_time_range==true && ready==false && average_spread_yesterday!=-1) 
         {
-         get_changed_ADR_pts(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent);
-         average_spread_yesterday=calculate_avg_spread_yesterday(instrument);
+         get_changed_ADR_pts(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent); // 23:05
+         average_spread_yesterday=calculate_avg_spread_yesterday(instrument); // 23:05
          
          /*static bool flag=true;
          if(flag) 
@@ -406,11 +407,34 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
                   " would have allowed the EA make trades in this currency pair today.");
             average_spread_yesterday=-1; // keep this at -1 because an if statement depends on it
            }
+           
+          /*static bool flag4=false;
+          if(flag4==false)
+            {
+              Print("ADR points are ",DoubleToStr(ADR_pts)," at ",TimeToString(current_time));
+              flag4=true;       
+            }
+          static bool flag5=false;
+          if(flag5==false)
+            {
+              Print("is_acceptable_spread is ",is_acceptable_spread," at ", TimeToString(current_time));
+              flag5=true;       
+            }*/
+                 
+           
+           
          if(ADR_pts>0 && magic>0 && is_acceptable_spread==true)
            {
             ready=true; // the ADR and average spread yesterday that has just been calculated won't generate again until after the cycle of not being in the time range completes
             uptrend_triggered=false;
             downtrend_triggered=false;
+            
+          /*static bool flag3=false;
+          if(flag3==false)
+            {
+              Print("ready set to true at ",TimeToString(current_time));
+              flag3=true;       
+            }*/
            }
          else 
            {
@@ -423,7 +447,6 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
      }
    if(ready && in_time_range)
      {
-      //Print("ready && in_time_range");
       int enter_signal=TRADE_SIGNAL_NEUTRAL; // 0
     
       enter_signal=signal_pullback_after_ADR_triggered(); // this is the first signal and will apply to all signal sets so it gets run first
@@ -512,6 +535,12 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
      }
     else
      {
+      static bool flag1=false;
+      if(flag1==false)
+        {
+          Print("not in time range: ",TimeToString(current_time)); // 20:00
+          flag1=true;       
+        }
        ready=false; // this makes sure to set it to false so when the time is within the time range again, the ADR can get generated
        uptrend_triggered=true;
        downtrend_triggered=true;
@@ -519,12 +548,35 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
        average_spread_yesterday=0; // do not change this from 0
        //Print("Out of time range");
 
-       if(is_new_M5_bar)
+       if(exit_trades_EOD && is_new_M5_bar)
         {
-         bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
-         //Alert(time_to_exit);
-         if(time_to_exit==true) exit_all_trades_set(_exiting_max_slippage,ORDER_SET_ALL,magic); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
+          bool time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
+          if(time_to_exit) 
+            {
+              // 21:30
+              exit_all_trades_set(_exiting_max_slippage,ORDER_SET_ALL,magic); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
+              static bool flag=false;
+              if(flag==false)
+                {
+                  Print("time_to_exit: ",TimeToString(current_time));
+                  flag=true;
+                }
+            }
+          //Alert(time_to_exit);
         }
+       if(DayOfWeek()==5 && exit_before_friday_close)
+         {
+            exit_all_trades_set(_exiting_max_slippage,ORDER_SET_ALL,magic); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
+         }
+       /*if(ObjectFind(instrument+"_end_time")<0) 
+          {
+            ObjectCreate(instrument+"_end_time",OBJ_VLINE,0,current_time,Bid);
+            ObjectSet(instrument+"_end_time",OBJPROP_COLOR,clrWhite);
+          }
+       else
+          {
+            ObjectMove(instrument+"_end_time",0,current_time,Bid);
+          }*/
      }
     return true;
   }
@@ -881,6 +933,7 @@ started work on a different option if the one above does not work out.
 //+------------------------------------------------------------------+
 bool in_time_range(datetime time,int start_hour,int start_min,int end_hour,int end_min,int fri_end_time_hr, int fri_end_time_min, int gmt_offset=0)
   {
+   double bid_price=MarketInfo(symbol,MODE_BID);
    int day=DayOfWeek();
    if(day==0) 
      return false; // if the broker's server time says it is Sunday, you are not in your trading time range // TODO: uncomment this line
@@ -895,6 +948,7 @@ bool in_time_range(datetime time,int start_hour,int start_min,int end_hour,int e
      {
       start_hour+=gmt_offset;
       end_hour+=gmt_offset;
+      fri_end_time_hour+=gmt_offset;
      }
 // Since a non-zero gmt_offset will make the start and end hour go beyond acceptable paremeters (below 0 or above 23), change the start_hour and end_hour to military time.
    if(start_hour>23) start_hour=(start_hour-23)-1;
@@ -902,12 +956,39 @@ bool in_time_range(datetime time,int start_hour,int start_min,int end_hour,int e
    if(end_hour>23) end_hour=(end_hour-23)-1;
    else if(end_hour<0) end_hour=(23+end_hour)+1;
    
-   int hour=TimeHour(time);
-   int minute=TimeMinute(time);
-   int current_time=(hour*3600)+(minute*60);
+   /*Print("start_hour: ",start_hour);
+   Print("start_min: ",start_min);
+   Print("end_hour: ",end_hour);
+   Print("end_min: ",end_min);*/
+    
+   int current_time=(TimeHour(time)*3600)+(TimeMinute(time)*60);
    int start_time=(start_hour*3600)+(start_min*60);
    int end_time=(end_hour*3600)+(end_min*60);
    
+   /*Print("current_time ",TimeToStr(current_time));
+   Print("start_time ",TimeToStr(start_time));
+   Print("end_time ",TimeToStr(end_time));*/
+   
+   if(ObjectFind(Symbol()+"_start_time_today")<0) 
+      {
+        ObjectCreate(Symbol()+"_start_time_today",OBJ_VLINE,0,iTime(Symbol(),PERIOD_D1,0)+start_time,bid_price);
+        ObjectSet(Symbol()+"_start_time_today",OBJPROP_COLOR,clrGreen);
+        ObjectCreate(Symbol()+"_start_time_yesterday",OBJ_VLINE,0,iTime(Symbol(),PERIOD_D1,1)+start_time,bid_price);
+        ObjectSet(Symbol()+"_start_time_yesterday",OBJPROP_COLOR,clrGreen);
+
+        ObjectCreate(Symbol()+"_end_time_today",OBJ_VLINE,0,iTime(Symbol(),PERIOD_D1,0)+end_time,bid_price);
+        ObjectSet(Symbol()+"_end_time_today",OBJPROP_COLOR,clrRed);
+        ObjectCreate(Symbol()+"_end_time_yesterday",OBJ_VLINE,0,iTime(Symbol(),PERIOD_D1,1)+end_time,bid_price);
+        ObjectSet(Symbol()+"_end_time_yesterday",OBJPROP_COLOR,clrRed);
+      }
+   else
+      {
+        ObjectMove(Symbol()+"_start_time_today",0,iTime(Symbol(),PERIOD_D1,0)+start_time,bid_price);
+        ObjectMove(Symbol()+"_start_time_yesterday",0,iTime(Symbol(),PERIOD_D1,1)+start_time,bid_price); 
+        ObjectMove(Symbol()+"_end_time_today",0,iTime(Symbol(),PERIOD_D1,0)+end_time,bid_price);
+        ObjectMove(Symbol()+"_end_time_yesterday",0,iTime(Symbol(),PERIOD_D1,1)+end_time,bid_price);       
+      }
+
    if(start_time==end_time) // making sure that the start_time is classified as in the range
       return true;
    else if(start_time<end_time) // for the case when the user sets the start time to be less than the end time
@@ -929,10 +1010,10 @@ bool in_time_range(datetime time,int start_hour,int start_min,int end_hour,int e
 //+------------------------------------------------------------------+
 bool time_to_exit(datetime time,int exit_hour,int exit_min,int gmt_offset=0) 
   {
+   double bid_price=MarketInfo(symbol,MODE_BID);
    string instrument=Symbol();
    if(gmt_offset!=0) 
      {
-      exit_hour+=gmt_offset;
       exit_hour+=gmt_offset;
      }
 // Since a non-zero gmt_offset will make the start and end hour go beyond acceptable paremeters (below 0 or above 23), change the start_hour and end_hour to military time.
@@ -946,14 +1027,15 @@ bool time_to_exit(datetime time,int exit_hour,int exit_min,int gmt_offset=0)
 
      if(exit_time==current_time)
       {
-        if(ObjectFind(instrument+"_time_to_exit")<0) 
+       if(ObjectFind(instrument+"_time_to_exit")<0) 
           {
-            ObjectCreate(instrument+"_time_to_exit",OBJ_VLINE,0,TimeCurrent(),Bid);
-            ObjectSet(instrument+"_time_to_exit",OBJPROP_COLOR,clrWhite);
+            ObjectCreate(instrument+"_time_to_exit",OBJ_VLINE,0,TimeCurrent(),bid_price);
+            ObjectSet(instrument+"_time_to_exit",OBJPROP_COLOR,clrRed);
+            ObjectSet(instrument+"_time_to_exit",OBJPROP_STYLE,STYLE_DASH);            
           }
         else
           {
-            ObjectMove(instrument+"_time_to_exit",0,TimeCurrent(),Bid);
+            ObjectMove(instrument+"_time_to_exit",0,TimeCurrent(),bid_price);
           }
         return true; // this will only give the signal to exit for every tick for 1 minute per day
       }
@@ -1123,29 +1205,31 @@ void get_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_out
   {
      double raw_ADR_pts=get_raw_ADR_pts(hours_to_roll,low_outlier,high_outlier);
      string instrument=Symbol();
+     int digits=(int)MarketInfo(symbol,MODE_DIGITS);
+     double bid_price=MarketInfo(symbol,MODE_BID);
      
      if(ObjectFind(instrument+"_ADR_pts")<0) 
       {
-        ObjectCreate(instrument+"_ADR_pts",OBJ_TEXT,0,TimeCurrent(),Bid);
+        ObjectCreate(instrument+"_ADR_pts",OBJ_TEXT,0,TimeCurrent(),bid_price);
         ObjectSetText(instrument+"_ADR_pts","0",15,NULL,clrWhite);
       }
      
      if(raw_ADR_pts>0 && (change_by==0 || change_by==NULL))
       { 
         Print("The raw ADR for ",Symbol()," was generated. It is ",DoubleToString(raw_ADR_pts)," pips.");
-        ADR_pts=NormalizeDouble(raw_ADR_pts,Digits);
-        ObjectSetText(instrument+"_ADR_pts",DoubleToString(ADR_pts*100,Digits),0,NULL,clrWhite);
-        ObjectMove(instrument+"_ADR_pts",0,TimeCurrent(),Bid+ADR_pts/4);
+        ADR_pts=NormalizeDouble(raw_ADR_pts,digits);
+        ObjectSetText(instrument+"_ADR_pts",DoubleToString(ADR_pts*100,digits),0,NULL,clrWhite);
+        ObjectMove(instrument+"_ADR_pts",0,TimeCurrent(),bid_price+ADR_pts/4);
      
         //Print("raw_ADR_pts: ",DoubleToString(raw_ADR_pts));
       }
      else if(raw_ADR_pts>0)
       {
-        double changed_ADR_pts=NormalizeDouble(((raw_ADR_pts*change_by)+raw_ADR_pts),Digits); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
-        Print("The raw ADR for ",Symbol()," was just generated. It is ",DoubleToString(raw_ADR_pts,Digits)," pips. As requested by the user, it has been changed to ",DoubleToString(changed_ADR_pts)," pips.");
+        double changed_ADR_pts=NormalizeDouble(((raw_ADR_pts*change_by)+raw_ADR_pts),digits); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
+        Print("The raw ADR for ",Symbol()," was just generated. It is ",DoubleToString(raw_ADR_pts,digits)," pips. As requested by the user, it has been changed to ",DoubleToString(changed_ADR_pts)," pips.");
         ADR_pts=changed_ADR_pts;
-        ObjectSetText(instrument+"_ADR_pts",DoubleToString(changed_ADR_pts*100,Digits),0);
-        ObjectMove(instrument+"_ADR_pts",0,TimeCurrent(),Bid+ADR_pts/4);
+        ObjectSetText(instrument+"_ADR_pts",DoubleToString(changed_ADR_pts*100,digits),0);
+        ObjectMove(instrument+"_ADR_pts",0,TimeCurrent(),bid_price+ADR_pts/4);
       }
   }
 //+------------------------------------------------------------------+
@@ -1156,12 +1240,16 @@ int get_moves_start_bar(double _H1s_to_roll,int gmt_offset,double _max_weekend_g
    int moves_start_bar=(int)_H1s_to_roll*12-1; // any double divisible by .5 will always be an integer when multiplied by an even number like 12 so it is okay to convert it into an int
    datetime week_start_open_time=iTime(symbol,PERIOD_W1,0)+(gmt_offset*3600); // The iTime of the week bar gives you the time that the week is 0:00 on the chart so I shifted the time to start when the markets actually start.
    int weeks_start_bar=iBarShift(symbol,PERIOD_M5,week_start_open_time,false);
-
+   int digits=(int)MarketInfo(symbol,MODE_DIGITS);
    string instrument=Symbol();
    datetime time_anchor=iTime(symbol,PERIOD_M5,moves_start_bar);
    double price_anchor=iOpen(symbol,PERIOD_M5,moves_start_bar);
    
-   if(ObjectFind(instrument+"_Move_Start")<0) ObjectCreate(instrument+"_Move_Start",OBJ_VLINE,0,time_anchor,price_anchor);
+   if(ObjectFind(instrument+"_Move_Start")<0) 
+     {
+      ObjectCreate(instrument+"_Move_Start",OBJ_VLINE,0,time_anchor,price_anchor);
+      ObjectSet(instrument+"_Move_Start",OBJPROP_COLOR,clrWhite);
+     }
    if(moves_start_bar<=weeks_start_bar)
      {
       ObjectSet(instrument+"_Move_Start",OBJPROP_TIME1,iTime(instrument,PERIOD_M5,moves_start_bar));
@@ -1171,7 +1259,7 @@ int get_moves_start_bar(double _H1s_to_roll,int gmt_offset,double _max_weekend_g
    else if(_include_last_week)
      {
       double weekend_gap_points=MathAbs(iClose(symbol,PERIOD_W1,1)-iOpen(instrument,PERIOD_W1,0));
-      double max_weekend_gap_points=NormalizeDouble(ADR_pts*_max_weekend_gap_percent,Digits);
+      double max_weekend_gap_points=NormalizeDouble(ADR_pts*_max_weekend_gap_percent,digits);
       
       if(weekend_gap_points>=max_weekend_gap_points) // TODO: use compare_doubles()?
         {
@@ -1547,11 +1635,12 @@ void exit_all_trades_set(int max_slippage_pips,ENUM_ORDER_SET type_needed=ORDER_
 bool acceptable_spread(string instrument,double _max_spread_percent,bool _based_on_raw_ADR=true,double spread_pts_provided=0,bool refresh_rates=false)
   {
    double _spread_pts=0;
+   int digits=(int)MarketInfo(symbol,MODE_DIGITS);
    
    if(refresh_rates) RefreshRates();
    if(spread_pts_provided==0)
     {
-     _spread_pts=NormalizeDouble(MarketInfo(instrument,MODE_SPREAD)/100,Digits); //  divide by 10? already normalized. I put this check here because the rates were just refereshed.
+     _spread_pts=NormalizeDouble(MarketInfo(instrument,MODE_SPREAD)/100,digits); //  divide by 10? already normalized. I put this check here because the rates were just refereshed.
     }
    else
     {
@@ -1559,11 +1648,11 @@ bool acceptable_spread(string instrument,double _max_spread_percent,bool _based_
     }
    if(_based_on_raw_ADR)
     {
-      if(compare_doubles(_spread_pts,(((ADR_pts*change_ADR_percent)+ADR_pts)*_max_spread_percent),Digits)<=0) return true; // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+      if(compare_doubles(_spread_pts,(((ADR_pts*change_ADR_percent)+ADR_pts)*_max_spread_percent),digits)<=0) return true; // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
     }
    else
     {
-      if(compare_doubles(_spread_pts,NormalizeDouble((ADR_pts*_max_spread_percent),Digits),Digits)<=0) return true; // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+      if(compare_doubles(_spread_pts,NormalizeDouble((ADR_pts*_max_spread_percent),digits),digits)<=0) return true; // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
     }
    return false;
   }
@@ -1572,6 +1661,7 @@ bool acceptable_spread(string instrument,double _max_spread_percent,bool _based_
 //+------------------------------------------------------------------+
 double calculate_avg_spread_yesterday(string instrument)
   {
+   int digits=(int)MarketInfo(symbol,MODE_DIGITS);
     /*datetime new_server_day=-1;
     datetime end_server_day=-1;
     double spread_total=0;
@@ -1605,7 +1695,7 @@ double calculate_avg_spread_yesterday(string instrument)
       }
     return NormalizeDouble(spread_total/(new_server_day_bar-end_server_day_bar),Digits); // return the average spread*/
     
-    double avg_spread_yesterday=NormalizeDouble(MarketInfo(symbol,MODE_SPREAD)/100*point_multiplier,Digits); // this line is temporary until I find a way to get spread history
+    double avg_spread_yesterday=NormalizeDouble(MarketInfo(symbol,MODE_SPREAD)/100*point_multiplier,digits); // this line is temporary until I find a way to get spread history
     Print("calculate_avg_spread_yesterday() returns: ",avg_spread_yesterday);
     return avg_spread_yesterday;
   }
@@ -1617,9 +1707,10 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips)
    double distance_pts;
    double periods_pivot_price;
    color arrow_color;
+   int digits=(int)MarketInfo(symbol,MODE_DIGITS);
    
    if(pullback_percent==0 || pullback_percent==NULL) distance_pts=0;
-   else distance_pts=NormalizeDouble((ADR_pts*pullback_percent)*point_multiplier,Digits);
+   else distance_pts=NormalizeDouble((ADR_pts*pullback_percent)*point_multiplier,digits);
    
    //Print("try_to_enter_order(): distance_pts: ",DoubleToString(distance_pts));
    
@@ -1638,23 +1729,23 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips)
    else return;
    
    RefreshRates(); // TODO: should you RefreshRates() here?
-   double spread_pts=NormalizeDouble(MarketInfo(symbol,MODE_SPREAD)/100,Digits);
+   double spread_pts=NormalizeDouble(MarketInfo(symbol,MODE_SPREAD)/100,digits);
    double lots=calculate_lots(money_management,risk_percent_per_ADR,spread_pts);
 
-   int ticket=check_for_entry_errors (symbol,
-                           type,
-                           lots,
-                           distance_pts, // the distance_pips you are sending to the function should always be positive
-                           periods_pivot_price,
-                           NormalizeDouble((ADR_pts*stoploss_percent)-distance_pts*point_multiplier,Digits),
-                           NormalizeDouble((ADR_pts*takeprofit_percent)*point_multiplier,Digits),
-                           max_slippage_pips,
-                           NormalizeDouble(spread_pts*point_multiplier,Digits),
-                           EA_name,
-                           magic,
-                           (int)(pending_order_expire*3600),
-                           arrow_color,
-                           market_exec);
+   int ticket=check_for_entry_errors(symbol,
+                                     type,
+                                     lots,
+                                     distance_pts, // the distance_pips you are sending to the function should always be positive
+                                     periods_pivot_price,
+                                     NormalizeDouble((ADR_pts*stoploss_percent)-distance_pts*point_multiplier,digits),
+                                     NormalizeDouble((ADR_pts*takeprofit_percent)*point_multiplier,digits),
+                                     max_slippage_pips,
+                                     NormalizeDouble(spread_pts*point_multiplier,digits),
+                                     EA_name,
+                                     magic,
+                                     (int)(pending_order_expire*3600),
+                                     arrow_color,
+                                     market_exec);
    if(ticket>0) cleanup_risky_pending_orders();
   }
 //+------------------------------------------------------------------+
@@ -1900,13 +1991,14 @@ double calculate_lots(ENUM_MM _money_management,double _risk_percent_per_ADR,dou
   {
     double points=0;
     double _stoploss_percent=stoploss_percent;
+    int digits=(int)MarketInfo(symbol,MODE_DIGITS);
 
     if(_money_management==MM_RISK_PERCENT_PER_ADR)
-      points=NormalizeDouble(ADR_pts/*+spread_pts*/,Digits); // Increase the Average Daily (pip) Range by adding the average (pip) spread because it is additional pips at risk everytime a trade is entered. As a result, the lots that get calculated will be lower (which will reduce the risk).
+      points=NormalizeDouble(ADR_pts+spread_pts,digits); // Increase the Average Daily (pip) Range by adding the average (pip) spread because it is additional pips at risk everytime a trade is entered. As a result, the lots that get calculated will be lower (which will reduce the risk).
     else if(ADR_pts>0 && _stoploss_percent>0)
-      points=NormalizeDouble((ADR_pts*_stoploss_percent)/*+spread_pts*/,Digits); // it could be 0 if stoploss_percent is set to 0 
+      points=NormalizeDouble((ADR_pts*_stoploss_percent)+spread_pts,digits); // it could be 0 if stoploss_percent is set to 0 
     else 
-      points=NormalizeDouble(ADR_pts/*+spread_pts*/,Digits);
+      points=NormalizeDouble(ADR_pts+spread_pts,digits);
 
     double lots=get_lots(_money_management,
                         symbol,
