@@ -201,6 +201,7 @@ int OnInit()
 //+------------------------------------------------------------------+
 int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set)
   {
+    EventSetTimer(60);
     //get_new_point();
     get_changed_ADR_pts(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent);
   
@@ -235,13 +236,13 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set)
       // TODO: check if the broker has Sunday's as a server time, and, if not, block all the code you wrote to count Sunday's from running
       
       
-      EA_1_magic_num=generate_magic_num(signal_set);
-      bool input_variables_valid=all_user_input_variables_valid();
-      
-      int range_start_time=(start_time_hour*3600)+(start_time_minute*60);
-      int range_end_time=(end_time_hour*3600)+(end_time_minute*60);
-      int exit_time=(exit_time_hour*3600)+(exit_time_minute*60);
-  
+    EA_1_magic_num=generate_magic_num(WindowExpertName(),signal_set);
+    bool input_variables_valid=all_user_input_variables_valid();
+    
+    int range_start_time=(start_time_hour*3600)+(start_time_minute*60);
+    int range_end_time=(end_time_hour*3600)+(end_time_minute*60);
+    int exit_time=(exit_time_hour*3600)+(exit_time_minute*60);
+
      // Print("The EA will not work properly. The input variables max_trades_in_direction, max_num_EAs_at_once, and max_trades_within_x_hours can't be 0 or negative.");
     
   
@@ -252,10 +253,10 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set)
         Alert("The initialization of the EA failed. Make sure that the trade exit_time_hour and exit_time_minute combination does not fall within the trading range start and end times or else there will be trouble!");
         return(INIT_FAILED);
       }
-    else if(EA_1_magic_num<=0)
+    else if(generate_magic_num(Symbol(),signal_set)<=0)
       {
-        Print("The initialization of the EA failed. There is not a valid magic number for the Expert Advisor (EA). Without one, the EA will not run correctly. Get a MQL4 programmer check the code to find out why.");
-        Alert("The initialization of the EA failed. There is not a valid magic number for the Expert Advisor (EA). Without one, the EA will not run correctly. Get a MQL4 programmer check the code to find out why.");
+        Print("The initialization of the EA failed. The magic number (",EA_1_magic_num,") is not a valid magic number for the Expert Advisor (EA). Without one, the EA will not run correctly. Get a MQL4 programmer check the code to find out why.");
+        Alert("The initialization of the EA failed. The magic number (",EA_1_magic_num,") is not a valid magic number for the Expert Advisor (EA). Without one, the EA will not run correctly. Get a MQL4 programmer check the code to find out why.");
         return(INIT_FAILED);
       }
     else if(!input_variables_valid)
@@ -310,7 +311,6 @@ string getUninitReasonText(int reasonCode)
          text="A new template was applied to chart";break;
       default:text="A different reason";
      }
-
    return text; 
   } 
 //+------------------------------------------------------------------+
@@ -325,29 +325,31 @@ string getUninitReasonText(int reasonCode)
 //+------------------------------------------------------------------+
   static bool ready=false, in_time_range=false;
 // timeframe changes
-  bool is_new_D1_bar;
   bool is_new_M5_bar;
-  bool wait_next_M5_on_load=false; //wait_next_M5_on_load: This setting currently affects all bars (including D1) so do not set it to true unless code changes are made. // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade or calculate ADR?
+  bool is_new_D1_bar;
+  /*input*/ bool wait_next_M5_on_load=false; //wait_next_M5_on_load: This setting currently affects all bars (including D1) so do not set it to true unless code changes are made. // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade or calculate ADR?
   
-void OnTick()
+void OnTimer()
   {
-   is_new_M5_bar=is_new_M5_bar(wait_next_M5_on_load);
-   is_new_D1_bar=is_new_D1_bar();
-   datetime current_time=TimeCurrent();
+   datetime current_time=(datetime)MarketInfo(symbol,MODE_TIME);
    int exit_signal=TRADE_SIGNAL_NEUTRAL, exit_signal_2=TRADE_SIGNAL_NEUTRAL; // 0
    int _exiting_max_slippage=exiting_max_slippage_pips;
    bool Relativity_EA_2_on=false;
+   is_new_M5_bar=is_new_M5_bar(wait_next_M5_on_load);
+   is_new_D1_bar=is_new_D1_bar();
    
-   cleanup_risky_pending_orders(); // it cleans them up only if there was a new market order detected
+   bool answer=Relativity_EA_ran(symbol,EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
    
-   Relativity_EA(EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
-   
-   if(Relativity_EA_2_on) Relativity_EA(EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
+   if(Relativity_EA_2_on) Relativity_EA_ran(symbol,EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
+  }
+void OnTick()
+  {
+   OnTimer();
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void Relativity_EA(int magic,datetime current_time,int exit_signal,int exit_signal_2,int _exiting_max_slippage)
+bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exit_signal,int exit_signal_2,int _exiting_max_slippage)
   {
    //string _symbol=symbol;
    
@@ -374,7 +376,7 @@ void Relativity_EA(int magic,datetime current_time,int exit_signal,int exit_sign
       if(in_time_range==true && ready==false && average_spread_yesterday!=-1) 
         {
          get_changed_ADR_pts(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent);
-         average_spread_yesterday=calculate_avg_spread_yesterday(symbol);
+         average_spread_yesterday=calculate_avg_spread_yesterday(instrument);
          
          /*static bool flag=true;
          if(flag) 
@@ -383,7 +385,7 @@ void Relativity_EA(int magic,datetime current_time,int exit_signal,int exit_sign
             flag=false;
           }*/
          
-         bool is_acceptable_spread=acceptable_spread(symbol,max_spread_percent,based_on_raw_ADR,average_spread_yesterday,false);
+         bool is_acceptable_spread=acceptable_spread(instrument,max_spread_percent,based_on_raw_ADR,average_spread_yesterday,false);
          
          if(is_acceptable_spread==false) 
            {
@@ -429,7 +431,7 @@ void Relativity_EA(int magic,datetime current_time,int exit_signal,int exit_sign
 
       if(enter_signal>0)
         {
-         int days_seconds=(int)(current_time-(iTime(symbol,PERIOD_D1,0))+(gmt_hour_offset*3600)); // i am assuming it is okay to typecast a datetime (iTime) into an int since datetime is count of the number of seconds since 1970
+         int days_seconds=(int)(current_time-(iTime(instrument,PERIOD_D1,0))+(gmt_hour_offset*3600)); // i am assuming it is okay to typecast a datetime (iTime) into an int since datetime is count of the number of seconds since 1970
          //int efficient_end_index=MathMin((MathMax(max_trades_within_x_hours*x_hours,max_directional_trades_each_day*24)*max_directional_trades_at_once*max_num_EAs_at_once-1),OrdersHistoryTotal()-1); // calculating the maximum orders that could have been placed so at least the program doesn't have to iterate through all orders in history (which can slow down the EA)
          
          if(enter_signal==TRADE_SIGNAL_BUY)
@@ -466,9 +468,7 @@ void Relativity_EA(int magic,datetime current_time,int exit_signal,int exit_sign
                RefreshRates();
                bool overbought_1=over_extended_trend(3,BUYING_MODE,HIGH_MINUS_LOW,.75,3,false);
                bool overbought_2=over_extended_trend(3,BUYING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,false);
-               if(overbought_1 || overbought_2) return;
-               try_to_enter_order(OP_BUY,magic,entering_max_slippage_pips); // TODO: uncomment this line
-
+               if(!overbought_1 || !overbought_2) try_to_enter_order(OP_BUY,magic,entering_max_slippage_pips); // TODO: uncomment this line
               }
            }
          else if(enter_signal==TRADE_SIGNAL_SELL)
@@ -505,8 +505,7 @@ void Relativity_EA(int magic,datetime current_time,int exit_signal,int exit_sign
                RefreshRates();
                bool oversold_1=over_extended_trend(3,SELLING_MODE,HIGH_MINUS_LOW,.75,3,false);
                bool oversold_2=over_extended_trend(3,SELLING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,false);
-               if(oversold_1 || oversold_2) return;
-               try_to_enter_order(OP_SELL,magic,entering_max_slippage_pips); // TODO: remove comments
+               if(!oversold_1 || !oversold_2) try_to_enter_order(OP_SELL,magic,entering_max_slippage_pips); // TODO: remove comments
               }
            }
         }
@@ -527,6 +526,7 @@ void Relativity_EA(int magic,datetime current_time,int exit_signal,int exit_sign
          if(time_to_exit==true) exit_all_trades_set(_exiting_max_slippage,ORDER_SET_ALL,magic); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
         }
      }
+    return true;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -809,7 +809,7 @@ void signal_manage(ENUM_TRADE_SIGNAL &entry,ENUM_TRADE_SIGNAL &exit)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int generate_magic_num(ENUM_SIGNAL_SET)
+int generate_magic_num(string instrument, ENUM_SIGNAL_SET)
   {
      /*int total_variable_count=10;
      string symbols_string=symbol;
@@ -819,15 +819,7 @@ int generate_magic_num(ENUM_SIGNAL_SET)
      
      // add all the double and int global input variables to the input_variables array which will allow the magic_int to be unique based upon how the user sets them
      
-     
-  
-    
-    
     // int max and min values https://docs.mql4.com/basis/types/integer
-    
-    
-    
-    
     
      int symbols_int=StrToInteger(symbols_string);
      string symbol_num_string=IntegerToString(symbols_int);
@@ -872,9 +864,17 @@ started work on a different option if the one above does not work out.
      return large_random_num;
      
    */
-   
-   return 1;
-   
+
+
+   int i, combined_letter_int=0, letter_int=0;
+   for(i=0; i<StringLen(instrument); i++)
+     {
+      letter_int=StringGetChar(instrument,i);
+      //Print(combined_letter_int,"+",letter_int);
+      combined_letter_int=(combined_letter_int<<5)+combined_letter_int+letter_int; // << Bitwise Left shift operator shifts all bits towards left by certain number of specified bits.
+      //Print(combined_letter_int);
+     }
+   return(combined_letter_int);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1641,7 +1641,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips)
    double spread_pts=NormalizeDouble(MarketInfo(symbol,MODE_SPREAD)/100,Digits);
    double lots=calculate_lots(money_management,risk_percent_per_ADR,spread_pts);
 
-   check_for_entry_errors (symbol,
+   int ticket=check_for_entry_errors (symbol,
                            type,
                            lots,
                            distance_pts, // the distance_pips you are sending to the function should always be positive
@@ -1655,6 +1655,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips)
                            (int)(pending_order_expire*3600),
                            arrow_color,
                            market_exec);
+   if(ticket>0) cleanup_risky_pending_orders();
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2334,8 +2335,8 @@ void cleanup_risky_pending_orders() // deletes pending orders of the entire acco
                       }
                     if(delete_pending_order==true)
                       {
-                        try_to_exit_order(OrderTicket(),exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
                         last_trades_count=trades_count;
+                        try_to_exit_order(OrderTicket(),exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
                       }
                   }
               }
@@ -2372,6 +2373,6 @@ int last_market_trade_ticket()
             }
         }
     }
-   if(count>0) Print("Warning! There are ",count," market trades that have the same time and this situation may result in a single currency in two different currency pairs being traded in the same direction."); // TODO: create an email alert
+   if(count>1) Print("Warning! There are ",count," market trades that have the same time and this situation may result in a single currency in two different currency pairs being traded in the same direction."); // TODO: create an email alert
    return(ticket);
 }
