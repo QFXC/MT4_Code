@@ -7,7 +7,7 @@
 #property link      "https://www.quantfxcapital.com"
 #property version   "1.05"
 #property strict
-// TODO: When strategy testing, make sure you have all the M5, D1, and W1 data because it is reference in the code.
+// TODO: When strategy testing, make sure you have all the M5, H1, D1, and W1 data because it is reference in the code.
 // TODO: Always use NormalizeDouble() when computing the price (or lots or ADR?) yourself. This is not necessary for internal functions like OrderOPenPrice(), OrderStopLess(),OrderClosePrice(),Bid,Ask
 // TODO: Use the compare_doubles() function to compare two doubles.
 // TODO: You may want to pass some values by reference (which means changing the value of a variable inside of a function by calling a different function.)
@@ -19,6 +19,15 @@ enum ENUM_SIGNAL_SET
    SIGNAL_SET_NONE=0,
    SIGNAL_SET_1=1,
    SIGNAL_SET_2=2
+  };
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+enum ENUM_TIME_FRAMES
+  {
+   M5=0,
+   D1=1,
+   W1=2
   };
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -119,26 +128,26 @@ enum ENUM_MM // Money Management
   input string space_2="----------------------------------------------------------------------------------------";
   
 // time filters - only allow EA to enter trades between a range of time in a day
-	input int gmt_hour_offset=-2; //gmt_hour_offset: -2 if using Gain Capital. The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). Adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
-	input int start_time_hour=0; //start_time_hour: 0-23
-	input int start_time_minute=30; //start_time_minute: 0-59
-	input int end_time_hour=19; //end_time_hour: 0-23
+	input int gmt_hour_offset=1;//-2; //gmt_hour_offset: -2 if using Gain Capital and 1 of using FXDD. The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). Adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
+	input int start_time_hour=0;//1; //start_time_hour: 0-23
+	input int start_time_minute=0; //start_time_minute: 0-59
+	input int end_time_hour=0;//19; //end_time_hour: 0-23
 	input int end_time_minute=0; //end_time_minute: 0-59
-	input bool trade_friday=false;
-	/*input*/ int fri_end_time_hour=23; //fri_end_time_hour: 0-23
-	/*input*/ int fri_end_time_minute=0; //fri_end_time_minute: 0-59
-	input bool exit_trades_EOD=true;
-  input int exit_time_hour=23; //exit_time_hour: should be before the trading range start_time and after trading range end_time
-  input int exit_time_minute=30; //exit_time_minute: 0-59
-  /*input*/ bool exit_before_friday_close=true;
+	input bool trade_friday=true;
+	input int fri_end_time_hour=11;//23; //fri_end_time_hour: 0-23
+	input int fri_end_time_minute=30; //fri_end_time_minute: 0-59
+	input bool exit_trades_EOD=false;
+  input int exit_time_hour=0;//23; //exit_time_hour: should be before the trading range start_time and after trading range end_time
+  input int exit_time_minute=0;//30; //exit_time_minute: 0-59
+  input bool exit_before_friday_close=true;
   
   input string space_3="----------------------------------------------------------------------------------------";
   
 // enter_order
   /*input*/ ENUM_SIGNAL_SET SIGNAL_SET=SIGNAL_SET_1; //SIGNAL_SET: Which signal set would you like to test? (the details of each signal set are found in the signal_entry function)
   // TODO: make sure you have coded for the scenerios when each of these is set to 0
-	input double pullback_percent=0.35; //pullback_percent:  Must be positive. If you want a buy or sell limit order, it must be positive.
-	input double takeprofit_percent=1.3; //takeprofit_percent: Must be a positive number. (What % of ADR should you tarket?)
+	input double pullback_percent=0.3; //pullback_percent:  Must be positive. If you want a buy or sell limit order, it must be positive.
+	input double takeprofit_percent=.55; //takeprofit_percent: Must be a positive number. (What % of ADR should you tarket?)
   double stoploss_percent=1.0; //stoploss_percent: Must be a positive number.
 	/*input*/ double max_spread_percent=.1; //max_spread_percent: Must be positive. What percent of ADR should the spread be less than? (Only for immediate orders and not pending.)
 	/*input*/ bool based_on_raw_ADR=true; //based_on_raw_ADR: Should the max_spread_percent be calculated from the raw ADR?
@@ -149,8 +158,8 @@ enum ENUM_MM // Money Management
 //exit_order
 	/*input*/ int exiting_max_slippage_pips=50; //exiting_max_slippage_pips: Must be in whole number.
 	
-	input double active_order_expire=30; //active_order_expire: Any hours or fractions of hour(s). How many hours can a trade be on that hasn't hit stoploss or takeprofit?
-	input double pending_order_expire=7;//pending_order_expire: Any hours or fractions of hour(s). In how many hours do you want your pending orders to expire?
+	input double active_order_expire=26; //active_order_expire: Any hours or fractions of hour(s). How many hours can a trade be on that hasn't hit stoploss or takeprofit?
+	input double pending_order_expire=3;//pending_order_expire: Any hours or fractions of hour(s). In how many hours do you want your pending orders to expire?
 	/*input*/ bool market_exec=false; //market_exec: False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
 	color arrow_color_short=clrRed;
 	color arrow_color_long=clrGreen;
@@ -159,7 +168,7 @@ enum ENUM_MM // Money Management
   
 //calculate_lots/mm variables
 	ENUM_MM money_management=MM_RISK_PERCENT_PER_ADR;
-	/*input*/ double risk_percent_per_ADR=0.03; //risk_percent_per_ADR: percent risked when using the MM_RISK_PER_ADR_PERCENT money management calculations. Any amount of digits after the decimal point. Note: This is not the percent of your balance you will be risking.
+	input double risk_percent_per_ADR=0.02; //risk_percent_per_ADR: percent risked when using the MM_RISK_PER_ADR_PERCENT money management calculations. Any amount of digits after the decimal point. Note: This is not the percent of your balance you will be risking.
 	double mm1_risk_percent=0.02; //mm1_risk_percent: percent risked when using the MM_RISK_PERCENT money management calculations
    // these variables will not be used with the MM_RISK_PERCENT money management strategy
 	double lot_size=0.0;
@@ -318,12 +327,13 @@ string getUninitReasonText(int reasonCode)
     return 0;
   }*/
 //+------------------------------------------------------------------+
-//| Expert tick function                                             |
+//| Expert tick function    s                                         |
 //+------------------------------------------------------------------+
   static bool ready=false, in_time_range=false;
 // timeframe changes
   bool is_new_M5_bar;
-  bool is_new_D1_bar;
+  bool is_new_custom_D1_bar;
+  bool is_new_custom_W1_bar;
   /*input*/ bool wait_next_M5_on_load=false; //wait_next_M5_on_load: This setting currently affects all bars (including D1) so do not set it to true unless code changes are made. // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade or calculate ADR?
   
 void OnTimer()
@@ -332,15 +342,23 @@ void OnTimer()
    int exit_signal=TRADE_SIGNAL_NEUTRAL, exit_signal_2=TRADE_SIGNAL_NEUTRAL; // 0
    int _exiting_max_slippage=exiting_max_slippage_pips;
    bool Relativity_EA_2_on=false;
+   bool answer=false;
+   bool is_new_H1_bar;
+   
    is_new_M5_bar=is_new_M5_bar(wait_next_M5_on_load);
-   is_new_D1_bar=is_new_D1_bar();
+   if(is_new_M5_bar) is_new_H1_bar=is_new_H1_bar();
+   if(is_new_H1_bar) is_new_custom_D1_bar=is_new_custom_D1_bar();
+   if(is_new_custom_D1_bar) is_new_custom_W1_bar=is_new_custom_W1_bar();
    
-   bool answer=Relativity_EA_ran(Symbol(),EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
-   
-   if(Relativity_EA_2_on) Relativity_EA_ran(symbol,EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
+   answer=Relativity_EA_ran(Symbol(),EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
+   if(answer && Relativity_EA_2_on) 
+     {
+       answer=Relativity_EA_ran(Symbol(),EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
+     } 
   }
 void OnTick()
   {
+   cleanup_risky_pending_orders();
    OnTimer();
   }
 //+------------------------------------------------------------------+
@@ -369,6 +387,14 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
       exit_all_trades_set(_exiting_max_slippage,ORDER_SET_MARKET,magic,(int)(active_order_expire*3600),current_time); // This runs every 5 minutes (whether the time is in_time_range or not). It only exit trades that have been on for too long and haven't hit stoploss or takeprofit.
       in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,fri_end_time_hour,fri_end_time_minute,gmt_hour_offset);
       get_moves_start_bar(H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week); // this is here so the vertical line can get moved every 5 minutes
+      
+      if(ObjectFind(instrument+"_day_of_week")<0)
+        {
+          ObjectCreate(instrument+"_day_of_week",OBJ_TEXT,0,TimeCurrent(),Bid);
+          ObjectSetText(instrument+"_day_of_week","0",15,NULL,clrWhite);     
+        }
+      ObjectSetText(instrument+"_day_of_week",IntegerToString(DayOfWeek(),1),0);
+      ObjectMove(instrument+"_day_of_week",0,TimeCurrent(),Bid+ADR_pts/2);     
       
       /*Print("in time range ",in_time_range);
       Print("ready ",ready);
@@ -645,23 +671,23 @@ bool over_extended_trend(int days_to_check,ENUM_DIRECTIONAL_MODE mode,ENUM_RANGE
     double bid_price=MarketInfo(symbol,MODE_BID); // RefreshRates() always has to be called before getting the price. In this case, it was run before calling this function.
     bool answer=false;
     int uptrend_count=0, downtrend_count=0;
-    int sunday_count=0;
+    int sat_sun_count=0;
     int lower_index=(int)dont_analyze_today;
     
-    if(is_new_D1_bar || new_days_to_check==0) // get the new value of the static sunday_count the first time it is run or if it is a new day
+    if(is_new_custom_D1_bar || new_days_to_check==0) // get the new value of the static sunday_count the first time it is run or if it is a new day
       {
         new_days_to_check=0; // do not delete this line
         for(int i=days_to_check-1+lower_index;i>=lower_index;i--)
           {
             int day=TimeDayOfWeek(iTime(symbol,PERIOD_D1,i));
           
-            if(day==0) // count Sundays
+            if(day==0 || day==6) // count Sundays
               {
-                sunday_count++;
+                sat_sun_count++;
               }
           }    
       }
-    if(sunday_count>0) new_days_to_check=sunday_count+days_to_check;
+    if(sat_sun_count>0) new_days_to_check=sat_sun_count+days_to_check;
     if(mode==BUYING_MODE)
       {
         for(int i=new_days_to_check-1+lower_index;i>=lower_index;i++) // days_to_check should be past days to check + today
@@ -965,9 +991,9 @@ bool in_time_range(datetime time,int start_hour,int start_min,int end_hour,int e
    int start_time=(start_hour*3600)+(start_min*60);
    int end_time=(end_hour*3600)+(end_min*60);
    
-   /*Print("current_time ",TimeToStr(current_time));
-   Print("start_time ",TimeToStr(start_time));
-   Print("end_time ",TimeToStr(end_time));*/
+   //Print("current_time ",TimeToStr(current_time));
+   //Print("start_time ",TimeToStr(start_time));
+   //Print("end_time ",TimeToStr(end_time));
    
    if(ObjectFind(Symbol()+"_start_time_today")<0) 
       {
@@ -1044,25 +1070,60 @@ bool time_to_exit(datetime time,int exit_hour,int exit_min,int gmt_offset=0)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+/*bool is_new_bar(ENUM_TIME_FRAMES timeframe)
+  {
+    switch(timeframe)
+      {
+        case M5:
+          {
+           static datetime M5_bar_time=0;
+           static double M5_open_price=0;
+           datetime M5_current_bar_open_time=iTime(symbol,PERIOD_M5,0);
+           double M5_current_bar_open_price=iOpen(symbol,PERIOD_M5,0);
+           int digits=(int)MarketInfo(symbol,MODE_DIGITS);
+           
+           if(M5_bar_time==0 && M5_open_price==0) // If it is the first time the function is called or it is the start of a new bar. This could be after the open time (aka in the middle) of a bar.
+             {
+              M5_bar_time=M5_current_bar_open_time;
+              M5_open_price=M5_current_bar_open_price;
+              if(wait_for_next_bar) return false; // after loading the EA for the first time, if the user wants to wait for the next bar for the bar to be considered new
+              else return true;
+             }
+           else if(M5_current_bar_open_time>M5_bar_time && compare_doubles(M5_open_price,M5_current_bar_open_price,digits)!=0) // if the opening time and price of this bar is different than the opening time and price of the previous one
+             {
+              M5_bar_time=M5_current_bar_open_time; // assuring the true value only gets returned for 1 tick and not the very next ones
+              M5_open_price=M5_current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
+              return true;
+             }
+           else return false;
+          }
+        case D1:
+        case W1:
+  
+      }
+  }*/
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 bool is_new_M5_bar(bool wait_for_next_bar=false)
   {
-   static datetime bar_time=0;
-   static double open_price=0;
-   datetime current_bar_open_time=iTime(symbol,PERIOD_M5,0);
-   double current_bar_open_price=iOpen(symbol,PERIOD_M5,0);
+   static datetime M5_bar_time=0;
+   static double M5_open_price=0;
+   datetime M5_current_bar_open_time=iTime(symbol,PERIOD_M5,0);
+   double M5_current_bar_open_price=iOpen(symbol,PERIOD_M5,0);
    int digits=(int)MarketInfo(symbol,MODE_DIGITS);
    
-   if(bar_time==0 && open_price==0) // If it is the first time the function is called or it is the start of a new bar. This could be after the open time (aka in the middle) of a bar.
+   if(M5_bar_time==0 && M5_open_price==0) // If it is the first time the function is called or it is the start of a new bar. This could be after the open time (aka in the middle) of a bar.
      {
-      bar_time=current_bar_open_time;
-      open_price=current_bar_open_price;
+      M5_bar_time=M5_current_bar_open_time;
+      M5_open_price=M5_current_bar_open_price;
       if(wait_for_next_bar) return false; // after loading the EA for the first time, if the user wants to wait for the next bar for the bar to be considered new
       else return true;
      }
-   else if(current_bar_open_time>bar_time && compare_doubles(open_price,current_bar_open_price,digits)!=0) // if the opening time and price of this bar is different than the opening time and price of the previous one
+   else if(M5_current_bar_open_time>M5_bar_time && compare_doubles(M5_open_price,M5_current_bar_open_price,digits)!=0) // if the opening time and price of this bar is different than the opening time and price of the previous one
      {
-      bar_time=current_bar_open_time; // assuring the true value only gets returned for 1 tick and not the very next ones
-      open_price=current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
+      M5_bar_time=M5_current_bar_open_time; // assuring the true value only gets returned for 1 tick and not the very next ones
+      M5_open_price=M5_current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
       return true;
      }
    else return false;
@@ -1070,47 +1131,119 @@ bool is_new_M5_bar(bool wait_for_next_bar=false)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool is_new_D1_bar()
+bool is_new_H1_bar()
   {
-   static datetime bar_time=0;
-   static double open_price=0;
-   datetime current_bar_open_time=iTime(symbol,PERIOD_D1,0);
-   double current_bar_open_price=iOpen(symbol,PERIOD_D1,0);
-   int digits=(int)MarketInfo(symbol,MODE_DIGITS);
-   
-   if(bar_time==0 && open_price==0) // If it is the first time the function is called or it is the start of a new bar. This could be after the open time (aka in the middle) of a bar.
-     {
-      bar_time=current_bar_open_time;
-      open_price=current_bar_open_price;
-      return true;
-     }
-   else if(current_bar_open_time>bar_time && compare_doubles(open_price,current_bar_open_price,digits)!=0) // if the opening time and price of this bar is different than the opening time and price of the previous one
-     {
-      bar_time=current_bar_open_time; // assuring the true value only gets returned for 1 tick and not the very next ones
-      open_price=current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
-      return true;
-     }
-   else return false;
+     static datetime H1_bar_time=0;
+     static double H1_open_price=0;
+     datetime H1_current_bar_open_time=iTime(symbol,PERIOD_H1,0);
+     double H1_current_bar_open_price=iOpen(symbol,PERIOD_H1,0);
+     int digits=(int)MarketInfo(symbol,MODE_DIGITS);
+     
+     if(H1_bar_time==0 && H1_open_price==0) // If it is the first time the function is called or it is the start of a new bar. This could be after the open time (aka in the middle) of a bar.
+       {
+        H1_bar_time=H1_current_bar_open_time;
+        H1_open_price=H1_current_bar_open_price;
+        return false; // wait for the next bar for this function to return true
+       }
+     else if(H1_current_bar_open_time>H1_bar_time && compare_doubles(H1_open_price,H1_current_bar_open_price,digits)!=0) // if the opening time and price of this bar is different than the opening time and price of the previous one
+       {
+        H1_bar_time=H1_current_bar_open_time; // assuring the true value only gets returned for 1 tick and not the very next ones
+        H1_open_price=H1_current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
+        return true;
+       }
+     else return false;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool is_new_custom_D1_bar()
+  {  
+     static datetime D1_bar_time=0;
+     static double D1_open_price=0;
+     datetime D1_current_bar_open_time=iTime(symbol,PERIOD_D1,0)+(gmt_hour_offset*3600);
+     double D1_current_bar_open_price=iOpen(symbol,PERIOD_M5,iBarShift(symbol,PERIOD_M5,D1_current_bar_open_time,false));
+     int digits=(int)MarketInfo(symbol,MODE_DIGITS);
+     
+     if(D1_bar_time==0 && D1_open_price==0) // If it is the first time the function is called or it is the start of a new bar. This could be after the open time (aka in the middle) of a bar.
+       {
+        D1_bar_time=D1_current_bar_open_time;
+        D1_open_price=D1_current_bar_open_price;
+        return true; // wait for the next bar for this function to return true
+       }
+     else if(D1_current_bar_open_time>D1_bar_time && compare_doubles(D1_open_price,D1_current_bar_open_price,digits)!=0) // if the opening time and price of this bar is different than the opening time and price of the previous one
+       {
+        D1_bar_time=D1_current_bar_open_time; // assuring the true value only gets returned for 1 tick and not the very next ones
+        D1_open_price=D1_current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
+        return true;
+       }
+     else return false;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool is_new_custom_W1_bar()
+  {
+     static datetime W1_bar_time=0;
+     static double W1_open_price=0;
+     datetime W1_current_bar_open_time=0;
+     double W1_current_bar_open_price=0;
+     int digits=(int)MarketInfo(symbol,MODE_DIGITS);
+     
+     //datetime week_start_open_time=iTime(symbol,PERIOD_W1,0)+(gmt_offset*3600); // The iTime of the week bar gives you the time that the week is 0:00 on the chart so I shifted the time to start when the markets actually start.
+     int day=DayOfWeek();
+     if(day>1 && day<7) return true; // If the day is tuesday through saturday, return false. (Intentionally leaving out Monday and Sunday.)
+       
+     for(int i=0;i<7;i++) // get the week start information only
+      {
+        bool got_monday=false;
+        if(got_monday) break;
+        else
+          {
+            datetime days_start_time=iTime(symbol,PERIOD_D1,i);
+            int i_day=TimeDayOfWeek(days_start_time);
+            if(i_day==1) // if it is monday
+              {
+                W1_current_bar_open_time=days_start_time+(gmt_hour_offset*3600);
+                int weeks_start_bar=iBarShift(symbol,PERIOD_M5,W1_current_bar_open_time,false);
+                W1_current_bar_open_price=iOpen(symbol,PERIOD_M5,weeks_start_bar);
+                got_monday=true;
+              }   
+          }
+      }
+     
+     if(W1_bar_time==0 && W1_open_price==0) // If it is the first time the function is called or it is the start of a new bar. This could be after the open time (aka in the middle) of a bar.
+       {
+        W1_bar_time=W1_current_bar_open_time;
+        W1_open_price=W1_current_bar_open_price;
+        return false; // wait for the next bar for this function to return true
+       }
+     else if(W1_current_bar_open_time>W1_bar_time && compare_doubles(W1_open_price,W1_current_bar_open_price,digits)!=0) // if the opening time and price of this bar is different than the opening time and price of the previous one
+       {
+        W1_bar_time=W1_current_bar_open_time; // assuring the true value only gets returned for 1 tick and not the very next ones
+        W1_open_price=W1_current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
+        return true;
+       }
+     else return false;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 double ADR_calculation(double low_outlier,double high_outlier/*,double change_by*/)
   {
-     int three_mnth_sunday_count=0;
+     int three_mnth_sat_sun_count=0;
      int three_mnth_num_days=3*22; // There are about 22 business days a month.
      
      for(int i=three_mnth_num_days;i>0;i--) // count the number of Sundays in the past 6 months
         {
         int day=TimeDayOfWeek(iTime(symbol,PERIOD_D1,i));
         
-        if(day==0) // count Sundays
+        if(day==0 || day==6) // count Saturdays and Sundays
           {
-           three_mnth_sunday_count++;
+           three_mnth_sat_sun_count++;
           }
         }
-     double avg_sunday_per_day=three_mnth_sunday_count/three_mnth_num_days;
-     int six_mnth_adjusted_num_days=(int)(((avg_sunday_per_day*three_mnth_num_days)+three_mnth_num_days)*2); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
+     double avg_sat_sun_per_day=three_mnth_sat_sun_count/three_mnth_num_days;
+     int six_mnth_adjusted_num_days=(int)(((avg_sat_sun_per_day*three_mnth_num_days)+three_mnth_num_days)*2); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
      int six_mnth_non_sunday_count=0;
      double six_mnth_non_sunday_ADR_sum=0;
      
@@ -1118,7 +1251,7 @@ double ADR_calculation(double low_outlier,double high_outlier/*,double change_by
      {
       int day=TimeDayOfWeek(iTime(symbol,PERIOD_D1,i));
      
-      if(day>0) // if the day of week is not Sunday
+      if(day!=0 && day!=6) // if the day of week is not Saturday or Sunday
         {
          double HOD=iHigh(symbol,PERIOD_D1,i);
          double LOD=iLow(symbol,PERIOD_D1,i);
@@ -1136,7 +1269,7 @@ double ADR_calculation(double low_outlier,double high_outlier/*,double change_by
        {
         int day=TimeDayOfWeek(iTime(symbol,PERIOD_D1,i));
              
-        if(day>0) // if the day of week is not Sunday
+        if(day!=0 && day!=6) // if the day of week is not Sunday
           {
            double HOD=iHigh(symbol,PERIOD_D1,i);
            double LOD=iLow(symbol,PERIOD_D1,i);
@@ -1154,13 +1287,13 @@ double ADR_calculation(double low_outlier,double high_outlier/*,double change_by
      double x_mnth_non_sunday_ADR_sum=0;
      int x_mnth_non_sunday_count=0;
      int x_mnth_num_days=num_ADR_months*22; // There are about 22 business days a month.
-     int x_mnth_adjusted_num_days=(int)((avg_sunday_per_day*x_mnth_num_days)+x_mnth_num_days); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
+     int x_mnth_adjusted_num_days=(int)((avg_sat_sun_per_day*x_mnth_num_days)+x_mnth_num_days); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
      
      for(int i=x_mnth_adjusted_num_days;i>0;i--) // find the counts of all days that are significantly below or above ADR
        {
         int day=TimeDayOfWeek(iTime(symbol,PERIOD_D1,i));
              
-        if(day>0) // if the day of week is not Sunday
+        if(day!=0 && day!=6) // if the day of week is not Sunday
           {
            double HOD=iHigh(symbol,PERIOD_D1,i);
            double LOD=iLow(symbol,PERIOD_D1,i);
@@ -1190,7 +1323,7 @@ double get_raw_ADR_pts(double hours_to_roll,double low_outlier,double high_outli
       {
         return -1; // if the user inputed the wrong outlier variables or a H1s_to_roll number that is not divisible by .5, it is not possible to calculate ADR
       }  
-    if(_adr_pts==0 || is_new_D1_bar) // if it is the first time the function is called
+    if(_adr_pts==0 || is_new_custom_D1_bar) // if it is the first time the function is called
       {
         double calculated_adr_pts=ADR_calculation(low_outlier,high_outlier/*,change_by*/);
         _adr_pts=calculated_adr_pts; // make the function remember the calculation the next time it is called
@@ -1212,13 +1345,12 @@ void get_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_out
       {
         ObjectCreate(instrument+"_ADR_pts",OBJ_TEXT,0,TimeCurrent(),bid_price);
         ObjectSetText(instrument+"_ADR_pts","0",15,NULL,clrWhite);
-      }
-     
+      } 
      if(raw_ADR_pts>0 && (change_by==0 || change_by==NULL))
       { 
         Print("The raw ADR for ",Symbol()," was generated. It is ",DoubleToString(raw_ADR_pts)," pips.");
         ADR_pts=NormalizeDouble(raw_ADR_pts,digits);
-        ObjectSetText(instrument+"_ADR_pts",DoubleToString(ADR_pts*100,digits),0,NULL,clrWhite);
+        ObjectSetText(instrument+"_ADR_pts",DoubleToString(raw_ADR_pts*100,digits),0);
         ObjectMove(instrument+"_ADR_pts",0,TimeCurrent(),bid_price+ADR_pts/4);
      
         //Print("raw_ADR_pts: ",DoubleToString(raw_ADR_pts));
@@ -1230,6 +1362,7 @@ void get_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_out
         ADR_pts=changed_ADR_pts;
         ObjectSetText(instrument+"_ADR_pts",DoubleToString(changed_ADR_pts*100,digits),0);
         ObjectMove(instrument+"_ADR_pts",0,TimeCurrent(),bid_price+ADR_pts/4);
+
       }
   }
 //+------------------------------------------------------------------+
@@ -1237,34 +1370,112 @@ void get_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_out
 //+------------------------------------------------------------------+  
 int get_moves_start_bar(double _H1s_to_roll,int gmt_offset,double _max_weekend_gap_percent,bool _include_last_week=true)
   {
-   int moves_start_bar=(int)_H1s_to_roll*12-1; // any double divisible by .5 will always be an integer when multiplied by an even number like 12 so it is okay to convert it into an int
-   datetime week_start_open_time=iTime(symbol,PERIOD_W1,0)+(gmt_offset*3600); // The iTime of the week bar gives you the time that the week is 0:00 on the chart so I shifted the time to start when the markets actually start.
-   int weeks_start_bar=iBarShift(symbol,PERIOD_M5,week_start_open_time,false);
-   int digits=(int)MarketInfo(symbol,MODE_DIGITS);
-   string instrument=Symbol();
-   datetime time_anchor=iTime(symbol,PERIOD_M5,moves_start_bar);
-   double price_anchor=iOpen(symbol,PERIOD_M5,moves_start_bar);
+   static datetime  weeks_open_time=0; // also known as Monday
+   static double    weeks_open_price=0;
+   static datetime  last_weeks_end_time=0;
+   static double    last_weeks_close_price=0;
+   static int       weeks_start_bar=-1;
+   int              moves_start_bar=(int)_H1s_to_roll*12/*-1*/; // any double divisible by .5 will always be an integer when multiplied by an even number like 12 so it is okay to convert it into an int
+   string           instrument=Symbol();
+   int              digits=(int)MarketInfo(instrument,MODE_DIGITS); 
+   int              day=DayOfWeek();
+   bool             alert_flag=false;
+   
+   if(day==0 || day==6) // if the day is Sunday or Saturday
+     {
+       weeks_open_time=0; // aka Monday
+       last_weeks_end_time=0;
+       weeks_open_price=0;
+       last_weeks_close_price=0;
+       weeks_start_bar=-1;
+       return 0;
+     }
+   if(weeks_start_bar==-1 || (day==1 && is_new_custom_W1_bar))
+     {
+       alert_flag=false;
+       if(_include_last_week)
+         {
+           if(day==1 || (day*24)<_H1s_to_roll) // if it is monday or the H1s_to_roll exceeds the max possible hours since the start of the week
+             {
+               for(int i=0;i<7;i++) // 7 iterations 
+                {
+                  bool got_monday=false;
+                  bool got_friday=false;
+                  if(got_monday && got_friday) break;
+                  else
+                    {
+                      datetime days_start_time=iTime(instrument,PERIOD_D1,i);
+                      int i_day=TimeDayOfWeek(days_start_time);
+                      if(i_day==1) // if it is monday
+                        {
+                          weeks_open_time=days_start_time+(gmt_offset*3600);
+                          weeks_start_bar=iBarShift(instrument,PERIOD_M5,weeks_open_time,false);
+                          weeks_open_price=iOpen(instrument,PERIOD_M5,weeks_start_bar);
+                          got_monday=true;
+                        }
+                      if(i_day==5) // if it is friday
+                        {
+                          last_weeks_end_time=days_start_time+(86400-1)+(gmt_offset*3600);
+                          last_weeks_close_price=iClose(symbol,PERIOD_M5,iBarShift(instrument,PERIOD_M5,last_weeks_end_time,false));
+                          if(got_monday) got_friday=true;
+                        }      
+                    }
+                }
+             }
+         }
+       else if(!_include_last_week) // if the user's setting is to NOT include last week, the EA should do less work because it doesn't need last week's values
+         {
+           for(int i=0;i<7;i++) // get the week start information only
+            {
+              bool got_monday=false;
+              if(got_monday) break;
+              else
+                {
+                  datetime days_start_time=iTime(symbol,PERIOD_D1,i);
+                  int i_day=TimeDayOfWeek(days_start_time);
+                  if(i_day==1) // if it is monday
+                    {
+                      weeks_open_time=days_start_time+(gmt_offset*3600);
+                      weeks_start_bar=iBarShift(instrument,PERIOD_M5,weeks_open_time,false);
+                      weeks_open_price=iOpen(instrument,PERIOD_M5,weeks_start_bar);
+                      got_monday=true;
+                    }   
+                }
+            }
+         }
+     }
    
    if(ObjectFind(instrument+"_Move_Start")<0) 
      {
-      ObjectCreate(instrument+"_Move_Start",OBJ_VLINE,0,time_anchor,price_anchor);
+      ObjectCreate(instrument+"_Move_Start",OBJ_VLINE,0,weeks_open_time,weeks_open_price); // it only gets set to these anchors for 1 M5 bar, so it is okay if it is wrong the first bar.
       ObjectSet(instrument+"_Move_Start",OBJPROP_COLOR,clrWhite);
      }
    if(moves_start_bar<=weeks_start_bar)
      {
       ObjectSet(instrument+"_Move_Start",OBJPROP_TIME1,iTime(instrument,PERIOD_M5,moves_start_bar));
       ObjectSet(instrument+"_Move_Start",OBJPROP_PRICE1,iOpen(instrument,PERIOD_M5,moves_start_bar));
+      
+      // Print("moves_start_bar ",moves_start_bar);
+      // Print("weeks_start_bar ",weeks_start_bar);
+      
       return moves_start_bar;
      }
    else if(_include_last_week)
      {
-      double weekend_gap_points=MathAbs(iClose(symbol,PERIOD_W1,1)-iOpen(instrument,PERIOD_W1,0));
+      double weekend_gap_points=MathAbs(last_weeks_close_price-weeks_open_price);
       double max_weekend_gap_points=NormalizeDouble(ADR_pts*_max_weekend_gap_percent,digits);
-      
-      if(weekend_gap_points>=max_weekend_gap_points) // TODO: use compare_doubles()?
+
+      if(weekend_gap_points>max_weekend_gap_points) // TODO: use compare_doubles()?
         {
           ObjectSet(instrument+"_Move_Start",OBJPROP_TIME1,iTime(instrument,PERIOD_M5,weeks_start_bar));
           ObjectSet(instrument+"_Move_Start",OBJPROP_PRICE1,iOpen(instrument,PERIOD_M5,weeks_start_bar));
+          
+          if(alert_flag==false)
+            {
+              Print("This weekends weekend_gap_points (",DoubleToString(weekend_gap_points),") is > the user's max_weekend_gap_points (",DoubleToString(max_weekend_gap_points),").");
+              alert_flag=true;
+            }
+          
           return weeks_start_bar; 
         }
       else 
