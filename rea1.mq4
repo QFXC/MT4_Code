@@ -105,13 +105,13 @@ enum ENUM_MM // Money Management
 	int virtual_tp=0; // TODO: Change to a percent of ADR
 	
 // breakeven variables
-	input double breakeven_threshold_percent=0; //0 breakeven_threshold_percent: % of takeprofit before setting the stop to breakeven.
-	input double breakeven_plus_percent=0; //0 breakeven_plus_percent: % of takeprofit above breakeven. Allows you to move the stoploss +/- from the entry price where 0 is breakeven, <0 loss zone, and >0 profit zone
+	//input double breakeven_threshold_percent=0; //0 breakeven_threshold_percent: % of takeprofit before setting the stop to breakeven.
+	//input double breakeven_plus_percent=0; //0 breakeven_plus_percent: % of takeprofit above breakeven. Allows you to move the stoploss +/- from the entry price where 0 is breakeven, <0 loss zone, and >0 profit zone
 	
 // trailing stop variables
-	/*input*/ double trail_percent=1; //trail_percent: 
-	input double trail_threshold_percent=.2; //.2 trail_threshold_percent: % of takeprofit before activating the trailing stop.
-	input double trail_step_percent=.1; //.1 trail_step_percent: The % of takeprofit to set the minimum difference between the proposed new value of the stoploss to the current stoploss price
+	///*input*/ double trail_percent=1; //1 trail_percent: 
+	//input double trail_threshold_percent=.2; //.2 trail_threshold_percent: % of takeprofit before activating the trailing stop.
+	//input double trail_step_percent=.1; //.1 trail_step_percent: The % of takeprofit to set the minimum difference between the proposed new value of the stoploss to the current stoploss price
 	
 	//input bool only_enter_on_new_bar=false; // Should you only enter trades when a new bar begins?
 	input bool exit_opposite_signal=false; //false exit_opposite_signal: Should the EA exit trades when there is a signal in the opposite direction?
@@ -136,7 +136,7 @@ enum ENUM_MM // Money Management
 	input bool trade_friday=true; //true trade_friday:
 	input int fri_end_time_hour=11;//11 fri_end_time_hour: 0-23
 	input int fri_end_time_minute=30; //30 fri_end_time_minute: 0-59
-	input bool exit_trades_EOD=true; //true
+	input bool exit_trades_EOD=false; //false
   input int exit_time_hour=23;//23 exit_time_hour: should be before the trading range start_time and after trading range end_time
   input int exit_time_minute=0;//0 exit_time_minute: 0-59
   input bool exit_before_friday_close=true; //true exit_before_friday_close
@@ -161,7 +161,7 @@ enum ENUM_MM // Money Management
 	/*input*/ int exiting_max_slippage_pips=50; //exiting_max_slippage_pips: Must be in whole number.
 	
 	input double active_order_expire=0; //0 active_order_expire: Any hours or fractions of hour(s). How many hours can a trade be on that hasn't hit stoploss or takeprofit?
-	input double pending_order_expire=5;//5 pending_order_expire: Any hours or fractions of hour(s). In how many hours do you want your pending orders to expire?
+	input double pending_order_expire=2;//2 pending_order_expire: Any hours or fractions of hour(s). In how many hours do you want your pending orders to expire?
 	/*input*/ bool market_exec=false; //market_exec: False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
 	color arrow_color_short=clrRed;
 	color arrow_color_long=clrGreen;
@@ -194,8 +194,8 @@ enum ENUM_MM // Money Management
   /*input*/ int num_ADR_months=2; //num_ADR_months: How months back should you use to calculate the average ADR? (Divisible by 1)
   input double change_ADR_percent=0; //0 change_ADR_percent: this can be a 0, negative, or positive decimal or whole number. 
 // TODO: make sure you have coded for the scenerios when each of these is set to 0
-  /*input*/ double above_ADR_outlier_percent=1.4; //1.4 above_ADR_outlier_percent: Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be surpassed in a day for it to be neglected from the average calculation?
-  /*input*/ double below_ADR_outlier_percent=.6; //.6 below_ADR_outlier_percent: Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be under in a day for it to be neglected from the average calculation?
+  input double above_ADR_outlier_percent=1.4; //1.4 above_ADR_outlier_percent: Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be surpassed in a day for it to be neglected from the average calculation?
+  input double below_ADR_outlier_percent=.6; //.6 below_ADR_outlier_percent: Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be under in a day for it to be neglected from the average calculation?
 
 bool all_user_input_variables_valid() // TODO: Work on this
   {
@@ -378,10 +378,10 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
    else if(exit_signal==TRADE_SIGNAL_SELL)  exit_all_trades_set(_exiting_max_slippage,ORDER_SET_LONG,magic);
 
    // Breakeven (comment out if this functionality is not required)
-   if(breakeven_threshold_percent>0) breakeven_check_all_orders(breakeven_threshold_percent,breakeven_plus_percent,magic);
+   //if(breakeven_threshold_percent>0) breakeven_check_all_orders(breakeven_threshold_percent,breakeven_plus_percent,magic);
    
    // Trailing Stop (comment out of this functionality is not required)
-   if(trail_percent>0) trailingstop_check_all_orders(trail_percent,trail_threshold_percent,trail_step_percent,magic);
+   //if(trail_percent>0) trailingstop_check_all_orders(trail_percent,trail_threshold_percent,trail_step_percent,magic);
    //   virtualstop_check(virtual_sl,virtual_tp); 
 
    if(is_new_M5_bar) // only check if it is in the time range once the EA is loaded and, then, afterward at the beginning of every M5 bar
