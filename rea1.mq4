@@ -136,7 +136,7 @@ enum ENUM_MM // Money Management
 	input bool trade_friday=true; //true trade_friday:
 	input int fri_end_time_hour=11;//11 fri_end_time_hour: 0-23
 	input int fri_end_time_minute=30; //30 fri_end_time_minute: 0-59
-	input bool exit_trades_EOD=false; //false
+	input bool exit_trades_EOD=false; //false exit_trades_EOD
   input int exit_time_hour=23;//23 exit_time_hour: should be before the trading range start_time and after trading range end_time
   input int exit_time_minute=0;//0 exit_time_minute: 0-59
   input bool exit_before_friday_close=true; //true exit_before_friday_close
