@@ -101,101 +101,102 @@ enum ENUM_MM // Money Management
   static double average_spread_yesterday=0;
    
 // virtual stoploss variables
-	int virtual_sl=0; // TODO: Change to a percent of ADR
-	int virtual_tp=0; // TODO: Change to a percent of ADR
+	int virtual_sl=0; //0 TODO: Change to a percent of ADR
+	int virtual_tp=0; //0 TODO: Change to a percent of ADR
 	
+	//input bool only_enter_on_new_bar=false; // Should you only enter trades when a new bar begins?
+	input bool    exit_opposite_signal=false; //false exit_opposite_signal: Should the EA exit trades when there is a signal in the opposite direction?
+  bool long_allowed=true; //true Are long trades allowed?
+	bool short_allowed=true; //true Are short trades allowed?
+	
+	input string  space_1="----------------------------------------------------------------------------------------";
+	
+	input int     max_directional_trades_at_once=1;   //1 max_directional_trades_at_once: How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
+	input int     max_trades_within_x_hours=1;        //1 max_trades_within_x_hours: 0-x days (x depends on the setting of the Account History tab of the terminal). // How many trades are allowed to be opened (even if they are closed now) within the last x_hours?
+	input double  x_hours=3;                          //3 x_hours: Any whole or fraction of an hour.
+	input int     max_directional_trades_each_day=1;  //1 max_directional_trades_each_day: How many trades are allowed to be opened (even if they are close now) after the start of each current day?
+  
+  input string space_2="----------------------------------------------------------------------------------------";
+  
+// time filters - only allow EA to enter trades between a range of time in a day
+	input int     gmt_hour_offset=0;                  //0 gmt_hour_offset: -2 if using Gain Capital and 1 of using FXDD. The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). Adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
+	input int     start_time_hour=0;                  //0 start_time_hour: 0-23
+	input int     start_time_minute=0;                //0 start_time_minute: 0-59
+	input int     end_time_hour=22;                   //22 end_time_hour: 0-23
+	input int     end_time_minute=55;                 //55 end_time_minute: 0-59
+	input bool    trade_friday=true;                  //true trade_friday:
+	input int     fri_end_time_hour=11;               //11 fri_end_time_hour: 0-23
+	input int     fri_end_time_minute=30;             //30 fri_end_time_minute: 0-59
+	input bool    exit_trades_EOD=false;              //false exit_trades_EOD
+  input int     exit_time_hour=23;                  //23 exit_time_hour: should be before the trading range start_time and after trading range end_time
+  input int     exit_time_minute=0;                 //0 exit_time_minute: 0-59
+  input bool    exit_before_friday_close=true;      //true exit_before_friday_close
+  input int     fri_exit_time_hour=22;              //22 fri_exit_time_hour
+  input int     fri_exit_time_min=0;                //0 fri_exit_time_min
+  
+  input string  space_3="----------------------------------------------------------------------------------------";
+  
+// enter_order
+  /*input*/ ENUM_SIGNAL_SET SIGNAL_SET=SIGNAL_SET_1; //SIGNAL_SET: Which signal set would you like to test? (the details of each signal set are found in the signal_entry function)
+  // TODO: make sure you have coded for the scenerios when each of these is set to 0
+	input double  pullback_percent=0.2;               //.2 pullback_percent:  Must be positive. If you want a buy or sell limit order, it must be positive.
+	input double  takeprofit_percent=.8;              //.8 takeprofit_percent: Must be a positive number. (What % of ADR should you tarket?)
+  double stoploss_percent=1.0;                      //1 stoploss_percent: Must be a positive number.
+	/*input*/ double max_spread_percent=.1;           //.1 max_spread_percent: Must be positive. What percent of ADR should the spread be less than? (Only for immediate orders and not pending.)
+	/*input*/ bool based_on_raw_ADR=true;             //true based_on_raw_ADR: Should the max_spread_percent be calculated from the raw ADR?
+
 // breakeven variables
-	//input double breakeven_threshold_percent=0; //0 breakeven_threshold_percent: % of takeprofit before setting the stop to breakeven.
-	//input double breakeven_plus_percent=0; //0 breakeven_plus_percent: % of takeprofit above breakeven. Allows you to move the stoploss +/- from the entry price where 0 is breakeven, <0 loss zone, and >0 profit zone
+	input double breakeven_threshold_percent=.8; //0 breakeven_threshold_percent: % of takeprofit before setting the stop to breakeven.
+	input double breakeven_plus_percent=0; //0 breakeven_plus_percent: % of takeprofit above breakeven. Allows you to move the stoploss +/- from the entry price where 0 is breakeven, <0 loss zone, and >0 profit zone
 	
 // trailing stop variables
 	///*input*/ double trail_percent=1; //1 trail_percent: 
 	//input double trail_threshold_percent=.2; //.2 trail_threshold_percent: % of takeprofit before activating the trailing stop.
 	//input double trail_step_percent=.1; //.1 trail_step_percent: The % of takeprofit to set the minimum difference between the proposed new value of the stoploss to the current stoploss price
 	
-	//input bool only_enter_on_new_bar=false; // Should you only enter trades when a new bar begins?
-	input bool exit_opposite_signal=false; //false exit_opposite_signal: Should the EA exit trades when there is a signal in the opposite direction?
-  bool long_allowed=true; // Are long trades allowed?
-	bool short_allowed=true; // Are short trades allowed?
-	
-	input string space_1="----------------------------------------------------------------------------------------";
-	
-	input int max_directional_trades_at_once=1; //1 max_directional_trades_at_once: How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
-	input int max_trades_within_x_hours=1; //1 max_trades_within_x_hours: 0-x days (x depends on the setting of the Account History tab of the terminal). // How many trades are allowed to be opened (even if they are closed now) within the last x_hours?
-	input double x_hours=3; //3 x_hours: Any whole or fraction of an hour.
-	input int max_directional_trades_each_day=1; //1 max_directional_trades_each_day: How many trades are allowed to be opened (even if they are close now) after the start of each current day?
-  
-  input string space_2="----------------------------------------------------------------------------------------";
-  
-// time filters - only allow EA to enter trades between a range of time in a day
-	input int gmt_hour_offset=0;//0 gmt_hour_offset: -2 if using Gain Capital and 1 of using FXDD. The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). Adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
-	input int start_time_hour=0;//0 start_time_hour: 0-23
-	input int start_time_minute=0; //0 start_time_minute: 0-59
-	input int end_time_hour=0; //0 end_time_hour: 0-23
-	input int end_time_minute=0; //0 end_time_minute: 0-59
-	input bool trade_friday=true; //true trade_friday:
-	input int fri_end_time_hour=11;//11 fri_end_time_hour: 0-23
-	input int fri_end_time_minute=30; //30 fri_end_time_minute: 0-59
-	input bool exit_trades_EOD=false; //false exit_trades_EOD
-  input int exit_time_hour=23;//23 exit_time_hour: should be before the trading range start_time and after trading range end_time
-  input int exit_time_minute=0;//0 exit_time_minute: 0-59
-  input bool exit_before_friday_close=true; //true exit_before_friday_close
-  input int fri_exit_time_hour=23; //23 fri_exit_time_hour
-  input int fri_exit_time_min=0; //0 fri_exit_time_min
-  
-  input string space_3="----------------------------------------------------------------------------------------";
-  
-// enter_order
-  /*input*/ ENUM_SIGNAL_SET SIGNAL_SET=SIGNAL_SET_1; //SIGNAL_SET: Which signal set would you like to test? (the details of each signal set are found in the signal_entry function)
-  // TODO: make sure you have coded for the scenerios when each of these is set to 0
-	input double pullback_percent=0.35; //.35 pullback_percent:  Must be positive. If you want a buy or sell limit order, it must be positive.
-	input double takeprofit_percent=.6; //.6 takeprofit_percent: Must be a positive number. (What % of ADR should you tarket?)
-  double stoploss_percent=1.0; //1 stoploss_percent: Must be a positive number.
-	/*input*/ double max_spread_percent=.1; //max_spread_percent: Must be positive. What percent of ADR should the spread be less than? (Only for immediate orders and not pending.)
-	/*input*/ bool based_on_raw_ADR=true; //based_on_raw_ADR: Should the max_spread_percent be calculated from the raw ADR?
-	
-	/*input*/ int entering_max_slippage_pips=5; //entering_max_slippage_pips: Must be in whole number. // TODO: Is this really pips and not points?
+	/*input*/ int entering_max_slippage_pips=5;       //5 entering_max_slippage_pips: Must be in whole number. // TODO: Is this really pips and not points?
 //input int unfavorable_slippage=5;
-	string EA_name="ADR Relativity"; // allows the robot to enter a description for the order. An empty string is a default value
+	string        EA_name="ADR Relativity";           // allows the robot to enter a description for the order. An empty string is a default value
 //exit_order
-	/*input*/ int exiting_max_slippage_pips=50; //exiting_max_slippage_pips: Must be in whole number.
+	/*input*/ int exiting_max_slippage_pips=50;       //50 exiting_max_slippage_pips: Must be in whole number.
 	
-	input double active_order_expire=0; //0 active_order_expire: Any hours or fractions of hour(s). How many hours can a trade be on that hasn't hit stoploss or takeprofit?
-	input double pending_order_expire=2;//2 pending_order_expire: Any hours or fractions of hour(s). In how many hours do you want your pending orders to expire?
-	/*input*/ bool market_exec=false; //market_exec: False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
+	input double  active_order_expire=0;              //0 active_order_expire: Any hours or fractions of hour(s). How many hours can a trade be on that hasn't hit stoploss or takeprofit?
+	input double  pending_order_expire=5;             //5 pending_order_expire: Any hours or fractions of hour(s). In how many hours do you want your pending orders to expire?
+	/*input*/ bool market_exec=false;                 //market_exec: False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
 	color arrow_color_short=clrRed;
 	color arrow_color_long=clrGreen;
 	
-  input string space_4="----------------------------------------------------------------------------------------";
+  input string  space_4="----------------------------------------------------------------------------------------";
   
 //calculate_lots/mm variables
 	ENUM_MM money_management=MM_RISK_PERCENT_PER_ADR;
-	input double risk_percent_per_ADR=0.03; //.03 risk_percent_per_ADR: percent risked when using the MM_RISK_PER_ADR_PERCENT money management calculations. Any amount of digits after the decimal point. Note: This is not the percent of your balance you will be risking.
-	double mm1_risk_percent=0.02; //mm1_risk_percent: percent risked when using the MM_RISK_PERCENT money management calculations
+	input bool compound_balance=false;
+	input double  risk_percent_per_ADR=0.03;          //.03 risk_percent_per_ADR: percent risked when using the MM_RISK_PER_ADR_PERCENT money management calculations. Any amount of digits after the decimal point. Note: This is not the percent of your balance you will be risking.
+	double        mm1_risk_percent=0.02;              //mm1_risk_percent: percent risked when using the MM_RISK_PERCENT money management calculations
    // these variables will not be used with the MM_RISK_PERCENT money management strategy
-	double lot_size=0.0;
-	/*double mm2_lots=0.1;
-	double mm2_per=1000;
-	double mm3_risk=50;
-	double mm4_risk=50;*/
+	double        lot_size=0.0;
+	/*double      mm2_lots=0.1;
+	double        mm2_per=1000;
+	double        mm3_risk=50;
+	double        mm4_risk=50;*/
 	
-  input string space_5="----------------------------------------------------------------------------------------";
+  input string  space_5="----------------------------------------------------------------------------------------";
   
 // Market Trends
-  input double H1s_to_roll=24; //24 H1s_to_roll: Only divisible by .5 // How many hours should you roll to determine a short term market trend?
-  input double max_weekend_gap_percent=.15; //.15 max_weekend_gap_percent: What is the maximum weekend gap (as a percent of ADR) for H1s_to_roll to not take the previous week into account?
-  input bool include_last_week=true; //include_last_week: Should the EA take Friday's moves into account when starting to determine length of the current move?
+  input double  H1s_to_roll=9;                      //24 H1s_to_roll: Only divisible by .5 // How many hours should you roll to determine a short term market trend?
+  input double  max_weekend_gap_percent=.15;        //.15 max_weekend_gap_percent: What is the maximum weekend gap (as a percent of ADR) for H1s_to_roll to not take the previous week into account?
+  input bool    include_last_week=true;             //true include_last_week: Should the EA take Friday's moves into account when starting to determine length of the current move?
   static double ADR_pts;
-  double point_multiplier=1; // .001=Point
-  double new_point=1; //100*Point*10;
+  double        point_multiplier=1;                 // .001=Point
+  double        new_point=1;                        //100*Point*10;
 
-  input string space_7="----------------------------------------------------------------------------------------";
+  input string  space_7="----------------------------------------------------------------------------------------";
 // ADR()
-  /*input*/ int num_ADR_months=2; //num_ADR_months: How months back should you use to calculate the average ADR? (Divisible by 1)
-  input double change_ADR_percent=0; //0 change_ADR_percent: this can be a 0, negative, or positive decimal or whole number. 
+  /*input*/ int num_ADR_months=2;                   //2 num_ADR_months: How months back should you use to calculate the average ADR? (Divisible by 1)
+  input double  change_ADR_percent=.2;               //.2 change_ADR_percent: this can be a 0, negative, or positive decimal or whole number. 
 // TODO: make sure you have coded for the scenerios when each of these is set to 0
-  input double above_ADR_outlier_percent=1.4; //1.4 above_ADR_outlier_percent: Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be surpassed in a day for it to be neglected from the average calculation?
-  input double below_ADR_outlier_percent=.6; //.6 below_ADR_outlier_percent: Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be under in a day for it to be neglected from the average calculation?
+  input double  above_ADR_outlier_percent=1.5;      //1.5 above_ADR_outlier_percent: Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be surpassed in a day for it to be neglected from the average calculation?
+  input double  below_ADR_outlier_percent=.5;       //.5 below_ADR_outlier_percent: Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be under in a day for it to be neglected from the average calculation?
 
 bool all_user_input_variables_valid() // TODO: Work on this
   {
@@ -378,7 +379,7 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
    else if(exit_signal==TRADE_SIGNAL_SELL)  exit_all_trades_set(_exiting_max_slippage,ORDER_SET_LONG,magic);
 
    // Breakeven (comment out if this functionality is not required)
-   //if(breakeven_threshold_percent>0) breakeven_check_all_orders(breakeven_threshold_percent,breakeven_plus_percent,magic);
+   if(breakeven_threshold_percent>0) breakeven_check_all_orders(breakeven_threshold_percent,breakeven_plus_percent,magic);
    
    // Trailing Stop (comment out of this functionality is not required)
    //if(trail_percent>0) trailingstop_check_all_orders(trail_percent,trail_threshold_percent,trail_step_percent,magic);
@@ -607,6 +608,13 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
           {
             ObjectMove(instrument+"_end_time",0,current_time,Bid);
           }*/
+          
+       if(ObjectFind(instrument+"_LOP")>0)
+         {
+           ObjectDelete(instrument+"_LOP");
+           ObjectDelete(instrument+"_HOP");
+           //ObjectDelete(instrument+"_Move_Start");
+         }
      }
     return true;
   }
@@ -1539,10 +1547,10 @@ double uptrend_ADR_threshold_price_met(bool get_current_bid_instead=false,int ma
     string instrument=Symbol();
 
     if(LOP==0) LOP=periods_pivot_price(BUYING_MODE);
-    if(ObjectFind(instrument+"LOP")<0)
+    if(ObjectFind(instrument+"_LOP")<0)
       {
-        ObjectCreate(instrument+"LOP",OBJ_HLINE,0,TimeCurrent(),LOP);
-        ObjectSet(instrument+"LOP",OBJPROP_COLOR,clrWhite);
+        ObjectCreate(instrument+"_LOP",OBJ_HLINE,0,TimeCurrent(),LOP);
+        ObjectSet(instrument+"_LOP",OBJPROP_COLOR,clrWhite);
       }
     /*if(ObjectFind(magic_str+instrument+"_HOP_up")<0) 
       {
@@ -1563,7 +1571,7 @@ double uptrend_ADR_threshold_price_met(bool get_current_bid_instead=false,int ma
        // since the bottom of the range was surpassed, you have to reset the LOP. You might as well take this opportunity to take the period into account.
        LOP=periods_pivot_price(BUYING_MODE);
 
-       ObjectSet(instrument+"LOP",OBJPROP_PRICE1,LOP);
+       ObjectSet(instrument+"_LOP",OBJPROP_PRICE1,LOP);
        ObjectSet(instrument+"_HOP",OBJPROP_PRICE1,LOP+ADR_pts);
        return -1;
      } 
@@ -1572,7 +1580,7 @@ double uptrend_ADR_threshold_price_met(bool get_current_bid_instead=false,int ma
        // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
        LOP=periods_pivot_price(BUYING_MODE);
 
-       ObjectSet(instrument+"LOP",OBJPROP_PRICE1,LOP);
+       ObjectSet(instrument+"_LOP",OBJPROP_PRICE1,LOP);
        //ObjectSet(magic_str+instrument+"_HOP_up",OBJPROP_PRICE1,current_bid);
        ObjectSet(instrument+"_HOP",OBJPROP_PRICE1,LOP+ADR_pts);
        if(current_bid-LOP>=ADR_pts) // TODO: use compare_doubles()?
@@ -1611,10 +1619,10 @@ double downtrend_ADR_threshold_price_met(bool get_current_bid_instead=false,int 
         ObjectCreate(magic_str+instrument+"_LOP_down",OBJ_HLINE,0,TimeCurrent(),current_bid);
         ObjectSet(magic_str+instrument+"_LOP_down",OBJPROP_COLOR,clrRed);
       }*/
-    if(ObjectFind(instrument+"LOP")<0)
+    if(ObjectFind(instrument+"_LOP")<0)
       {
-        ObjectCreate(instrument+"LOP",OBJ_HLINE,0,TimeCurrent(),HOP-ADR_pts);
-        ObjectSet(instrument+"LOP",OBJPROP_COLOR,clrWhite);
+        ObjectCreate(instrument+"_LOP",OBJ_HLINE,0,TimeCurrent(),HOP-ADR_pts);
+        ObjectSet(instrument+"_LOP",OBJPROP_COLOR,clrWhite);
       }
    if(HOP==-1) // this part is necessary in case periods_pivot_price ever returns 0
      {
@@ -1626,7 +1634,7 @@ double downtrend_ADR_threshold_price_met(bool get_current_bid_instead=false,int 
        HOP=periods_pivot_price(SELLING_MODE);
 
        ObjectSet(instrument+"_HOP",OBJPROP_PRICE1,HOP);
-       ObjectSet(instrument+"LOP",OBJPROP_PRICE1,HOP-ADR_pts);
+       ObjectSet(instrument+"_LOP",OBJPROP_PRICE1,HOP-ADR_pts);
        return -1;
      } 
    else if(HOP-current_bid>=ADR_pts) // if the pip move meets or exceed the ADR_Pips in points, return the current bid. Note: this will return true over and over again // TODO: use compare_doubles()?
@@ -1636,7 +1644,7 @@ double downtrend_ADR_threshold_price_met(bool get_current_bid_instead=false,int 
 
        ObjectSet(instrument+"_HOP",OBJPROP_PRICE1,HOP);
        //ObjectSet(magic_str+instrument+"_LOP_down",OBJPROP_PRICE1,current_bid);
-       ObjectSet(instrument+"LOP",OBJPROP_PRICE1,HOP-ADR_pts);
+       ObjectSet(instrument+"_LOP",OBJPROP_PRICE1,HOP-ADR_pts);
        if(HOP-current_bid>=ADR_pts) // TODO: use compare_doubles()?
          {
            if(get_current_bid_instead) 
@@ -2208,20 +2216,20 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double calculate_lots(ENUM_MM _money_management,double _risk_percent_per_ADR,double spread_pts)
+double calculate_lots(ENUM_MM method,double _risk_percent_per_ADR,double spread_pts)
   {
     double points=0;
     double _stoploss_percent=stoploss_percent;
     int digits=(int)MarketInfo(symbol,MODE_DIGITS);
 
-    if(_money_management==MM_RISK_PERCENT_PER_ADR)
+    if(method==MM_RISK_PERCENT_PER_ADR)
       points=NormalizeDouble(ADR_pts+spread_pts,digits); // Increase the Average Daily (pip) Range by adding the average (pip) spread because it is additional pips at risk everytime a trade is entered. As a result, the lots that get calculated will be lower (which will reduce the risk).
     else if(ADR_pts>0 && _stoploss_percent>0)
       points=NormalizeDouble((ADR_pts*_stoploss_percent)+spread_pts,digits); // it could be 0 if stoploss_percent is set to 0 
     else 
       points=NormalizeDouble(ADR_pts+spread_pts,digits);
 
-    double lots=get_lots(_money_management,
+    double lots=get_lots(method,
                         symbol,
                         lot_size, // the global variable
                         _risk_percent_per_ADR,
@@ -2239,13 +2247,16 @@ double calculate_lots(ENUM_MM _money_management,double _risk_percent_per_ADR,dou
 // TODO: is it pips or points that the 5th parameter actually needs?
 double get_lots(ENUM_MM method,string instrument,double lots,double _risk_percent_per_ADR,double pts,double risk_mm1_percent/*,double lots_mm2,double per_mm2,double risk_mm3,double risk_mm4*/)
   {
-   double balance=AccountBalance();
+   double balance=0;
    double tick_value=MarketInfo(instrument,MODE_TICKVALUE);
+   
+   if(compound_balance) balance=AccountBalance();
+   else balance=5000;
     
    switch(method)
      {
       case MM_RISK_PERCENT_PER_ADR:
-         if(pts>0) lots=((balance*_risk_percent_per_ADR)/pts)/tick_value;
+         if(pts>0) lots=((balance*_risk_percent_per_ADR)/pts)/tick_value; 
          break;
       case MM_RISK_PERCENT:
          if(pts>0) lots=((balance*risk_mm1_percent)/pts)/tick_value;
@@ -2377,49 +2388,47 @@ bool virtualstop_check_order(int ticket,double sl,double tp,int max_slippage)
 //|                                                                  |
 //+------------------------------------------------------------------+
 // Checking and moving trailing stop while the order is open
-bool trailingstop_check_order(int ticket,double _trail_percent,double _threshold_percent,double _step_percent)
+void trailingstop_check_order(int ticket,double _trail_percent,double _threshold_percent,double _step_percent)
   {
-   if(ticket<=0) return true;
-   if(!OrderSelect(ticket,SELECT_BY_TICKET)) return false;
+   if(ticket<=0) return;
+   if(!OrderSelect(ticket,SELECT_BY_TICKET)) return;
    int digits=(int) MarketInfo(OrderSymbol(),MODE_DIGITS);
-   bool result=true;
-   double trail_pts=NormalizeDouble(_trail_percent*ADR_pts,digits);
-   double threshold_pts=NormalizeDouble(_threshold_percent*(takeprofit_percent*ADR_pts),digits);
-   double step_pts=NormalizeDouble(_step_percent*(takeprofit_percent*ADR_pts),digits);
-      
+   double current_sl=OrderStopLoss();
+
    if(OrderType()==OP_BUY)
      {
+      if(current_sl-OrderOpenPrice()>=0) return; // Turn off trailing stop if the stoploss is at breakeven or above. This line should be above all the calculations. If it is true, all those calculations do not need to be done.
+      double trail_pts=NormalizeDouble(ADR_pts-(ADR_pts*pullback_percent),digits);
+      double threshold_pts=NormalizeDouble(_threshold_percent*(takeprofit_percent*ADR_pts),digits);
+      double step_pts=NormalizeDouble(_step_percent*(takeprofit_percent*ADR_pts),digits);
       double moving_sl=OrderClosePrice()-trail_pts; // the current price - the trail in pips
       double thresholds_activation_price=OrderOpenPrice()+threshold_pts;
       double new_sl=thresholds_activation_price-trail_pts;
-      double step_in_pts=moving_sl-OrderStopLoss(); // keeping track of the distance between the potential stoploss and the current stoploss
-      if(OrderStopLoss()==0|| compare_doubles(new_sl,OrderStopLoss(),digits)==1)
+      double step_in_pts=moving_sl-current_sl; // keeping track of the distance between the potential stoploss and the current stoploss
+      if(current_sl==0 || compare_doubles(new_sl,current_sl,digits)==1) // if there is no stoploss or the new trailing stoploss > the current stoploss
         {
-         if(compare_doubles(OrderClosePrice(),thresholds_activation_price,digits)>=0) // if price met the threshold, move the stoploss
-            result=modify(ticket,new_sl);
+         if(compare_doubles(OrderClosePrice(),thresholds_activation_price,digits)>=0) modify(ticket,new_sl); // if price met the threshold, move the stoploss
         }
-      else if(compare_doubles(step_in_pts,step_pts,digits)>=0) // if price met the step, move the stoploss
-        {
-         result=modify(ticket,NormalizeDouble(moving_sl,digits));
-        }
+      else if(compare_doubles(step_in_pts,step_pts,digits)>=0) modify(ticket,NormalizeDouble(moving_sl,digits)); // if price met the step, move the stoploss
+
      }
    else if(OrderType()==OP_SELL)
      {
+      if(OrderOpenPrice()-current_sl>=0) return; // Turn off trailing stop if the stoploss is at breakeven or above. This line should be above all the calculations. If it is true, all those calculations do not need to be done.
+      double trail_pts=NormalizeDouble(ADR_pts-(ADR_pts*pullback_percent),digits);
+      double threshold_pts=NormalizeDouble(_threshold_percent*(takeprofit_percent*ADR_pts),digits);
+      double step_pts=NormalizeDouble(_step_percent*(takeprofit_percent*ADR_pts),digits);
       double moving_sl=OrderClosePrice()+trail_pts;
       double thresholds_activation_price=OrderOpenPrice()-threshold_pts;
       double new_sl=thresholds_activation_price+trail_pts;
-      double step_in_pts=OrderStopLoss()-moving_sl;
-      if(OrderStopLoss()==0|| compare_doubles(new_sl,OrderStopLoss(),digits)==-1)
+      double step_in_pts=current_sl-moving_sl;
+      if(current_sl==0 || compare_doubles(new_sl,current_sl,digits)==-1)
         {
-         if(compare_doubles(OrderClosePrice(),thresholds_activation_price,digits)<=0)
-            result=modify(ticket,new_sl);
+         if(compare_doubles(OrderClosePrice(),thresholds_activation_price,digits)<=0) modify(ticket,new_sl);  
         }
-      else if(compare_doubles(step_in_pts,step_pts,digits)>=0)
-        {
-         result=modify(ticket,NormalizeDouble(moving_sl,digits));
-        }
+      else if(compare_doubles(step_in_pts,step_pts,digits)>=0) modify(ticket,NormalizeDouble(moving_sl,digits));
      }
-   return result;
+   return;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2623,7 +2632,7 @@ void cleanup_risky_pending_orders() // deletes pending orders of the entire acco
             if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
               {
                 int pending_orders_direction=OrderType();
-                if(pending_orders_direction<=1) // if it is a market order
+                if(pending_orders_direction<=1) // if it is a market order or if the stoploss is at breakeven
                   break;
                 else
                   {
