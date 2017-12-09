@@ -402,19 +402,23 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
       //Print("Got past is_new_M5_bar");
       if(active_order_expire>0) exit_all_trades_set(_exiting_max_slippage,ORDER_SET_MARKET,magic,(int)(active_order_expire*3600),current_time); // This runs every 5 minutes (whether the time is in_time_range or not). It only exit trades that have been on for too long and haven't hit stoploss or takeprofit.
       in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,fri_end_time_hour,fri_end_time_minute,gmt_hour_offset);
-      get_moves_start_bar(H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week); // this is here so the vertical line can get moved every 5 minutes
-      
-      if(ObjectFind(instrument+"_day_of_week")<0)
+      get_moves_start_bar(instrument,H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week); // this is here so the vertical line can get moved every 5 minutes
+    
+      string current_chart=Symbol();
+      if(instrument==current_chart)
         {
-          ObjectCreate(instrument+"_day_of_week",OBJ_TEXT,0,TimeCurrent(),Bid);
-          ObjectSetText(instrument+"_day_of_week","0",15,NULL,clrWhite);     
+          if(ObjectFind(current_chart+"_day_of_week")<0)
+            {
+              ObjectCreate(current_chart+"_day_of_week",OBJ_TEXT,0,TimeCurrent(),Bid);
+              ObjectSetText(current_chart+"_day_of_week","0",15,NULL,clrWhite);     
+            }
+          ObjectSetText(current_chart+"_day_of_week",IntegerToString(DayOfWeek(),1),0);
+          ObjectMove(current_chart+"_day_of_week",0,TimeCurrent(),Bid+ADR_pts/2);   
         }
-      ObjectSetText(instrument+"_day_of_week",IntegerToString(DayOfWeek(),1),0);
-      ObjectMove(instrument+"_day_of_week",0,TimeCurrent(),Bid+ADR_pts/2);     
-      
-      /*Print("in time range ",in_time_range);
-      Print("ready ",ready);
-      Print("avg spread yesterday ",average_spread_yesterday);*/
+  
+        /*Print("in time range ",in_time_range);
+        Print("ready ",ready);
+        Print("avg spread yesterday ",average_spread_yesterday);*/
       
       if(in_time_range==true && ready==false && average_spread_yesterday!=-1) 
         {
@@ -632,13 +636,13 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
           {
             ObjectMove(instrument+"_end_time",0,current_time,Bid);
           }*/
-          
        if(ObjectFind(instrument+"_LOP")>0)
          {
            ObjectDelete(instrument+"_LOP");
            ObjectDelete(instrument+"_HOP");
            //ObjectDelete(instrument+"_Move_Start");
-         }
+         }    
+         
      }
     return true;
   }
@@ -995,8 +999,8 @@ started work on a different option if the one above does not work out.
 //+------------------------------------------------------------------+
 bool in_time_range(datetime time,int start_hour,int start_min,int end_hour,int end_min,int fri_end_time_hr, int fri_end_time_min, int gmt_offset=0)
   {
-   string instrument=Symbol();
-   double bid_price=MarketInfo(instrument,MODE_BID);
+   string current_chart=Symbol();
+   double bid_price=MarketInfo(current_chart,MODE_BID);
    int day=TimeDayOfWeek(time);
    if(day==0) 
      return false; // if the broker's server time says it is Sunday, you are not in your trading time range // TODO: uncomment this line
@@ -1032,24 +1036,24 @@ bool in_time_range(datetime time,int start_hour,int start_min,int end_hour,int e
    //Print("start_time ",TimeToStr(start_time));
    //Print("end_time ",TimeToStr(end_time));
    
-   if(ObjectFind(instrument+"_start_time_today")<0) 
+   if(ObjectFind(current_chart+"_start_time_today")<0) 
       {
-        ObjectCreate(instrument+"_start_time_today",OBJ_VLINE,0,iTime(instrument,PERIOD_D1,0)+start_time,bid_price);
-        ObjectSet(instrument+"_start_time_today",OBJPROP_COLOR,clrGreen);
-        ObjectCreate(instrument+"_start_time_yesterday",OBJ_VLINE,0,iTime(instrument,PERIOD_D1,1)+start_time,bid_price);
-        ObjectSet(instrument+"_start_time_yesterday",OBJPROP_COLOR,clrGreen);
+        ObjectCreate(current_chart+"_start_time_today",OBJ_VLINE,0,iTime(current_chart,PERIOD_D1,0)+start_time,bid_price);
+        ObjectSet(current_chart+"_start_time_today",OBJPROP_COLOR,clrGreen);
+        ObjectCreate(current_chart+"_start_time_yesterday",OBJ_VLINE,0,iTime(current_chart,PERIOD_D1,1)+start_time,bid_price);
+        ObjectSet(current_chart+"_start_time_yesterday",OBJPROP_COLOR,clrGreen);
 
-        ObjectCreate(instrument+"_end_time_today",OBJ_VLINE,0,iTime(instrument,PERIOD_D1,0)+end_time,bid_price);
-        ObjectSet(instrument+"_end_time_today",OBJPROP_COLOR,clrRed);
-        ObjectCreate(instrument+"_end_time_yesterday",OBJ_VLINE,0,iTime(instrument,PERIOD_D1,1)+end_time,bid_price);
-        ObjectSet(instrument+"_end_time_yesterday",OBJPROP_COLOR,clrRed);
+        ObjectCreate(current_chart+"_end_time_today",OBJ_VLINE,0,iTime(current_chart,PERIOD_D1,0)+end_time,bid_price);
+        ObjectSet(current_chart+"_end_time_today",OBJPROP_COLOR,clrRed);
+        ObjectCreate(current_chart+"_end_time_yesterday",OBJ_VLINE,0,iTime(current_chart,PERIOD_D1,1)+end_time,bid_price);
+        ObjectSet(current_chart+"_end_time_yesterday",OBJPROP_COLOR,clrRed);
       }
    else
       {
-        ObjectMove(instrument+"_start_time_today",0,iTime(instrument,PERIOD_D1,0)+start_time,bid_price);
-        ObjectMove(instrument+"_start_time_yesterday",0,iTime(instrument,PERIOD_D1,1)+start_time,bid_price); 
-        ObjectMove(instrument+"_end_time_today",0,iTime(instrument,PERIOD_D1,0)+end_time,bid_price);
-        ObjectMove(instrument+"_end_time_yesterday",0,iTime(instrument,PERIOD_D1,1)+end_time,bid_price);       
+        ObjectMove(current_chart+"_start_time_today",0,iTime(current_chart,PERIOD_D1,0)+start_time,bid_price);
+        ObjectMove(current_chart+"_start_time_yesterday",0,iTime(current_chart,PERIOD_D1,1)+start_time,bid_price); 
+        ObjectMove(current_chart+"_end_time_today",0,iTime(current_chart,PERIOD_D1,0)+end_time,bid_price);
+        ObjectMove(current_chart+"_end_time_yesterday",0,iTime(current_chart,PERIOD_D1,1)+end_time,bid_price);       
       }
 
    if(start_time==end_time) // making sure that the start_time is classified as in the range
@@ -1073,9 +1077,6 @@ bool in_time_range(datetime time,int start_hour,int start_min,int end_hour,int e
 //+------------------------------------------------------------------+
 bool time_to_exit(datetime time,int exit_hour,int exit_min,int gmt_offset=0) 
   {
-   string instrument=Symbol();
-   double bid_price=MarketInfo(instrument,MODE_BID);
-
    if(gmt_offset!=0) 
      {
       exit_hour+=gmt_offset;
@@ -1089,21 +1090,24 @@ bool time_to_exit(datetime time,int exit_hour,int exit_min,int gmt_offset=0)
    int current_time=(hour*3600)+(minute*60);
    int exit_time=(exit_hour*3600)+(exit_min*60);
 
-     if(exit_time==current_time)
-      {
-       if(ObjectFind(instrument+"_time_to_exit")<0) 
-          {
-            ObjectCreate(instrument+"_time_to_exit",OBJ_VLINE,0,TimeCurrent(),bid_price);
-            ObjectSet(instrument+"_time_to_exit",OBJPROP_COLOR,clrRed);
-            ObjectSet(instrument+"_time_to_exit",OBJPROP_STYLE,STYLE_DASH);            
-          }
-        else
-          {
-            ObjectMove(instrument+"_time_to_exit",0,TimeCurrent(),bid_price);
-          }
-        return true; // this will only give the signal to exit for every tick for 1 minute per day
-      }
-     else return false;
+   if(exit_time==current_time)
+    {
+     string current_chart=Symbol();
+     double bid_price=MarketInfo(current_chart,MODE_BID);
+     
+     if(ObjectFind(current_chart+"_time_to_exit")<0)
+        {
+          ObjectCreate(current_chart+"_time_to_exit",OBJ_VLINE,0,TimeCurrent(),bid_price);
+          ObjectSet(current_chart+"_time_to_exit",OBJPROP_COLOR,clrRed);
+          ObjectSet(current_chart+"_time_to_exit",OBJPROP_STYLE,STYLE_DASH);            
+        }
+     else
+        {
+          ObjectMove(current_chart+"_time_to_exit",0,TimeCurrent(),bid_price); // TODO: this statement will run for every single instrument
+        }
+     return true; // this will only give the signal to exit for every tick for 1 minute per day
+    }
+   else return false;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1372,40 +1376,45 @@ double get_raw_ADR_pts(string instrument,double hours_to_roll,double low_outlier
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void get_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_outlier,double change_by,string instrument) // get the Average Daily Range
+void get_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_outlier,double change_by_percent,string instrument) // get the Average Daily Range
   {
      double raw_ADR_pts=get_raw_ADR_pts(instrument,hours_to_roll,low_outlier,high_outlier);
      int digits=(int)MarketInfo(instrument,MODE_DIGITS);
-     double bid_price=MarketInfo(instrument,MODE_BID);
+     double bid_price=MarketInfo(Symbol(),MODE_BID); // keep the symbol as NULL so it get's the bid of the opened symbol
+     string current_chart=Symbol();
      
-     if(ObjectFind(instrument+"_ADR_pts")<0) 
+     if(instrument==current_chart && ObjectFind(current_chart+"_ADR_pts")<0) 
       {
-        ObjectCreate(instrument+"_ADR_pts",OBJ_TEXT,0,TimeCurrent(),bid_price);
-        ObjectSetText(instrument+"_ADR_pts","0",15,NULL,clrWhite);
+        ObjectCreate(current_chart+"_ADR_pts",OBJ_TEXT,0,TimeCurrent(),bid_price);
+        ObjectSetText(current_chart+"_ADR_pts","0",15,NULL,clrWhite);
       } 
-     if(raw_ADR_pts>0 && (change_by==0 || change_by==NULL))
+     if(raw_ADR_pts>0 && (change_by_percent==0 || change_by_percent==NULL))
       { 
         Print("The raw ADR for ",instrument," was generated. It is ",DoubleToString(raw_ADR_pts)," pips.");
         ADR_pts=NormalizeDouble(raw_ADR_pts,digits);
-        ObjectSetText(instrument+"_ADR_pts",DoubleToString(raw_ADR_pts*100,digits),0);
-        ObjectMove(instrument+"_ADR_pts",0,TimeCurrent(),bid_price+ADR_pts/4);
-     
+        if(instrument==current_chart)
+          {
+            ObjectSetText(current_chart+"_ADR_pts",DoubleToString(raw_ADR_pts*100,digits),0);
+            ObjectMove(current_chart+"_ADR_pts",0,TimeCurrent(),bid_price+ADR_pts/4);        
+          }
         //Print("raw_ADR_pts: ",DoubleToString(raw_ADR_pts));
       }
      else if(raw_ADR_pts>0)
       {
-        double changed_ADR_pts=NormalizeDouble(((raw_ADR_pts*change_by)+raw_ADR_pts),digits); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
+        double changed_ADR_pts=NormalizeDouble(((raw_ADR_pts*change_by_percent)+raw_ADR_pts),digits); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
         Print("The raw ADR for ",instrument," was just generated. It is ",DoubleToString(raw_ADR_pts,digits)," pips. As requested by the user, it has been changed to ",DoubleToString(changed_ADR_pts)," pips.");
         ADR_pts=changed_ADR_pts;
-        ObjectSetText(instrument+"_ADR_pts",DoubleToString(changed_ADR_pts*100,digits),0);
-        ObjectMove(instrument+"_ADR_pts",0,TimeCurrent(),bid_price+ADR_pts/4);
-
+        if(instrument==current_chart)
+          {
+            ObjectSetText(current_chart+"_ADR_pts",DoubleToString(changed_ADR_pts*100,digits),0);
+            ObjectMove(current_chart+"_ADR_pts",0,TimeCurrent(),bid_price+ADR_pts/4);        
+          }
       }
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+  
-int get_moves_start_bar(double _H1s_to_roll,int gmt_offset,double _max_weekend_gap_percent,bool _include_last_week=true)
+int get_moves_start_bar(string instrument,double _H1s_to_roll,int gmt_offset,double _max_weekend_gap_percent,bool _include_last_week=true)
   {
    static datetime  weeks_open_time=0; // also known as Monday
    static double    weeks_open_price=0;
@@ -1413,7 +1422,7 @@ int get_moves_start_bar(double _H1s_to_roll,int gmt_offset,double _max_weekend_g
    static double    last_weeks_close_price=0;
    static int       weeks_start_bar=-1;
    int              moves_start_bar=(int)_H1s_to_roll*12/*-1*/; // any double divisible by .5 will always be an integer when multiplied by an even number like 12 so it is okay to convert it into an int
-   string           instrument=Symbol();
+   string           current_chart=Symbol();
    int              digits=(int)MarketInfo(instrument,MODE_DIGITS); 
    int              day=DayOfWeek();
    static bool      alert_flag=false;
@@ -1484,15 +1493,15 @@ int get_moves_start_bar(double _H1s_to_roll,int gmt_offset,double _max_weekend_g
          }
      }
    
-   if(ObjectFind(instrument+"_Move_Start")<0) 
+   if(ObjectFind(current_chart+"_Move_Start")<0) 
      {
-      ObjectCreate(instrument+"_Move_Start",OBJ_VLINE,0,weeks_open_time,weeks_open_price); // it only gets set to these anchors for 1 M5 bar, so it is okay if it is wrong the first bar.
-      ObjectSet(instrument+"_Move_Start",OBJPROP_COLOR,clrWhite);
+      ObjectCreate(current_chart+"_Move_Start",OBJ_VLINE,0,weeks_open_time,weeks_open_price); // it only gets set to these anchors for 1 M5 bar, so it is okay if it is wrong the first bar.
+      ObjectSet(current_chart+"_Move_Start",OBJPROP_COLOR,clrWhite);
      }
    if(moves_start_bar<=weeks_start_bar)
      {
-      ObjectSet(instrument+"_Move_Start",OBJPROP_TIME1,iTime(instrument,PERIOD_M5,moves_start_bar));
-      ObjectSet(instrument+"_Move_Start",OBJPROP_PRICE1,iOpen(instrument,PERIOD_M5,moves_start_bar));
+      ObjectSet(current_chart+"_Move_Start",OBJPROP_TIME1,iTime(current_chart,PERIOD_M5,moves_start_bar));
+      ObjectSet(current_chart+"_Move_Start",OBJPROP_PRICE1,iOpen(current_chart,PERIOD_M5,moves_start_bar));
       
       // Print("moves_start_bar ",moves_start_bar);
       // Print("weeks_start_bar ",weeks_start_bar);
@@ -1506,8 +1515,8 @@ int get_moves_start_bar(double _H1s_to_roll,int gmt_offset,double _max_weekend_g
 
       if(weekend_gap_points>max_weekend_gap_points) // TODO: use compare_doubles()?
         {
-          ObjectSet(instrument+"_Move_Start",OBJPROP_TIME1,iTime(instrument,PERIOD_M5,weeks_start_bar));
-          ObjectSet(instrument+"_Move_Start",OBJPROP_PRICE1,iOpen(instrument,PERIOD_M5,weeks_start_bar));
+          ObjectSet(current_chart+"_Move_Start",OBJPROP_TIME1,iTime(current_chart,PERIOD_M5,weeks_start_bar));
+          ObjectSet(current_chart+"_Move_Start",OBJPROP_PRICE1,iOpen(current_chart,PERIOD_M5,weeks_start_bar));
           
           if(alert_flag==false)
             {
@@ -1519,15 +1528,15 @@ int get_moves_start_bar(double _H1s_to_roll,int gmt_offset,double _max_weekend_g
         }
       else 
         {
-          ObjectSet(instrument+"_Move_Start",OBJPROP_TIME1,iTime(instrument,PERIOD_M5,moves_start_bar));
-          ObjectSet(instrument+"_Move_Start",OBJPROP_PRICE1,iOpen(instrument,PERIOD_M5,moves_start_bar));
+          ObjectSet(current_chart+"_Move_Start",OBJPROP_TIME1,iTime(current_chart,PERIOD_M5,moves_start_bar));
+          ObjectSet(current_chart+"_Move_Start",OBJPROP_PRICE1,iOpen(current_chart,PERIOD_M5,moves_start_bar));
           return moves_start_bar;
         }
      }
    else
      {
-      ObjectSet(instrument+"_Move_Start",OBJPROP_TIME1,iTime(instrument,PERIOD_M5,weeks_start_bar));
-      ObjectSet(instrument+"_Move_Start",OBJPROP_PRICE1,iOpen(instrument,PERIOD_M5,weeks_start_bar));
+      ObjectSet(current_chart+"_Move_Start",OBJPROP_TIME1,iTime(current_chart,PERIOD_M5,weeks_start_bar));
+      ObjectSet(current_chart+"_Move_Start",OBJPROP_PRICE1,iOpen(current_chart,PERIOD_M5,weeks_start_bar));
       return weeks_start_bar;
      }
     //return moves_start_bar; // TODO: Delete this line
@@ -1537,7 +1546,7 @@ int get_moves_start_bar(double _H1s_to_roll,int gmt_offset,double _max_weekend_g
 //+------------------------------------------------------------------+
 double periods_pivot_price(ENUM_DIRECTIONAL_MODE mode,string instrument)
   {
-    int move_start_bar=get_moves_start_bar(H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week);
+    int move_start_bar=get_moves_start_bar(instrument,H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week);
     
     //Print("move start bar: ",move_start_bar);
     //Print("move start bar's time: ",TimeToString(iTime(instrument,PERIOD_M5,move_start_bar))," and price is: ",iOpen(instrument,PERIOD_M5,move_start_bar));
@@ -1569,23 +1578,27 @@ double uptrend_ADR_threshold_price_met(string instrument,bool get_current_bid_in
   {
     static double LOP=0; // Low Of Period
     double current_bid=MarketInfo(instrument,MODE_BID); // TODO: always make sure RefreshRates() was called before. In this case, it was called before running this function.
-
+    string current_chart=Symbol();
+    
     if(LOP==0) LOP=periods_pivot_price(BUYING_MODE,instrument);
-    if(ObjectFind(instrument+"_LOP")<0)
+    if(current_chart==instrument)
       {
-        ObjectCreate(instrument+"_LOP",OBJ_HLINE,0,TimeCurrent(),LOP);
-        ObjectSet(instrument+"_LOP",OBJPROP_COLOR,clrWhite);
-      }
-    /*if(ObjectFind(magic_str+instrument+"_HOP_up")<0) 
-      {
-        ObjectCreate(magic_str+instrument+"_HOP_up",OBJ_HLINE,0,TimeCurrent(),current_bid);
-        ObjectSet(magic_str+instrument+"_HOP_up",OBJPROP_COLOR,clrGreen);
-      }*/
-    if(ObjectFind(instrument+"_HOP")<0)
-      {
-        ObjectCreate(instrument+"_HOP",OBJ_HLINE,0,TimeCurrent(),LOP+ADR_pts);
-        ObjectSet(instrument+"_HOP",OBJPROP_COLOR,clrWhite);
-      }
+        if(ObjectFind(current_chart+"_LOP")<0)
+          {
+            ObjectCreate(current_chart+"_LOP",OBJ_HLINE,0,TimeCurrent(),LOP);
+            ObjectSet(current_chart+"_LOP",OBJPROP_COLOR,clrWhite);
+          }
+        /*if(current_chart==instrument && ObjectFind(current_chart+"_HOP_up")<0) 
+          {
+            ObjectCreate(magic_str+instrument+"_HOP_up",OBJ_HLINE,0,TimeCurrent(),current_bid);
+            ObjectSet(magic_str+instrument+"_HOP_up",OBJPROP_COLOR,clrGreen);
+          }*/
+        if(ObjectFind(current_chart+"_HOP")<0)
+          {
+            ObjectCreate(current_chart+"_HOP",OBJ_HLINE,0,TimeCurrent(),LOP+ADR_pts);
+            ObjectSet(current_chart+"_HOP",OBJPROP_COLOR,clrWhite);
+          }     
+      } 
     if(LOP==-1) // this part is necessary in case periods_pivot_price ever returns 0
      {
        return -1;
@@ -1594,30 +1607,34 @@ double uptrend_ADR_threshold_price_met(string instrument,bool get_current_bid_in
      {
        // since the bottom of the range was surpassed, you have to reset the LOP. You might as well take this opportunity to take the period into account.
        LOP=periods_pivot_price(BUYING_MODE,instrument);
-
-       ObjectSet(instrument+"_LOP",OBJPROP_PRICE1,LOP);
-       ObjectSet(instrument+"_HOP",OBJPROP_PRICE1,LOP+ADR_pts);
+       if(current_chart==instrument)
+         {
+           ObjectSet(current_chart+"_LOP",OBJPROP_PRICE1,LOP);
+           ObjectSet(current_chart+"_HOP",OBJPROP_PRICE1,LOP+ADR_pts);        
+         }
        return -1;
      } 
     else if(current_bid-LOP>=ADR_pts) // if the pip move meets or exceed the ADR_Pips in points, return the current bid. Note: this will return true over and over again // TODO: use compare_doubles()?
      {
        // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
        LOP=periods_pivot_price(BUYING_MODE,instrument);
-
-       ObjectSet(instrument+"_LOP",OBJPROP_PRICE1,LOP);
-       //ObjectSet(magic_str+instrument+"_HOP_up",OBJPROP_PRICE1,current_bid);
-       ObjectSet(instrument+"_HOP",OBJPROP_PRICE1,LOP+ADR_pts);
+       if(current_chart==instrument)
+         {
+           ObjectSet(current_chart+"_LOP",OBJPROP_PRICE1,LOP);
+           //ObjectSet(magic_str+instrument+"_HOP_up",OBJPROP_PRICE1,current_bid);
+           ObjectSet(current_chart+"_HOP",OBJPROP_PRICE1,LOP+ADR_pts);     
+         }
        if(current_bid-LOP>=ADR_pts) // TODO: use compare_doubles()?
          {
           if(get_current_bid_instead) 
-             {
-                return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
-             }
+           {
+             return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
+           }
           else 
-             {
-                double triggered_price=LOP+ADR_pts;
-                return triggered_price;
-             }
+           {
+             double triggered_price=LOP+ADR_pts;
+             return triggered_price;
+           }
          }
        else return -1;
      }         
@@ -1630,22 +1647,26 @@ double downtrend_ADR_threshold_price_met(string instrument,bool get_current_bid_
   {
     static double HOP=0; // High Of Period
     double current_bid=MarketInfo(instrument,MODE_BID); // TODO: always make sure RefreshRates() was called before. In this case, it was called before running this function.
-   
+    string current_chart=Symbol();
+    
     if(HOP==0) HOP=periods_pivot_price(SELLING_MODE,instrument);
-    if(ObjectFind(instrument+"_HOP")<0)
+    if(current_chart==instrument)
       {
-        ObjectCreate(instrument+"_HOP",OBJ_HLINE,0,TimeCurrent(),HOP);
-        ObjectSet(instrument+"_HOP",OBJPROP_COLOR,clrWhite);
-      }
-    /*if(ObjectFind(magic_str+instrument+"_LOP_down")<0) 
-      {
-        ObjectCreate(magic_str+instrument+"_LOP_down",OBJ_HLINE,0,TimeCurrent(),current_bid);
-        ObjectSet(magic_str+instrument+"_LOP_down",OBJPROP_COLOR,clrRed);
-      }*/
-    if(ObjectFind(instrument+"_LOP")<0)
-      {
-        ObjectCreate(instrument+"_LOP",OBJ_HLINE,0,TimeCurrent(),HOP-ADR_pts);
-        ObjectSet(instrument+"_LOP",OBJPROP_COLOR,clrWhite);
+        if(ObjectFind(instrument+"_HOP")<0)
+          {
+            ObjectCreate(instrument+"_HOP",OBJ_HLINE,0,TimeCurrent(),HOP);
+            ObjectSet(instrument+"_HOP",OBJPROP_COLOR,clrWhite);
+          }
+        /*if(ObjectFind(magic_str+instrument+"_LOP_down")<0) 
+          {
+            ObjectCreate(magic_str+instrument+"_LOP_down",OBJ_HLINE,0,TimeCurrent(),current_bid);
+            ObjectSet(magic_str+instrument+"_LOP_down",OBJPROP_COLOR,clrRed);
+          }*/
+        if(ObjectFind(instrument+"_LOP")<0)
+          {
+            ObjectCreate(instrument+"_LOP",OBJ_HLINE,0,TimeCurrent(),HOP-ADR_pts);
+            ObjectSet(instrument+"_LOP",OBJPROP_COLOR,clrWhite);
+          }
       }
    if(HOP==-1) // this part is necessary in case periods_pivot_price ever returns 0
      {
@@ -1655,19 +1676,23 @@ double downtrend_ADR_threshold_price_met(string instrument,bool get_current_bid_
      {
        // since the bottom of the range was surpassed, you have to reset the LOP. You might as well take this opportunity to take the period into account.
        HOP=periods_pivot_price(SELLING_MODE,instrument);
-
-       ObjectSet(instrument+"_HOP",OBJPROP_PRICE1,HOP);
-       ObjectSet(instrument+"_LOP",OBJPROP_PRICE1,HOP-ADR_pts);
+       if(current_chart==instrument)
+         {
+           ObjectSet(instrument+"_HOP",OBJPROP_PRICE1,HOP);
+           ObjectSet(instrument+"_LOP",OBJPROP_PRICE1,HOP-ADR_pts);       
+         }
        return -1;
      } 
    else if(HOP-current_bid>=ADR_pts) // if the pip move meets or exceed the ADR_Pips in points, return the current bid. Note: this will return true over and over again // TODO: use compare_doubles()?
      {
        // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
        HOP=periods_pivot_price(SELLING_MODE,instrument);
-
-       ObjectSet(instrument+"_HOP",OBJPROP_PRICE1,HOP);
-       //ObjectSet(magic_str+instrument+"_LOP_down",OBJPROP_PRICE1,current_bid);
-       ObjectSet(instrument+"_LOP",OBJPROP_PRICE1,HOP-ADR_pts);
+       if(current_chart==instrument)
+         {
+           ObjectSet(instrument+"_HOP",OBJPROP_PRICE1,HOP);
+           //ObjectSet(magic_str+instrument+"_LOP_down",OBJPROP_PRICE1,current_bid);
+           ObjectSet(instrument+"_LOP",OBJPROP_PRICE1,HOP-ADR_pts); 
+         }
        if(HOP-current_bid>=ADR_pts) // TODO: use compare_doubles()?
          {
            if(get_current_bid_instead) 
