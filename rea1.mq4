@@ -23,12 +23,12 @@ enum ENUM_SIGNAL_SET
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-enum ENUM_TIME_FRAMES // TODO: these are not being used yet
+/*enum ENUM_TIME_FRAMES // TODO: these are not being used yet
   {
    M5=0,
    D1=1,
    W1=2
-  };
+  };*/
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -93,7 +93,7 @@ enum ENUM_MM // Money Management
 //|                                                                  |
 //+------------------------------------------------------------------+
 // general settings
-	string        symbol=NULL; // TODO: finish changing the code to get rid of this global variable
+	//string        symbol=NULL; // TODO: finish changing the code to get rid of this global variable
   /*input*/ bool auto_adjust_broker_digits=true;
   static int    EA_1_magic_num; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
   static bool   uptrend_triggered=true;
@@ -104,18 +104,19 @@ enum ENUM_MM // Money Management
 	int           virtual_sl=0; //0 TODO: Change to a percent of ADR
 	int           virtual_tp=0; //0 TODO: Change to a percent of ADR
 	
-	//input bool only_enter_on_new_bar=false; // Should you only enter trades when a new bar begins?
+	//input bool  only_enter_on_new_bar=false; // Should you only enter trades when a new bar begins?
 	input bool    exit_opposite_signal=false; //false exit_opposite_signal: Should the EA exit trades when there is a signal in the opposite direction?
-  //bool          long_allowed=true; //true Are long trades allowed?
-	//bool          short_allowed=true; //true Are short trades allowed?
+  //bool        long_allowed=true; //true Are long trades allowed?
+	//bool        short_allowed=true; //true Are short trades allowed?
 	
 	input string  space_1="----------------------------------------------------------------------------------------";
+	
 	input bool    filter_over_extended_trends=true;
 	input int     max_directional_trades_at_once=1;   //1 max_directional_trades_at_once: How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
 	input int     max_trades_within_x_hours=1;        //1 max_trades_within_x_hours: 0-x days (x depends on the setting of the Account History tab of the terminal). // How many trades are allowed to be opened (even if they are closed now) within the last x_hours?
 	input double  x_hours=3;                          //3 x_hours: Any whole or fraction of an hour.
 	input int     max_directional_trades_each_day=1;  //1 max_directional_trades_each_day: How many trades are allowed to be opened (even if they are close now) after the start of each current day?
-  
+  input int     ma_period=150;
   input string  space_2="----------------------------------------------------------------------------------------";
   
 // time filters - only allow EA to enter trades between a range of time in a day
@@ -172,7 +173,7 @@ enum ENUM_MM // Money Management
   
 //calculate_lots/mm variables
 	ENUM_MM       money_management=MM_RISK_PERCENT_PER_ADR;
-	input bool    compound_balance=false;
+	input bool    compound_balance=true;
 	input double  risk_percent_per_ADR=0.03;          //.03 risk_percent_per_ADR: percent risked when using the MM_RISK_PER_ADR_PERCENT money management calculations. Any amount of digits after the decimal point. Note: This is not the percent of your balance you will be risking.
 	double        mm1_risk_percent=0.02;              //mm1_risk_percent: percent risked when using the MM_RISK_PERCENT money management calculations
    // these variables will not be used with the MM_RISK_PERCENT money management strategy
@@ -188,7 +189,7 @@ enum ENUM_MM // Money Management
   input double  H1s_to_roll=11;                     //11 H1s_to_roll: Only divisible by .5 // How many hours should you roll to determine a short term market trend?
   input double  max_weekend_gap_percent=.15;        //.15 max_weekend_gap_percent: What is the maximum weekend gap (as a percent of ADR) for H1s_to_roll to not take the previous week into account?
   input bool    include_last_week=true;             //true include_last_week: Should the EA take Friday's moves into account when starting to determine length of the current move?
-  //input bool    include_yesterday=true;  //TODO: Work on this
+  //input bool    include_yesterday=true;           //TODO: Work on this
   static double ADR_pts;
   double        point_multiplier=1;                 // .001=Point
   double        new_point=1;                        //100*Point*10;
@@ -270,9 +271,7 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set,string instrument)
     int range_end_time=(end_time_hour*3600)+(end_time_minute*60);
     int exit_time=(exit_time_hour*3600)+(exit_time_minute*60);
 
-     // Print("The EA will not work properly. The input variables max_trades_in_direction, max_num_EAs_at_once, and max_trades_within_x_hours can't be 0 or negative.");
-    
-  
+     // Print("The EA will not work properly. The input variables max_trades_in_direction, max_num_EAs_at_once, and max_trades_within_x_hours can't be 0 or negative.");  
     Print(instrument,"'s Magic Number: ",IntegerToString(EA_1_magic_num));
     if(exit_time>range_start_time && exit_time<range_end_time && !input_variables_valid)
       {
@@ -405,7 +404,7 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
       get_moves_start_bar(instrument,H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week); // this is here so the vertical line can get moved every 5 minutes
     
       string current_chart=Symbol();
-      if(instrument==current_chart)
+      if(current_chart==instrument)
         {
           if(ObjectFind(current_chart+"_day_of_week")<0)
             {
@@ -415,7 +414,6 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
           ObjectSetText(current_chart+"_day_of_week",IntegerToString(DayOfWeek(),1),0);
           ObjectMove(current_chart+"_day_of_week",0,TimeCurrent(),Bid+ADR_pts/2);   
         }
-  
         /*Print("in time range ",in_time_range);
         Print("ready ",ready);
         Print("avg spread yesterday ",average_spread_yesterday);*/
@@ -491,7 +489,7 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
       int enter_signal=TRADE_SIGNAL_NEUTRAL; // 0
     
       enter_signal=signal_pullback_after_ADR_triggered(instrument); // this is the first signal and will apply to all signal sets so it gets run first
-      //enter_signal=signal_compare(enter_signal,signal_entry(SIGNAL_SET),false); // The entry signal requires in_time_range, adr_generated, and EA_magic_num>0 to be true.      
+      enter_signal=signal_compare(enter_signal,signal_entry(instrument,SIGNAL_SET),false); // The entry signal requires in_time_range, adr_generated, and EA_magic_num>0 to be true.      
 
       if(enter_signal>0)
         {
@@ -627,22 +625,21 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
                 exit_all_trades_set(_exiting_max_slippage,ORDER_SET_ALL,magic); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
               }
          }
-       /*if(ObjectFind(instrument+"_end_time")<0) 
+       /*if(ObjectFind(current_chart+"_end_time")<0) 
           {
-            ObjectCreate(instrument+"_end_time",OBJ_VLINE,0,current_time,Bid);
-            ObjectSet(instrument+"_end_time",OBJPROP_COLOR,clrWhite);
+            ObjectCreate(current_chart+"_end_time",OBJ_VLINE,0,current_time,Bid);
+            ObjectSet(current_chart+"_end_time",OBJPROP_COLOR,clrWhite);
           }
        else
           {
-            ObjectMove(instrument+"_end_time",0,current_time,Bid);
+            ObjectMove(current_chart+"_end_time",0,current_time,Bid);
           }*/
        if(ObjectFind(instrument+"_LOP")>0)
          {
            ObjectDelete(instrument+"_LOP");
            ObjectDelete(instrument+"_HOP");
            //ObjectDelete(instrument+"_Move_Start");
-         }    
-         
+         }           
      }
     return true;
   }
@@ -661,13 +658,7 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------
-int ma_period=150;
-int ma_shift=0;
-ENUM_MA_METHOD ma_method=MODE_SMA;
-ENUM_APPLIED_PRICE ma_applied=PRICE_MEDIAN;
-int ma_index=1;
-
-int signal_MA_crossover(double a1,double a2,double b1,double b2)
+/*int signal_MA_crossover(double a1,double a2,double b1,double b2)
   {
    ENUM_TRADE_SIGNAL signal=TRADE_SIGNAL_NEUTRAL;
    if(a1<b1 && a2>=b2)
@@ -679,25 +670,34 @@ int signal_MA_crossover(double a1,double a2,double b1,double b2)
       signal=TRADE_SIGNAL_SELL;
      }
    return signal;
-  }
+  }*/
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int signal_MA()
+int signal_MA(string instrument)
   {
-   double ma=iMA(NULL,0,ma_period,ma_shift,ma_method,ma_applied,ma_index);
-   double ma1=iMA(NULL,0,ma_period,ma_shift,ma_method,ma_applied,ma_index+1);
-   double close=iClose(NULL,0,ma_index);
-   double close1=iClose(NULL,0,ma_index+1);
-   if(ma<close && ma1>close1)
+   if(ma_period<=0) return TRADE_SIGNAL_NEUTRAL;
+   else
      {
-      return TRADE_SIGNAL_BUY;
+       int ma_shift=0;
+       ENUM_MA_METHOD ma_method=MODE_SMA;
+       ENUM_APPLIED_PRICE ma_applied=PRICE_MEDIAN;
+       int ma_index=1;
+       
+       double ma=iMA(instrument,PERIOD_M5,ma_period,ma_shift,ma_method,ma_applied,ma_index);
+       double ma1=iMA(instrument,PERIOD_M5,ma_period,ma_shift,ma_method,ma_applied,ma_index+1);
+       double close=iClose(instrument,PERIOD_M5,ma_index);
+       double close1=iClose(instrument,PERIOD_M5,ma_index+1);
+       if(ma<close && ma1>close1)
+         {
+          return TRADE_SIGNAL_BUY;
+         }
+       else if(ma>close && ma1<close1)
+         {
+          return TRADE_SIGNAL_SELL;
+         }
+       return TRADE_SIGNAL_NEUTRAL;
      }
-   else if(ma>close && ma1<close1)
-     {
-      return TRADE_SIGNAL_SELL;
-     }
-   return 0;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -844,7 +844,7 @@ int signal_pullback_after_ADR_triggered(string instrument)
 //|                                                                  |
 //+------------------------------------------------------------------+
 // Checks for the entry of orders
-int signal_entry(ENUM_SIGNAL_SET signal_set) // gets called for every tick
+int signal_entry(string instrument,ENUM_SIGNAL_SET signal_set) // gets called for every tick
   {
    int signal=TRADE_SIGNAL_NEUTRAL;
    
@@ -855,7 +855,7 @@ int signal_entry(ENUM_SIGNAL_SET signal_set) // gets called for every tick
 */
    if(signal_set==SIGNAL_SET_1)
      {
-      //signal=signal_compare(signal,signal_x_consecutive_directional_days(),false);
+      signal=signal_compare(signal,signal_MA(instrument),false);
       return signal;
      }
    if(signal_set==SIGNAL_SET_2)
@@ -1590,8 +1590,8 @@ double uptrend_ADR_threshold_price_met(string instrument,bool get_current_bid_in
           }
         /*if(current_chart==instrument && ObjectFind(current_chart+"_HOP_up")<0) 
           {
-            ObjectCreate(magic_str+instrument+"_HOP_up",OBJ_HLINE,0,TimeCurrent(),current_bid);
-            ObjectSet(magic_str+instrument+"_HOP_up",OBJPROP_COLOR,clrGreen);
+            ObjectCreate(magic_str+current_chart+"_HOP_up",OBJ_HLINE,0,TimeCurrent(),current_bid);
+            ObjectSet(magic_str+current_chart+"_HOP_up",OBJPROP_COLOR,clrGreen);
           }*/
         if(ObjectFind(current_chart+"_HOP")<0)
           {
@@ -1621,7 +1621,7 @@ double uptrend_ADR_threshold_price_met(string instrument,bool get_current_bid_in
        if(current_chart==instrument)
          {
            ObjectSet(current_chart+"_LOP",OBJPROP_PRICE1,LOP);
-           //ObjectSet(magic_str+instrument+"_HOP_up",OBJPROP_PRICE1,current_bid);
+           //ObjectSet(magic_str+current_chart+"_HOP_up",OBJPROP_PRICE1,current_bid);
            ObjectSet(current_chart+"_HOP",OBJPROP_PRICE1,LOP+ADR_pts);     
          }
        if(current_bid-LOP>=ADR_pts) // TODO: use compare_doubles()?
@@ -1652,20 +1652,20 @@ double downtrend_ADR_threshold_price_met(string instrument,bool get_current_bid_
     if(HOP==0) HOP=periods_pivot_price(SELLING_MODE,instrument);
     if(current_chart==instrument)
       {
-        if(ObjectFind(instrument+"_HOP")<0)
+        if(ObjectFind(current_chart+"_HOP")<0)
           {
-            ObjectCreate(instrument+"_HOP",OBJ_HLINE,0,TimeCurrent(),HOP);
-            ObjectSet(instrument+"_HOP",OBJPROP_COLOR,clrWhite);
+            ObjectCreate(current_chart+"_HOP",OBJ_HLINE,0,TimeCurrent(),HOP);
+            ObjectSet(current_chart+"_HOP",OBJPROP_COLOR,clrWhite);
           }
-        /*if(ObjectFind(magic_str+instrument+"_LOP_down")<0) 
+        /*if(ObjectFind(magic_str+current_chart+"_LOP_down")<0) 
           {
-            ObjectCreate(magic_str+instrument+"_LOP_down",OBJ_HLINE,0,TimeCurrent(),current_bid);
-            ObjectSet(magic_str+instrument+"_LOP_down",OBJPROP_COLOR,clrRed);
+            ObjectCreate(magic_str+current_chart+"_LOP_down",OBJ_HLINE,0,TimeCurrent(),current_bid);
+            ObjectSet(magic_str+current_chart+"_LOP_down",OBJPROP_COLOR,clrRed);
           }*/
-        if(ObjectFind(instrument+"_LOP")<0)
+        if(ObjectFind(current_chart+"_LOP")<0)
           {
-            ObjectCreate(instrument+"_LOP",OBJ_HLINE,0,TimeCurrent(),HOP-ADR_pts);
-            ObjectSet(instrument+"_LOP",OBJPROP_COLOR,clrWhite);
+            ObjectCreate(current_chart+"_LOP",OBJ_HLINE,0,TimeCurrent(),HOP-ADR_pts);
+            ObjectSet(current_chart+"_LOP",OBJPROP_COLOR,clrWhite);
           }
       }
    if(HOP==-1) // this part is necessary in case periods_pivot_price ever returns 0
@@ -1678,8 +1678,8 @@ double downtrend_ADR_threshold_price_met(string instrument,bool get_current_bid_
        HOP=periods_pivot_price(SELLING_MODE,instrument);
        if(current_chart==instrument)
          {
-           ObjectSet(instrument+"_HOP",OBJPROP_PRICE1,HOP);
-           ObjectSet(instrument+"_LOP",OBJPROP_PRICE1,HOP-ADR_pts);       
+           ObjectSet(current_chart+"_HOP",OBJPROP_PRICE1,HOP);
+           ObjectSet(current_chart+"_LOP",OBJPROP_PRICE1,HOP-ADR_pts);       
          }
        return -1;
      } 
@@ -1689,9 +1689,9 @@ double downtrend_ADR_threshold_price_met(string instrument,bool get_current_bid_
        HOP=periods_pivot_price(SELLING_MODE,instrument);
        if(current_chart==instrument)
          {
-           ObjectSet(instrument+"_HOP",OBJPROP_PRICE1,HOP);
-           //ObjectSet(magic_str+instrument+"_LOP_down",OBJPROP_PRICE1,current_bid);
-           ObjectSet(instrument+"_LOP",OBJPROP_PRICE1,HOP-ADR_pts); 
+           ObjectSet(current_chart+"_HOP",OBJPROP_PRICE1,HOP);
+           //ObjectSet(magic_str+current_chart+"_LOP_down",OBJPROP_PRICE1,current_bid);
+           ObjectSet(current_chart+"_LOP",OBJPROP_PRICE1,HOP-ADR_pts); 
          }
        if(HOP-current_bid>=ADR_pts) // TODO: use compare_doubles()?
          {
@@ -2034,15 +2034,14 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,str
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+ 
-string generate_comment(int magic,double sl_pts, double tp_pts,double spread_pts) // TODO: Add more user parameter settings for the order to the message so they know what settings generated the results.
+string generate_comment(string instrument,int magic,double sl_pts, double tp_pts,double spread_pts) // TODO: Add more user parameter settings for the order to the message so they know what settings generated the results.
   {
     string comment;
-    int divide_by=100; // TODO: do you need this in the calculations below?
-    if(symbol=="USDJPYpro") divide_by=10; // TODO: fix this hard coded value and replace "symbol" with "instrument" that is passed in
-    else divide_by=100;
-    return comment=StringConcatenate("EA: ",WindowExpertName(),"Magic#: ",IntegerToString(magic),", CCY Pair: ",symbol," Requested TP: ",DoubleToStr(tp_pts)," Requested SL: ",DoubleToStr(sl_pts),"Spread slighly before order: ",DoubleToStr(spread_pts));
+    return comment=StringConcatenate("EA: ",WindowExpertName(),"Magic#: ",IntegerToString(magic),", CCY Pair: ",instrument," Requested TP: ",DoubleToStr(tp_pts)," Requested SL: ",DoubleToStr(sl_pts),"Spread slighly before order: ",DoubleToStr(spread_pts));
   }
-
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+ 
 int check_for_entry_errors(string instrument,int cmd,double lots,double _distance_pts,double periods_pivot_price,double sl_pts,double tp_pts,int max_slippage,double spread_points,string _EA_name=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false,int retries=3,int sleep_milisec=500)
   {
    int ticket=0;
@@ -2193,7 +2192,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
           }
         }
      }
-   string generated_comment=generate_comment(magic,sl_pts,tp_pts,spread_pts);
+   string generated_comment=generate_comment(instrument,magic,sl_pts,tp_pts,spread_pts);
    if(order_type<0) 
      return 0; // if there is no order
    else if(order_type==0 || order_type==1) 
@@ -2624,7 +2623,7 @@ int count_similar_orders(ENUM_DIRECTIONAL_MODE mode)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void cleanup_all_pending_orders(int max_ccy_directional_trades) 
+/*void cleanup_all_pending_orders(int max_ccy_directional_trades) 
   { 
     for(int i=OrdersTotal()-1;i>=0;i--) // You have to start iterating from the lower part (or 0) of the order array because the newest trades get sent to the start. Interate through the index from a not excessive index position (the middle of an index) to OrdersTotal()-1 // the oldest order in the list has index position 0
      {
@@ -2678,7 +2677,7 @@ void cleanup_all_pending_orders(int max_ccy_directional_trades)
           }
         }
       } 
-  }
+  }*/
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
