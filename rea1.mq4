@@ -48,12 +48,13 @@ enum ENUM_RANGE
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-enum ENUM_TRADE_SIGNAL  // since ENUM_ORDER_TYPE is not enough, this enum was created to be able to use neutral and void signals
+enum ENUM_DIRECTION_BIAS  // since ENUM_ORDER_TYPE is not enough, this enum was created to be able to use neutral and void signals
   {
-   TRADE_SIGNAL_VOID=-1, // exit all trades
-   TRADE_SIGNAL_NEUTRAL=0, // no direction is determined. This happens when buy and sell signals are compared with each other.
-   TRADE_SIGNAL_BUY,
-   TRADE_SIGNAL_SELL
+   DIRECTION_BIAS_IGNORE=-2, // ignore the current filter and move on to the next one
+   DIRECTION_BIAS_VOID=-1, // exit all trades
+   DIRECTION_BIAS_NEUTRAL=0, // do not buy, sell or exit any trades
+   DIRECTION_BIAS_BUY=1,
+   DIRECTION_BIAS_SELL=2
    
    // TODO: should you create TRADE_SIGNAL_SIT_ON_HANDS that will override all other buy and sell signals? (but not the void one)
   };
@@ -116,7 +117,7 @@ enum ENUM_MM // Money Management
 	input int     max_trades_within_x_hours=1;        //1 max_trades_within_x_hours: 0-x days (x depends on the setting of the Account History tab of the terminal). // How many trades are allowed to be opened (even if they are closed now) within the last x_hours?
 	input double  x_hours=3;                          //3 x_hours: Any whole or fraction of an hour.
 	input int     max_directional_trades_each_day=1;  //1 max_directional_trades_each_day: How many trades are allowed to be opened (even if they are close now) after the start of each current day?
-  input int     ma_period=150;
+  input int     moving_avg_period=150;
   input string  space_2="----------------------------------------------------------------------------------------";
   
 // time filters - only allow EA to enter trades between a range of time in a day
@@ -241,6 +242,7 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set,string instrument)
     double hedged_margin=MarketInfo(instrument,MODE_MARGINHEDGED);
     double margin_required=MarketInfo(instrument,MODE_MARGINREQUIRED);
     double freeze_level_pts=MarketInfo(instrument,MODE_FREEZELEVEL);
+    string current_chart=Symbol();
 
     Print("trade_allowed: ",DoubleToStr(trade_allowed));
     Print("one_lot_initial_margin: ",DoubleToStr(one_lot_initial_margin));
@@ -261,6 +263,9 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set,string instrument)
     Print("lot_digits: ",IntegerToString(lot_digits)," after the decimal point.");
     Print("lot_step: ",lot_step);    
     Print("broker digits: ",IntegerToString(digits)," after the decimal point.");
+    Print("current time: ",TimeToString(current_time));
+    Print("current bar open time: ",TimeToString(current_bar_open_time));
+    Print("current_chart: ",current_chart);
       // TODO: check if the broker has Sunday's as a server time, and, if not, block all the code you wrote to count Sunday's from running
       
       
@@ -360,7 +365,7 @@ void OnTimer()
   {
    string instrument=Symbol();
    datetime current_time=(datetime)MarketInfo(instrument,MODE_TIME);
-   int exit_signal=TRADE_SIGNAL_NEUTRAL, exit_signal_2=TRADE_SIGNAL_NEUTRAL; // 0
+   int exit_signal=DIRECTION_BIAS_NEUTRAL, exit_signal_2=DIRECTION_BIAS_NEUTRAL; // 0
    int _exiting_max_slippage=exiting_max_slippage_pips;
    bool Relativity_EA_2_on=false;
    bool answer=false;
@@ -374,8 +379,8 @@ void OnTimer()
    answer=Relativity_EA_ran(instrument,EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
    if(answer && Relativity_EA_2_on) 
      {
-       answer=Relativity_EA_ran(instrument,EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
-     } 
+       answer=Relativity_EA_ran("EURUSDpro",EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
+     }
   }
 void OnTick()
   {
@@ -387,11 +392,11 @@ void OnTick()
 //+------------------------------------------------------------------+
 bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exit_signal,int exit_signal_2,int _exiting_max_slippage)
   {
-   /*exit_signal=signal_exit(SIGNAL_SET); // The exit signal should be made the priority and doesn't require in_time_range or adr_generated to be true
+   /*exit_signal=signal_exit(instrument,SIGNAL_SET); // The exit signal should be made the priority and doesn't require in_time_range or adr_generated to be true
 
-   if(exit_signal==TRADE_SIGNAL_VOID)       exit_all_trades_set(_exiting_max_slippage,ORDER_SET_ALL,magic); // close all pending and orders for the specific EA's orders. Don't do validation to see if there is an EA_magic_num because the EA should try to exit even if for some reason there is none.
-   else if(exit_signal==TRADE_SIGNAL_BUY)   exit_all_trades_set(_exiting_max_slippage,ORDER_SET_SHORT,magic);
-   else if(exit_signal==TRADE_SIGNAL_SELL)  exit_all_trades_set(_exiting_max_slippage,ORDER_SET_LONG,magic);*/
+   if(exit_signal==DIRECTION_BIAS_VOID)       exit_all_trades_set(_exiting_max_slippage,ORDER_SET_ALL,magic); // close all pending and orders for the specific EA's orders. Don't do validation to see if there is an EA_magic_num because the EA should try to exit even if for some reason there is none.
+   else if(exit_signal==DIRECTION_BIAS_BUY)   exit_all_trades_set(_exiting_max_slippage,ORDER_SET_SHORT,magic);
+   else if(exit_signal==DIRECTION_BIAS_SELL)  exit_all_trades_set(_exiting_max_slippage,ORDER_SET_LONG,magic);*/
    
    if(breakeven_threshold_percent>0) breakeven_check_all_orders(breakeven_threshold_percent,breakeven_plus_percent,magic);
    if(trail_threshold_percent>0) trailingstop_check_all_orders(trail_threshold_percent,trail_step_percent,magic,same_stoploss_distance);
@@ -420,7 +425,7 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
       
       if(in_time_range==true && ready==false && average_spread_yesterday!=-1) 
         {
-         get_changed_ADR_pts(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent,instrument); // 23:05
+         get_changed_ADR_pts(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent,instrument);
          average_spread_yesterday=calculate_avg_spread_yesterday(instrument); // 23:05
          
          /*static bool flag=true;
@@ -486,21 +491,22 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
      }
    if(ready && in_time_range)
      {
-      int enter_signal=TRADE_SIGNAL_NEUTRAL; // 0
-    
+      int enter_signal=DIRECTION_BIAS_NEUTRAL; // 0
+      
       enter_signal=signal_pullback_after_ADR_triggered(instrument); // this is the first signal and will apply to all signal sets so it gets run first
-      enter_signal=signal_compare(enter_signal,signal_entry(instrument,SIGNAL_SET),false); // The entry signal requires in_time_range, adr_generated, and EA_magic_num>0 to be true.      
+      enter_signal=signal_bias_compare(enter_signal,signal_MA(instrument),false);
 
-      if(enter_signal>0)
+      if(enter_signal>0) // i
         {
+         // the code for every filter after this line needs to know whether the signal was to buy or sell and, therefore, couldn't be in the previous filters
          int days_seconds=(int)(current_time-(iTime(instrument,PERIOD_D1,0))+(gmt_hour_offset*3600)); // i am assuming it is okay to typecast a datetime (iTime) into an int since datetime is count of the number of seconds since 1970
          //int efficient_end_index=MathMin((MathMax(max_trades_within_x_hours*x_hours,max_directional_trades_each_day*24)*max_directional_trades_at_once*max_num_EAs_at_once-1),OrdersHistoryTotal()-1); // calculating the maximum orders that could have been placed so at least the program doesn't have to iterate through all orders in history (which can slow down the EA)
          
-         if(enter_signal==TRADE_SIGNAL_BUY)
+         if(enter_signal==DIRECTION_BIAS_BUY)
            {
             ENUM_ORDER_SET order_set=ORDER_SET_LONG;
             ENUM_ORDER_SET order_set2=ORDER_SET_SHORT_LONG_LIMIT_MARKET;
-            
+
             if(exit_opposite_signal) exit_all_trades_set(_exiting_max_slippage,ORDER_SET_SELL,magic);
             int opened_today_count=count_orders (order_set, // should be first because the days_seconds variable was just calculated
                                                  magic,
@@ -537,11 +543,11 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
                 if(!overbought_1 || !overbought_2) try_to_enter_order(OP_BUY,magic,entering_max_slippage_pips,instrument);
               }
            }
-         else if(enter_signal==TRADE_SIGNAL_SELL)
+         else if(enter_signal==DIRECTION_BIAS_SELL)
            {   
             ENUM_ORDER_SET order_set=ORDER_SET_SHORT;
             ENUM_ORDER_SET order_set2=ORDER_SET_SHORT_LONG_LIMIT_MARKET;
-            
+
             if(exit_opposite_signal) exit_all_trades_set(_exiting_max_slippage,ORDER_SET_BUY,magic);
             int opened_today_count=count_orders (order_set, // should be first because the days_seconds variable was just calculated
                                                  magic,
@@ -660,7 +666,7 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
 //+------------------------------------------------------------------
 /*int signal_MA_crossover(double a1,double a2,double b1,double b2)
   {
-   ENUM_TRADE_SIGNAL signal=TRADE_SIGNAL_NEUTRAL;
+   ENUM_DIRECTION_BIAS signal=TRADE_SIGNAL_NEUTRAL;
    if(a1<b1 && a2>=b2)
      {
       signal=TRADE_SIGNAL_BUY;
@@ -676,7 +682,7 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
 //+------------------------------------------------------------------+
 int signal_MA(string instrument)
   {
-   if(ma_period<=0) return TRADE_SIGNAL_NEUTRAL;
+   if(moving_avg_period<=0) return DIRECTION_BIAS_IGNORE;
    else
      {
        int ma_shift=0;
@@ -684,19 +690,19 @@ int signal_MA(string instrument)
        ENUM_APPLIED_PRICE ma_applied=PRICE_MEDIAN;
        int ma_index=1;
        
-       double ma=iMA(instrument,PERIOD_M5,ma_period,ma_shift,ma_method,ma_applied,ma_index);
-       double ma1=iMA(instrument,PERIOD_M5,ma_period,ma_shift,ma_method,ma_applied,ma_index+1);
+       double ma=iMA(instrument,PERIOD_M5,moving_avg_period,ma_shift,ma_method,ma_applied,ma_index);
+       double ma1=iMA(instrument,PERIOD_M5,moving_avg_period,ma_shift,ma_method,ma_applied,ma_index+1);
        double close=iClose(instrument,PERIOD_M5,ma_index);
        double close1=iClose(instrument,PERIOD_M5,ma_index+1);
        if(ma<close && ma1>close1)
          {
-          return TRADE_SIGNAL_BUY;
+          return DIRECTION_BIAS_BUY;
          }
        else if(ma>close && ma1<close1)
          {
-          return TRADE_SIGNAL_SELL;
+          return DIRECTION_BIAS_SELL;
          }
-       return TRADE_SIGNAL_NEUTRAL;
+       return DIRECTION_BIAS_NEUTRAL;
      }
   }
 //+------------------------------------------------------------------+
@@ -818,14 +824,14 @@ bool over_extended_trend(string instrument,int days_to_check,ENUM_DIRECTIONAL_MO
 //+------------------------------------------------------------------+
 int signal_pullback_after_ADR_triggered(string instrument)
   {
-    int signal=TRADE_SIGNAL_NEUTRAL;
+    int signal=DIRECTION_BIAS_NEUTRAL;
  
     if(!uptrend_triggered)
       {
         RefreshRates();
         if(uptrend_ADR_threshold_price_met(instrument,false)>0)
           {
-            return signal=TRADE_SIGNAL_BUY;
+            return signal=DIRECTION_BIAS_BUY;
           }
       }
    // for a buying signal, take the level that adr was triggered and subtract the pullback_pips to get the pullback_entry_price
@@ -835,7 +841,7 @@ int signal_pullback_after_ADR_triggered(string instrument)
         RefreshRates();
         if(downtrend_ADR_threshold_price_met(instrument,false)>0) 
           {
-            return signal=TRADE_SIGNAL_SELL;
+            return signal=DIRECTION_BIAS_SELL;
           }
         }
     return signal;
@@ -846,7 +852,7 @@ int signal_pullback_after_ADR_triggered(string instrument)
 // Checks for the entry of orders
 int signal_entry(string instrument,ENUM_SIGNAL_SET signal_set) // gets called for every tick
   {
-   int signal=TRADE_SIGNAL_NEUTRAL;
+   int signal=DIRECTION_BIAS_NEUTRAL;
    
 /* Add 1 or more entry signals below. 
    With more than 1 signal, you would follow this code using the signal_compare function. 
@@ -855,22 +861,22 @@ int signal_entry(string instrument,ENUM_SIGNAL_SET signal_set) // gets called fo
 */
    if(signal_set==SIGNAL_SET_1)
      {
-      signal=signal_compare(signal,signal_MA(instrument),false);
+      signal=signal_bias_compare(signal,signal_MA(instrument),false);
       return signal;
      }
    if(signal_set==SIGNAL_SET_2)
      {
       return signal;
      }
-   else return TRADE_SIGNAL_NEUTRAL;
+   else return DIRECTION_BIAS_NEUTRAL;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 // Checks for the exit of orders
-int signal_exit(ENUM_SIGNAL_SET signal_set)
+int signal_exit(string instrument,ENUM_SIGNAL_SET signal_set)
   {
-   int signal=TRADE_SIGNAL_NEUTRAL;
+   int signal=DIRECTION_BIAS_NEUTRAL;
 /* Add 1 or more entry signals below. 
    With more than 1 signal, you would follow this code using the signal_compare function. 
    "signal=signal_compare(signal,signal_pullback_after_ADR_triggered());"
@@ -891,26 +897,20 @@ int signal_exit(ENUM_SIGNAL_SET signal_set)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int signal_compare(int current_signal,int added_signal,bool exit_when_buy_and_sell=false) 
+int signal_bias_compare(int current_signal,int added_signal,bool exit_when_buy_and_sell=false) 
   {
   // signals are evaluated two at a time and the result will be used to compared with other signals until all signals are compared
-   if(current_signal==TRADE_SIGNAL_VOID)
-      return current_signal;
-   else if(current_signal==TRADE_SIGNAL_NEUTRAL)
-      return added_signal;
-   else
-     {
-      if(added_signal==TRADE_SIGNAL_NEUTRAL)
-         return current_signal;
-      else if(added_signal==TRADE_SIGNAL_VOID)
-         return added_signal;
-      // at this point, the only two options left are if they are both buy, both sell, or buy and sell
-      else if(added_signal!=current_signal) // if one signal is a buy signal and the other sign
-        {
-         if(exit_when_buy_and_sell) return TRADE_SIGNAL_VOID;
-         else return TRADE_SIGNAL_NEUTRAL;
-        }
-     }
+   if(current_signal==DIRECTION_BIAS_VOID || added_signal==DIRECTION_BIAS_VOID) return DIRECTION_BIAS_VOID;
+   else if(added_signal==DIRECTION_BIAS_IGNORE) return current_signal;
+   else if(current_signal==DIRECTION_BIAS_IGNORE) return added_signal;
+   else if(current_signal==DIRECTION_BIAS_NEUTRAL || added_signal==DIRECTION_BIAS_NEUTRAL) return DIRECTION_BIAS_NEUTRAL;
+      
+   // at this point, the only two options left are if they are both buy, both sell, or buy and sell
+   else if(added_signal!=current_signal) // if one signal is a buy signal and the other sign
+    {
+     if(exit_when_buy_and_sell) return DIRECTION_BIAS_VOID;
+     else return DIRECTION_BIAS_NEUTRAL;
+    }
    return added_signal;
   }
 //+------------------------------------------------------------------+
@@ -918,11 +918,11 @@ int signal_compare(int current_signal,int added_signal,bool exit_when_buy_and_se
 //+------------------------------------------------------------------+
 // Neutralizes situations where there is a conflict between the entry and exit signal.
 // TODO: This function is not yet being called. Since the entry and exit signals are passed by reference, these paremeters would need to be prepared in advance and stored in variables prior to calling the function.
-void signal_manage(ENUM_TRADE_SIGNAL &entry,ENUM_TRADE_SIGNAL &exit)
+void signal_manage(ENUM_DIRECTION_BIAS &entry,ENUM_DIRECTION_BIAS &exit)
   {
-   if(exit==TRADE_SIGNAL_VOID)                              entry=TRADE_SIGNAL_NEUTRAL;
-   if(exit==TRADE_SIGNAL_BUY && entry==TRADE_SIGNAL_SELL)   entry=TRADE_SIGNAL_NEUTRAL;
-   if(exit==TRADE_SIGNAL_SELL && entry==TRADE_SIGNAL_BUY)   entry=TRADE_SIGNAL_NEUTRAL;
+   if(exit==DIRECTION_BIAS_VOID)                                  entry=DIRECTION_BIAS_NEUTRAL;
+   if(exit==DIRECTION_BIAS_BUY && entry==DIRECTION_BIAS_SELL)     entry=DIRECTION_BIAS_NEUTRAL;
+   if(exit==DIRECTION_BIAS_SELL && entry==DIRECTION_BIAS_BUY)     entry=DIRECTION_BIAS_NEUTRAL;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1378,10 +1378,10 @@ double get_raw_ADR_pts(string instrument,double hours_to_roll,double low_outlier
 //+------------------------------------------------------------------+
 void get_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_outlier,double change_by_percent,string instrument) // get the Average Daily Range
   {
-     double raw_ADR_pts=get_raw_ADR_pts(instrument,hours_to_roll,low_outlier,high_outlier);
-     int digits=(int)MarketInfo(instrument,MODE_DIGITS);
-     double bid_price=MarketInfo(Symbol(),MODE_BID); // keep the symbol as NULL so it get's the bid of the opened symbol
-     string current_chart=Symbol();
+     double   raw_ADR_pts=get_raw_ADR_pts(instrument,hours_to_roll,low_outlier,high_outlier);
+     int      digits=(int)MarketInfo(instrument,MODE_DIGITS);
+     string   current_chart=Symbol();
+     double   bid_price=MarketInfo(current_chart,MODE_BID);
      
      if(instrument==current_chart && ObjectFind(current_chart+"_ADR_pts")<0) 
       {
