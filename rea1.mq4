@@ -110,7 +110,7 @@ enum ENUM_MM // Money Management
 	//bool          short_allowed=true; //true Are short trades allowed?
 	
 	input string  space_1="----------------------------------------------------------------------------------------";
-	
+	input bool    filter_over_extended_trends=true;
 	input int     max_directional_trades_at_once=1;   //1 max_directional_trades_at_once: How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
 	input int     max_trades_within_x_hours=1;        //1 max_trades_within_x_hours: 0-x days (x depends on the setting of the Account History tab of the terminal). // How many trades are allowed to be opened (even if they are closed now) within the last x_hours?
 	input double  x_hours=3;                          //3 x_hours: Any whole or fraction of an hour.
@@ -159,7 +159,6 @@ enum ENUM_MM // Money Management
 	
 	/*input*/ int entering_max_slippage_pips=5;       //5 entering_max_slippage_pips: Must be in whole number. // TODO: Is this really pips and not points?
 //input int unfavorable_slippage=5;
-	string        EA_name="ADR Relativity";           // allows the robot to enter a description for the order. An empty string is a default value
 //exit_order
 	/*input*/ int exiting_max_slippage_pips=50;       //50 exiting_max_slippage_pips: Must be in whole number.
 	
@@ -312,7 +311,7 @@ void OnDeinit(const int reason)
    //The second way to get the uninitialization reason code
    Print(__FUNCTION__,"_UninitReason = ",getUninitReasonText(_UninitReason));
 
-   Print("If there are no errors, then the ",EA_name," EA for ",Symbol()," has been successfully deinitialized.");
+   Print("If there are no errors, then the ",WindowExpertName()," EA for ",Symbol()," has been successfully deinitialized.");
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -389,19 +388,15 @@ void OnTick()
 //+------------------------------------------------------------------+
 bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exit_signal,int exit_signal_2,int _exiting_max_slippage)
   {
-   exit_signal=signal_exit(SIGNAL_SET); // The exit signal should be made the priority and doesn't require in_time_range or adr_generated to be true
+   /*exit_signal=signal_exit(SIGNAL_SET); // The exit signal should be made the priority and doesn't require in_time_range or adr_generated to be true
 
    if(exit_signal==TRADE_SIGNAL_VOID)       exit_all_trades_set(_exiting_max_slippage,ORDER_SET_ALL,magic); // close all pending and orders for the specific EA's orders. Don't do validation to see if there is an EA_magic_num because the EA should try to exit even if for some reason there is none.
    else if(exit_signal==TRADE_SIGNAL_BUY)   exit_all_trades_set(_exiting_max_slippage,ORDER_SET_SHORT,magic);
-   else if(exit_signal==TRADE_SIGNAL_SELL)  exit_all_trades_set(_exiting_max_slippage,ORDER_SET_LONG,magic);
-
-   // Breakeven (comment out if this functionality is not required)
-   if(breakeven_threshold_percent>0) breakeven_check_all_orders(breakeven_threshold_percent,breakeven_plus_percent,magic);
+   else if(exit_signal==TRADE_SIGNAL_SELL)  exit_all_trades_set(_exiting_max_slippage,ORDER_SET_LONG,magic);*/
    
-   // Trailing Stop (comment out of this functionality is not required)
+   if(breakeven_threshold_percent>0) breakeven_check_all_orders(breakeven_threshold_percent,breakeven_plus_percent,magic);
    if(trail_threshold_percent>0) trailingstop_check_all_orders(trail_threshold_percent,trail_step_percent,magic,same_stoploss_distance);
    //   virtualstop_check(virtual_sl,virtual_tp); 
-
    if(is_new_M5_bar) // only check if it is in the time range once the EA is loaded and, then, afterward at the beginning of every M5 bar
      {
       //Print("Got past is_new_M5_bar");
@@ -443,7 +438,6 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
             double spread_diff=average_spread_yesterday-max_spread;
             double spread_diff_percent=spread_diff/(ADR_pips*Point);
             double percent_allows_trading=spread_diff_percent+max_spread_percent;*/
-            
             double percent_allows_trading=NormalizeDouble(((average_spread_yesterday-(ADR_pts*max_spread_percent))/ADR_pts)+max_spread_percent,3);
             
             Alert(instrument," can't be traded today because the average spread yesterday does not meet your max_spread_percent (",
@@ -454,7 +448,6 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
                   " would have allowed the EA make trades in this currency pair today.");
             average_spread_yesterday=-1; // keep this at -1 because an if statement depends on it
            }
-           
           /*static bool flag4=false;
           if(flag4==false)
             {
@@ -466,10 +459,7 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
             {
               Print("is_acceptable_spread is ",is_acceptable_spread," at ", TimeToString(current_time));
               flag5=true;       
-            }*/
-                 
-           
-           
+            }*/   
          if(ADR_pts>0 && magic>0 && is_acceptable_spread==true)
            {
             ready=true; // the ADR and average spread yesterday that has just been calculated won't generate again until after the cycle of not being in the time range completes
@@ -533,12 +523,16 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
                opened_recently_count<max_trades_within_x_hours &&    // long and short
                opened_today_count<max_directional_trades_each_day)   // just long
               {
-               //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
-
-               RefreshRates();
-               bool overbought_1=over_extended_trend(instrument,3,BUYING_MODE,HIGH_MINUS_LOW,.75,3,false);
-               bool overbought_2=over_extended_trend(instrument,3,BUYING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,false);
-               if(!overbought_1 || !overbought_2) try_to_enter_order(OP_BUY,magic,entering_max_slippage_pips,instrument);
+                   //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
+                bool overbought_1=false;
+                bool overbought_2=false;
+                if(filter_over_extended_trends)
+                  {
+                   RefreshRates();
+                   overbought_1=over_extended_trend(instrument,3,BUYING_MODE,HIGH_MINUS_LOW,.75,3,false);
+                   overbought_2=over_extended_trend(instrument,3,BUYING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,false);           
+                  }
+                if(!overbought_1 || !overbought_2) try_to_enter_order(OP_BUY,magic,entering_max_slippage_pips,instrument);
               }
            }
          else if(enter_signal==TRADE_SIGNAL_SELL)
@@ -570,12 +564,16 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
                opened_recently_count<max_trades_within_x_hours &&    // short and long
                opened_today_count<max_directional_trades_each_day)   // just short
               {
-               //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
-
-               RefreshRates();
-               bool oversold_1=over_extended_trend(instrument,3,SELLING_MODE,HIGH_MINUS_LOW,.75,3,false);
-               bool oversold_2=over_extended_trend(instrument,3,SELLING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,false);
-               if(!oversold_1 || !oversold_2) try_to_enter_order(OP_SELL,magic,entering_max_slippage_pips,instrument);
+                   //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
+                bool oversold_1=false;
+                bool oversold_2=false;
+                if(filter_over_extended_trends)
+                  {
+                   RefreshRates();
+                   oversold_1=over_extended_trend(instrument,3,SELLING_MODE,HIGH_MINUS_LOW,.75,3,false);
+                   oversold_2=over_extended_trend(instrument,3,SELLING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,false);
+                  }
+                if(!oversold_1 || !oversold_2) try_to_enter_order(OP_SELL,magic,entering_max_slippage_pips,instrument);
               }
            }
         }
@@ -1746,13 +1744,13 @@ bool modify(int ticket,double sl_pts,double tp_pts=-1,double entryPrice=-1,datet
             break;
          Sleep(sleep_milisec);
       // TODO: setup an email and SMS alert.
-     Print(OrderSymbol()," , ",EA_name,", An order was attempted to be modified but it did not succeed. Last Error: (",IntegerToString(GetLastError(),0),"), Retry: ",IntegerToString(i,0),"/"+IntegerToString(retries));
-     Alert(OrderSymbol()," , ",EA_name,", An order was attempted to be modified but it did not succeed. Check the Journal tab of the Navigator window for errors.");
+     Print(OrderSymbol()," , ",WindowExpertName(),", An order was attempted to be modified but it did not succeed. Last Error: (",IntegerToString(GetLastError(),0),"), Retry: ",IntegerToString(i,0),"/"+IntegerToString(retries));
+     Alert(OrderSymbol()," , ",WindowExpertName(),", An order was attempted to be modified but it did not succeed. Check the Journal tab of the Navigator window for errors.");
         }
      }
    else
      {   
-      Print(OrderSymbol()," , ",EA_name,", Modifying the order was not successfull. The ticket couldn't be selected.");
+      Print(OrderSymbol()," , ",WindowExpertName(),", Modifying the order was not successfull. The ticket couldn't be selected.");
      }
    return result;
   }
@@ -1994,7 +1992,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,str
                                      NormalizeDouble((ADR_pts*takeprofit_percent)*point_multiplier,digits),
                                      max_slippage_pips,
                                      NormalizeDouble(spread_pts*point_multiplier,digits),
-                                     EA_name,
+                                     WindowExpertName(),
                                      magic,
                                      (int)(pending_order_expire*3600),
                                      arrow_color,
@@ -2017,7 +2015,7 @@ string generate_comment(int magic,double sl_pts, double tp_pts,double spread_pts
     int divide_by=100; // TODO: do you need this in the calculations below?
     if(symbol=="USDJPYpro") divide_by=10; // TODO: fix this hard coded value and replace "symbol" with "instrument" that is passed in
     else divide_by=100;
-    return comment=StringConcatenate("EA: ",EA_name,"Magic#: ",IntegerToString(magic),", CCY Pair: ",symbol," Requested TP: ",DoubleToStr(tp_pts)," Requested SL: ",DoubleToStr(sl_pts),"Spread slighly before order: ",DoubleToStr(spread_pts));
+    return comment=StringConcatenate("EA: ",WindowExpertName(),"Magic#: ",IntegerToString(magic),", CCY Pair: ",symbol," Requested TP: ",DoubleToStr(tp_pts)," Requested SL: ",DoubleToStr(sl_pts),"Spread slighly before order: ",DoubleToStr(spread_pts));
   }
 
 int check_for_entry_errors(string instrument,int cmd,double lots,double _distance_pts,double periods_pivot_price,double sl_pts,double tp_pts,int max_slippage,double spread_points,string _EA_name=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false,int retries=3,int sleep_milisec=500)
@@ -2035,8 +2033,8 @@ int check_for_entry_errors(string instrument,int cmd,double lots,double _distanc
       else
       { 
         // TODO: setup an email and SMS alert.
-        Print(instrument," , ",EA_name,": An order was attempted but it did not succeed. If there are no errors here, market factors may not have met the code's requirements within the send_and_get_order_ticket function. Last Error:, (",IntegerToString(GetLastError(),0),"), Retry: "+IntegerToString(i,0),"/"+IntegerToString(retries));
-        Alert(instrument," , ",EA_name,": An order was attempted but it did not succeed. Check the Journal tab of the Navigator window for errors.");
+        Print(instrument," , ",WindowExpertName(),": An order was attempted but it did not succeed. If there are no errors here, market factors may not have met the code's requirements within the send_and_get_order_ticket function. Last Error:, (",IntegerToString(GetLastError(),0),"), Retry: "+IntegerToString(i,0),"/"+IntegerToString(retries));
+        Alert(instrument," , ",WindowExpertName(),": An order was attempted but it did not succeed. Check the Journal tab of the Navigator window for errors.");
       }
       Sleep(sleep_milisec);
      }
@@ -2749,3 +2747,6 @@ int last_market_trade_ticket()
    if(count>1) Print("Warning! There are ",count," market trades that have the same time and this situation may result in a single currency in two different currency pairs being traded in the same direction."); // TODO: create an email alert
    return(ticket);
 }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
