@@ -97,8 +97,8 @@ enum ENUM_MM // Money Management
 	//string        symbol=NULL; // TODO: finish changing the code to get rid of this global variable
   /*input*/ bool auto_adjust_broker_digits=true;
   static int    EA_1_magic_num; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
-  static bool   uptrend_triggered=true;
-  static bool   downtrend_triggered=true;
+  static bool   uptrend=false, downtrend=false;
+  static bool   uptrend_trade_happened_last=false, downtrend_trade_happened_last=false;
   static double average_spread_yesterday=0;
    
 // virtual stoploss variables
@@ -145,6 +145,7 @@ enum ENUM_MM // Money Management
   /*input*/ ENUM_SIGNAL_SET SIGNAL_SET=SIGNAL_SET_1; //SIGNAL_SET: Which signal set would you like to test? (the details of each signal set are found in the signal_entry function)
   // TODO: make sure you have coded for the scenerios when each of these is set to 0
 	input double  pullback_percent=0.3;               //.3 pullback_percent:  Must be positive. If you want a buy or sell limit order, it must be positive.
+	input double  retracement_percent=.38;
 	input double  takeprofit_percent=.8;              //.8 takeprofit_percent: Must be a positive number. (What % of ADR should you tarket?)
   double        stoploss_percent=1.0;                      //1 stoploss_percent: Must be a positive number.
 	/*input*/ double max_spread_percent=.1;           //.1 max_spread_percent: Must be positive. What percent of ADR should the spread be less than? (Only for immediate orders and not pending.)
@@ -192,8 +193,9 @@ enum ENUM_MM // Money Management
   input bool    include_last_week=true;             //true include_last_week: Should the EA take Friday's moves into account when starting to determine length of the current move?
   //input bool    include_yesterday=true;           //TODO: Work on this
   static double ADR_pts;
-  double        point_multiplier=1;                 // .001=Point
-  double        new_point=1;                        //100*Point*10;
+  //static double RANGE_pts;
+  static double HOP_price;
+  static double LOP_price;
 
   input string  space_7="----------------------------------------------------------------------------------------";
 // ADR()
@@ -236,7 +238,7 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set,string instrument)
     int digits=(int)MarketInfo(instrument,MODE_DIGITS);
     datetime current_bar_open_time=iTime(instrument,PERIOD_M5,0);        
     datetime current_time=(datetime)MarketInfo(instrument,MODE_TIME);
-    double trade_allowed=MarketInfo(instrument,MODE_TRADEALLOWED);
+    int trade_allowed=(int)MarketInfo(instrument,MODE_TRADEALLOWED);
     double one_lot_initial_margin=MarketInfo(instrument,MODE_MARGININIT);
     double margin_to_mainain_open_orders=MarketInfo(instrument,MODE_MARGINMAINTENANCE);
     double hedged_margin=MarketInfo(instrument,MODE_MARGINHEDGED);
@@ -244,9 +246,9 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set,string instrument)
     double freeze_level_pts=MarketInfo(instrument,MODE_FREEZELEVEL);
     string current_chart=Symbol();
 
-    Print("trade_allowed: ",DoubleToStr(trade_allowed));
+    Print("trade_allowed: ",trade_allowed);
     Print("one_lot_initial_margin: ",DoubleToStr(one_lot_initial_margin));
-    Print("margin_to_mainain_open_orders: ",DoubleToStr(margin_to_mainain_open_orders));
+    Print("margin_to_maintain_open_orders: ",DoubleToStr(margin_to_mainain_open_orders));
     Print("hedged_margin: ",DoubleToStr(hedged_margin));
     Print("margin_required: ",DoubleToStr(margin_required));
     Print("freeze_level_pts: ",DoubleToStr(freeze_level_pts));   
@@ -392,6 +394,28 @@ void OnTick()
 //+------------------------------------------------------------------+
 bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exit_signal,int exit_signal_2,int _exiting_max_slippage)
   {
+   
+   string current_chart=Symbol();
+   bool current_chart_matches=(current_chart==instrument);
+   
+   if(ObjectFind(current_chart+"_retrace_LOP_price")<0)
+      {
+        ObjectCreate(current_chart+"_retrace_LOP_price",OBJ_HLINE,0,current_time,LOP_price);
+        ObjectSet(current_chart+"_retrace_LOP_price",OBJPROP_COLOR,clrBlue);
+        ObjectSet(current_chart+"_retrace_LOP_price",OBJPROP_STYLE,STYLE_DOT);
+      }
+   if(ObjectFind(current_chart+"_retrace_HOP_price")<0)
+      {
+        ObjectCreate(current_chart+"_retrace_HOP_price",OBJ_HLINE,0,current_time,HOP_price);
+        ObjectSet(current_chart+"_retrace_HOP_price",OBJPROP_COLOR,clrBlue);
+        ObjectSet(current_chart+"_retrace_HOP_price",OBJPROP_STYLE,STYLE_DOT);
+      }
+   ObjectSet(current_chart+"_retrace_LOP_price",OBJPROP_PRICE1,LOP_price); 
+   ObjectSet(current_chart+"_retrace_LOP_price",OBJPROP_TIME1,current_time); 
+   ObjectSet(current_chart+"_retrace_HOP_price",OBJPROP_PRICE1,HOP_price); 
+   ObjectSet(current_chart+"_retrace_HOP_price",OBJPROP_TIME1,current_time); 
+
+   
    /*exit_signal=signal_exit(instrument,SIGNAL_SET); // The exit signal should be made the priority and doesn't require in_time_range or adr_generated to be true
 
    if(exit_signal==DIRECTION_BIAS_VOID)       exit_all_trades_set(_exiting_max_slippage,ORDER_SET_ALL,magic); // close all pending and orders for the specific EA's orders. Don't do validation to see if there is an EA_magic_num because the EA should try to exit even if for some reason there is none.
@@ -407,17 +431,18 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
       if(active_order_expire>0) exit_all_trades_set(_exiting_max_slippage,ORDER_SET_MARKET,magic,(int)(active_order_expire*3600),current_time); // This runs every 5 minutes (whether the time is in_time_range or not). It only exit trades that have been on for too long and haven't hit stoploss or takeprofit.
       in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,fri_end_time_hour,fri_end_time_minute,gmt_hour_offset);
       get_moves_start_bar(instrument,H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week); // this is here so the vertical line can get moved every 5 minutes
-    
-      string current_chart=Symbol();
-      if(current_chart==instrument)
+      
+
+      if(current_chart_matches)
         {
+          double bid_price=MarketInfo(current_chart,MODE_BID);
           if(ObjectFind(current_chart+"_day_of_week")<0)
             {
-              ObjectCreate(current_chart+"_day_of_week",OBJ_TEXT,0,TimeCurrent(),Bid);
+              ObjectCreate(current_chart+"_day_of_week",OBJ_TEXT,0,TimeCurrent(),bid_price); 
               ObjectSetText(current_chart+"_day_of_week","0",15,NULL,clrWhite);     
             }
           ObjectSetText(current_chart+"_day_of_week",IntegerToString(DayOfWeek(),1),0);
-          ObjectMove(current_chart+"_day_of_week",0,TimeCurrent(),Bid+ADR_pts/2);   
+          ObjectMove(current_chart+"_day_of_week",0,TimeCurrent(),bid_price+ADR_pts/2);   
         }
         /*Print("in time range ",in_time_range);
         Print("ready ",ready);
@@ -469,10 +494,13 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
             }*/   
          if(ADR_pts>0 && magic>0 && is_acceptable_spread==true)
            {
-            ready=true; // the ADR and average spread yesterday that has just been calculated won't generate again until after the cycle of not being in the time range completes
-            uptrend_triggered=false;
-            downtrend_triggered=false;
-            
+             // reset all trend analysis and uptrend/downtrend alternating to start fresh for the day
+             uptrend_trade_happened_last=false;
+             downtrend_trade_happened_last=false;
+             uptrend=false;
+             downtrend=false;
+             ready=true; // the ADR and average spread yesterday that has just been calculated won't generate again until after the cycle of not being in the time range completes
+             
           /*static bool flag3=false;
           if(flag3==false)
             {
@@ -483,8 +511,6 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
          else 
            {
             ready=false;
-            uptrend_triggered=true;
-            downtrend_triggered=true;;
             // never assign average_spread_yesterday to anything in this scope
            }
         }
@@ -492,11 +518,11 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
    if(ready && in_time_range)
      {
       int enter_signal=DIRECTION_BIAS_NEUTRAL; // 0
-      
-      enter_signal=signal_pullback_after_ADR_triggered(instrument); // this is the first signal and will apply to all signal sets so it gets run first
-      enter_signal=signal_bias_compare(enter_signal,signal_MA(instrument),false);
-
-      if(enter_signal>0) // i
+    
+      enter_signal=signal_retracement_pullback_after_ADR_triggered(instrument);
+      if(enter_signal>0 || enter_signal==DIRECTION_BIAS_IGNORE) 
+        enter_signal=signal_bias_compare(enter_signal,signal_MA(instrument),false);
+      if(enter_signal>0) 
         {
          // the code for every filter after this line needs to know whether the signal was to buy or sell and, therefore, couldn't be in the previous filters
          int days_seconds=(int)(current_time-(iTime(instrument,PERIOD_D1,0))+(gmt_hour_offset*3600)); // i am assuming it is okay to typecast a datetime (iTime) into an int since datetime is count of the number of seconds since 1970
@@ -586,7 +612,7 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
            }
         }
      }
-    else if(!in_time_range)
+    else if(in_time_range==false)
      {
       static bool flag1=false;
       if(flag1==false)
@@ -595,8 +621,7 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
           flag1=true;       
         }
        ready=false; // this makes sure to set it to false so when the time is within the time range again, the ADR can get generated
-       uptrend_triggered=true;
-       downtrend_triggered=true;
+
        //ADR_pts=0; // if this line is here, it caused trades to close at this time
        average_spread_yesterday=0; // do not change this from 0
        //Print("Out of time range");
@@ -640,10 +665,10 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
           {
             ObjectMove(current_chart+"_end_time",0,current_time,Bid);
           }*/
-       if(ObjectFind(instrument+"_LOP")>0)
+       if(current_chart_matches && ObjectFind(current_chart+"_LOP")>0)
          {
-           ObjectDelete(instrument+"_LOP");
-           ObjectDelete(instrument+"_HOP");
+           ObjectDelete(current_chart+"_LOP");
+           ObjectDelete(current_chart+"_HOP");
            //ObjectDelete(instrument+"_Move_Start");
          }           
      }
@@ -826,24 +851,37 @@ int signal_pullback_after_ADR_triggered(string instrument)
   {
     int signal=DIRECTION_BIAS_NEUTRAL;
  
-    if(!uptrend_triggered)
+    if(uptrend_trade_happened_last==false) // if there is no uptrend, monitor the market for an uptrend
       {
         RefreshRates();
-        if(uptrend_ADR_threshold_price_met(instrument,false)>0)
+        if(uptrend_ADR_threshold_met_price(instrument,false)>0)
           {
             return signal=DIRECTION_BIAS_BUY;
           }
       }
    // for a buying signal, take the level that adr was triggered and subtract the pullback_pips to get the pullback_entry_price
    // if the pullback_entry_price is met or exceeded, signal = TRADE_SIGNAL_BUY
-    if(!downtrend_triggered)
+    if(downtrend_trade_happened_last==false) // if there is no downtrend, monitor the market for a downtrend
       {
         RefreshRates();
-        if(downtrend_ADR_threshold_price_met(instrument,false)>0) 
+        if(downtrend_ADR_threshold_met_price(instrument,false)>0) 
           {
             return signal=DIRECTION_BIAS_SELL;
           }
-        }
+      }
+    return signal;
+   }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int signal_retracement_pullback_after_ADR_triggered(string instrument)
+  {
+    signal_pullback_after_ADR_triggered(instrument); // this must be here because it is used to calculate and assign some values required within the below functions
+    
+    int signal=DIRECTION_BIAS_NEUTRAL;
+
+    if(uptrend_retracement_met_price(instrument,false)>0) signal=DIRECTION_BIAS_BUY;
+
     return signal;
    }
 //+------------------------------------------------------------------+
@@ -897,21 +935,20 @@ int signal_exit(string instrument,ENUM_SIGNAL_SET signal_set)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int signal_bias_compare(int current_signal,int added_signal,bool exit_when_buy_and_sell=false) 
+int signal_bias_compare(int current_bias,int added_bias,bool exit_when_buy_and_sell=false) 
   {
   // signals are evaluated two at a time and the result will be used to compared with other signals until all signals are compared
-   if(current_signal==DIRECTION_BIAS_VOID || added_signal==DIRECTION_BIAS_VOID) return DIRECTION_BIAS_VOID;
-   else if(added_signal==DIRECTION_BIAS_IGNORE) return current_signal;
-   else if(current_signal==DIRECTION_BIAS_IGNORE) return added_signal;
-   else if(current_signal==DIRECTION_BIAS_NEUTRAL || added_signal==DIRECTION_BIAS_NEUTRAL) return DIRECTION_BIAS_NEUTRAL;
-      
+   if(current_bias==DIRECTION_BIAS_VOID || added_bias==DIRECTION_BIAS_VOID) return DIRECTION_BIAS_VOID;
+   else if(current_bias==DIRECTION_BIAS_NEUTRAL || added_bias==DIRECTION_BIAS_NEUTRAL) return DIRECTION_BIAS_NEUTRAL;
+   else if(current_bias==DIRECTION_BIAS_IGNORE) return added_bias;
+   else if(added_bias==DIRECTION_BIAS_IGNORE) return current_bias;
    // at this point, the only two options left are if they are both buy, both sell, or buy and sell
-   else if(added_signal!=current_signal) // if one signal is a buy signal and the other sign
+   else if(added_bias!=current_bias) // if one bias is a bullish and the other is bearish
     {
      if(exit_when_buy_and_sell) return DIRECTION_BIAS_VOID;
      else return DIRECTION_BIAS_NEUTRAL;
     }
-   return added_signal;
+   return added_bias; // at this point, the added_bias and current_bias must be the same signal so it can get returned
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1349,8 +1386,8 @@ double ADR_calculation(string instrument,double low_outlier,double high_outlier/
              }
           }
        }
-     double adr_pts=NormalizeDouble((x_mnth_non_sunday_ADR_sum/x_mnth_non_sunday_count)*new_point,digits);
-     Print("Calculate_ADR() returned: ",DoubleToStr(adr_pts));
+     double adr_pts=NormalizeDouble((x_mnth_non_sunday_ADR_sum/x_mnth_non_sunday_count),digits);
+     Print("Calculate_ADR() returned: ",DoubleToStr(adr_pts,digits));
      return adr_pts;
   }
 //+------------------------------------------------------------------+
@@ -1390,11 +1427,12 @@ void get_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_out
       } 
      if(raw_ADR_pts>0 && (change_by_percent==0 || change_by_percent==NULL))
       { 
-        Print("The raw ADR for ",instrument," was generated. It is ",DoubleToString(raw_ADR_pts)," pips.");
+        Print("A raw ADR of ",DoubleToString(raw_ADR_pts,digits)," for ",instrument," was generated.");
         ADR_pts=NormalizeDouble(raw_ADR_pts,digits);
+        //retracement_pts=NormalizeDouble(ADR_pts*retracement_percent,digits);
         if(instrument==current_chart)
           {
-            ObjectSetText(current_chart+"_ADR_pts",DoubleToString(raw_ADR_pts*100,digits),0);
+            ObjectSetText(current_chart+"_ADR_pts",DoubleToString(raw_ADR_pts*100),0);
             ObjectMove(current_chart+"_ADR_pts",0,TimeCurrent(),bid_price+ADR_pts/4);        
           }
         //Print("raw_ADR_pts: ",DoubleToString(raw_ADR_pts));
@@ -1402,11 +1440,12 @@ void get_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_out
      else if(raw_ADR_pts>0)
       {
         double changed_ADR_pts=NormalizeDouble(((raw_ADR_pts*change_by_percent)+raw_ADR_pts),digits); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
-        Print("The raw ADR for ",instrument," was just generated. It is ",DoubleToString(raw_ADR_pts,digits)," pips. As requested by the user, it has been changed to ",DoubleToString(changed_ADR_pts)," pips.");
+        Print("A raw ADR of ",DoubleToString(raw_ADR_pts,digits)," for ",instrument," was generated. As requested by the user, it has been changed to ",DoubleToString(changed_ADR_pts,digits));
         ADR_pts=changed_ADR_pts;
+        //retracement_pts=NormalizeDouble(ADR_pts*retracement_percent,digits);
         if(instrument==current_chart)
           {
-            ObjectSetText(current_chart+"_ADR_pts",DoubleToString(changed_ADR_pts*100,digits),0);
+            ObjectSetText(current_chart+"_ADR_pts",DoubleToString(changed_ADR_pts*100),0);
             ObjectMove(current_chart+"_ADR_pts",0,TimeCurrent(),bid_price+ADR_pts/4);        
           }
       }
@@ -1574,11 +1613,132 @@ double periods_pivot_price(ENUM_DIRECTIONAL_MODE mode,string instrument)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double uptrend_ADR_threshold_price_met(string instrument,bool get_current_bid_instead=false,int magic=-1)
+double uptrend_retracement_met_price(string instrument,bool get_current_bid_instead=false)
+  {
+    string current_chart=Symbol();
+    bool current_chart_matches=(current_chart==instrument);
+    
+    if(uptrend==true && uptrend_trade_happened_last==false && LOP_price>0) // TODO: uptrend_trade_happened_last may be redundant because it is checked before this function even gets called
+      {
+       RefreshRates();
+       static string last_instrument;
+       static double retracement_pts=0;
+       double range_pts;
+       int digits=(int)MarketInfo(instrument,MODE_DIGITS);
+       double current_bid=MarketInfo(instrument,MODE_BID); // TODO: always make sure RefreshRates() was called before. In this case, it was called before running this function.
+       
+       if(last_instrument!=instrument || HOP_price<=0 /*|| LOP_price<=0*/) // if HOP is 0 or -1
+        {
+         range_pts=range_pts_calculation(OP_BUY,instrument);
+         last_instrument=instrument;
+         if(compare_doubles(range_pts,ADR_pts,digits)==-1 || HOP_price==-1 /*|| LOP_price==-1*/)
+           {
+             uptrend=false;
+             return -1; // this part is necessary in case periods_pivot_price ever returns 0
+           }
+         else retracement_pts=NormalizeDouble(range_pts*retracement_percent,digits);
+        }
+       if(current_bid>HOP_price) // if the high of the range was surpassed // TODO: use compare_doubles()?
+         {
+           // since the top of the range was surpassed, you have to reset the HOP. You might as well take this opportunity to take the period into account.
+           range_pts=range_pts_calculation(OP_BUY,instrument);
+           retracement_pts=NormalizeDouble(range_pts*retracement_percent,digits);          
+           if(current_chart_matches)
+             {
+              if(ObjectFind(current_chart+"_retrace_HOP")<0)
+                {
+                  ObjectCreate(current_chart+"_retrace_HOP",OBJ_HLINE,0,TimeCurrent(),HOP_price);
+                  ObjectSet(current_chart+"_retrace_HOP",OBJPROP_COLOR,clrYellow);
+                  ObjectSet(current_chart+"_retrace_HOP",OBJPROP_STYLE,STYLE_DASH);
+                }
+              if(ObjectFind(current_chart+"_retrace_LOP")<0)
+                {
+                  ObjectCreate(current_chart+"_retrace_LOP",OBJ_HLINE,0,TimeCurrent(),HOP_price-retracement_pts);
+                  ObjectSet(current_chart+"_retrace_LOP",OBJPROP_COLOR,clrYellow);
+                  ObjectSet(current_chart+"_retrace_LOP",OBJPROP_STYLE,STYLE_DASH);
+                }
+    
+              ObjectSet(current_chart+"_retrace_HOP",OBJPROP_PRICE1,HOP_price);
+              ObjectSet(current_chart+"_retrace_LOP",OBJPROP_PRICE1,HOP_price-retracement_pts);       
+             }
+           return -1;
+         } 
+       else if(HOP_price-current_bid>=retracement_pts) // if the pip move meets or exceed the ADR_Pips in points, return the current bid. Note: this will return true over and over again // TODO: use compare_doubles()?
+         {
+           // since the bottom of the range was surpassed and a pending order would be created, this is a good opportunity to update the range in the period since you can't just leave it as the static value constantly
+           range_pts=range_pts_calculation(OP_BUY,instrument);
+           retracement_pts=NormalizeDouble(range_pts*retracement_percent,digits);
+           if(current_chart_matches)
+             {
+              if(ObjectFind(current_chart+"_retrace_HOP")<0)
+                {
+                  ObjectCreate(current_chart+"_retrace_HOP",OBJ_HLINE,0,TimeCurrent(),HOP_price);
+                  ObjectSet(current_chart+"_retrace_HOP",OBJPROP_COLOR,clrYellow);
+                  ObjectSet(current_chart+"_retrace_HOP",OBJPROP_STYLE,STYLE_DASH);
+                }
+              if(ObjectFind(current_chart+"_retrace_LOP")<0)
+                {
+                  ObjectCreate(current_chart+"_retrace_LOP",OBJ_HLINE,0,TimeCurrent(),HOP_price-retracement_pts);
+                  ObjectSet(current_chart+"_retrace_LOP",OBJPROP_COLOR,clrYellow);
+                  ObjectSet(current_chart+"_retrace_LOP",OBJPROP_STYLE,STYLE_DASH);
+                }
+              ObjectSet(current_chart+"_retrace_HOP",OBJPROP_PRICE1,HOP_price);
+              ObjectSet(current_chart+"_retrace_LOP",OBJPROP_PRICE1,HOP_price-retracement_pts);       
+             }
+           if(HOP_price-current_bid>=retracement_pts) // TODO: use compare_doubles()?
+             {
+               if(get_current_bid_instead) 
+                 {
+                   return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
+                 }
+               else 
+                 {
+                   double met_price=HOP_price-retracement_pts;
+                   return met_price;
+                 }
+             }
+           else return -1;
+         }         
+       else return -1;
+      }
+    else 
+      {
+        if(current_chart_matches)
+          {
+            ObjectDelete(current_chart+"_retrace_HOP");
+            ObjectDelete(current_chart+"_retrace_LOP");     
+          }
+        return -1;
+      }
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double range_pts_calculation(int cmd,string instrument)
+  {
+    if(cmd==OP_BUY)
+      {
+        HOP_price=periods_pivot_price(SELLING_MODE,instrument);
+        /*LOP_price=periods_pivot_price(BUYING_MODE,instrument);*/
+        return (HOP_price-LOP_price);
+      }
+    if(cmd==OP_SELL)
+      {
+        /*HOP_price=periods_pivot_price(SELLING_MODE,instrument);*/
+        LOP_price=periods_pivot_price(BUYING_MODE,instrument);
+        return (HOP_price-LOP_price);
+      }
+    else return -1;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double uptrend_ADR_threshold_met_price(string instrument,bool get_current_bid_instead=false)
   {
     static double LOP=0; // Low Of Period
     double current_bid=MarketInfo(instrument,MODE_BID); // TODO: always make sure RefreshRates() was called before. In this case, it was called before running this function.
     string current_chart=Symbol();
+    bool current_chart_matches=(current_chart==instrument);
     
     if(LOP==0) LOP=periods_pivot_price(BUYING_MODE,instrument);
     if(current_chart==instrument)
@@ -1588,11 +1748,6 @@ double uptrend_ADR_threshold_price_met(string instrument,bool get_current_bid_in
             ObjectCreate(current_chart+"_LOP",OBJ_HLINE,0,TimeCurrent(),LOP);
             ObjectSet(current_chart+"_LOP",OBJPROP_COLOR,clrWhite);
           }
-        /*if(current_chart==instrument && ObjectFind(current_chart+"_HOP_up")<0) 
-          {
-            ObjectCreate(magic_str+current_chart+"_HOP_up",OBJ_HLINE,0,TimeCurrent(),current_bid);
-            ObjectSet(magic_str+current_chart+"_HOP_up",OBJPROP_COLOR,clrGreen);
-          }*/
         if(ObjectFind(current_chart+"_HOP")<0)
           {
             ObjectCreate(current_chart+"_HOP",OBJ_HLINE,0,TimeCurrent(),LOP+ADR_pts);
@@ -1607,7 +1762,8 @@ double uptrend_ADR_threshold_price_met(string instrument,bool get_current_bid_in
      {
        // since the bottom of the range was surpassed, you have to reset the LOP. You might as well take this opportunity to take the period into account.
        LOP=periods_pivot_price(BUYING_MODE,instrument);
-       if(current_chart==instrument)
+       uptrend=false;
+       if(current_chart_matches)
          {
            ObjectSet(current_chart+"_LOP",OBJPROP_PRICE1,LOP);
            ObjectSet(current_chart+"_HOP",OBJPROP_PRICE1,LOP+ADR_pts);        
@@ -1618,7 +1774,7 @@ double uptrend_ADR_threshold_price_met(string instrument,bool get_current_bid_in
      {
        // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
        LOP=periods_pivot_price(BUYING_MODE,instrument);
-       if(current_chart==instrument)
+       if(current_chart_matches)
          {
            ObjectSet(current_chart+"_LOP",OBJPROP_PRICE1,LOP);
            //ObjectSet(magic_str+current_chart+"_HOP_up",OBJPROP_PRICE1,current_bid);
@@ -1626,6 +1782,9 @@ double uptrend_ADR_threshold_price_met(string instrument,bool get_current_bid_in
          }
        if(current_bid-LOP>=ADR_pts) // TODO: use compare_doubles()?
          {
+          uptrend=true;
+          downtrend=false;
+          LOP_price=LOP;
           if(get_current_bid_instead) 
            {
              return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
@@ -1643,11 +1802,12 @@ double uptrend_ADR_threshold_price_met(string instrument,bool get_current_bid_in
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double downtrend_ADR_threshold_price_met(string instrument,bool get_current_bid_instead=false,int magic=-1)
+double downtrend_ADR_threshold_met_price(string instrument,bool get_current_bid_instead=false)
   {
     static double HOP=0; // High Of Period
     double current_bid=MarketInfo(instrument,MODE_BID); // TODO: always make sure RefreshRates() was called before. In this case, it was called before running this function.
     string current_chart=Symbol();
+    bool current_chart_matches=(current_chart==instrument);
     
     if(HOP==0) HOP=periods_pivot_price(SELLING_MODE,instrument);
     if(current_chart==instrument)
@@ -1657,11 +1817,6 @@ double downtrend_ADR_threshold_price_met(string instrument,bool get_current_bid_
             ObjectCreate(current_chart+"_HOP",OBJ_HLINE,0,TimeCurrent(),HOP);
             ObjectSet(current_chart+"_HOP",OBJPROP_COLOR,clrWhite);
           }
-        /*if(ObjectFind(magic_str+current_chart+"_LOP_down")<0) 
-          {
-            ObjectCreate(magic_str+current_chart+"_LOP_down",OBJ_HLINE,0,TimeCurrent(),current_bid);
-            ObjectSet(magic_str+current_chart+"_LOP_down",OBJPROP_COLOR,clrRed);
-          }*/
         if(ObjectFind(current_chart+"_LOP")<0)
           {
             ObjectCreate(current_chart+"_LOP",OBJ_HLINE,0,TimeCurrent(),HOP-ADR_pts);
@@ -1676,7 +1831,8 @@ double downtrend_ADR_threshold_price_met(string instrument,bool get_current_bid_
      {
        // since the bottom of the range was surpassed, you have to reset the LOP. You might as well take this opportunity to take the period into account.
        HOP=periods_pivot_price(SELLING_MODE,instrument);
-       if(current_chart==instrument)
+       downtrend=false;
+       if(current_chart_matches)
          {
            ObjectSet(current_chart+"_HOP",OBJPROP_PRICE1,HOP);
            ObjectSet(current_chart+"_LOP",OBJPROP_PRICE1,HOP-ADR_pts);       
@@ -1687,7 +1843,7 @@ double downtrend_ADR_threshold_price_met(string instrument,bool get_current_bid_
      {
        // since the top of the range was surpassed and a pending order would be created, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
        HOP=periods_pivot_price(SELLING_MODE,instrument);
-       if(current_chart==instrument)
+       if(current_chart_matches)
          {
            ObjectSet(current_chart+"_HOP",OBJPROP_PRICE1,HOP);
            //ObjectSet(magic_str+current_chart+"_LOP_down",OBJPROP_PRICE1,current_bid);
@@ -1695,6 +1851,9 @@ double downtrend_ADR_threshold_price_met(string instrument,bool get_current_bid_
          }
        if(HOP-current_bid>=ADR_pts) // TODO: use compare_doubles()?
          {
+           downtrend=true;
+           uptrend=false;
+           HOP_price=HOP;
            if(get_current_bid_instead) 
              {
                return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
@@ -1914,7 +2073,7 @@ bool acceptable_spread(string instrument,double _max_spread_percent,bool _based_
    if(refresh_rates) RefreshRates();
    if(spread_pts_provided==0)
     {
-     _spread_pts=NormalizeDouble(MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier,digits); //  divide by 10? already normalized. I put this check here because the rates were just refereshed.
+     _spread_pts=NormalizeDouble(MarketInfo(instrument,MODE_SPREAD)*point,digits); //  divide by 10? already normalized. I put this check here because the rates were just refereshed.
     }
    else
     {
@@ -1970,7 +2129,7 @@ double calculate_avg_spread_yesterday(string instrument)
       }
     return NormalizeDouble(spread_total/(new_server_day_bar-end_server_day_bar),Digits); // return the average spread*/
     
-    double avg_spread_yesterday=NormalizeDouble(MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier,digits); // this line is temporary until I find a way to get spread history
+    double avg_spread_yesterday=NormalizeDouble(MarketInfo(instrument,MODE_SPREAD)*point,digits); // this line is temporary until I find a way to get spread history
     Print("calculate_avg_spread_yesterday() returns: ",avg_spread_yesterday);
     return avg_spread_yesterday;
   }
@@ -1979,28 +2138,56 @@ double calculate_avg_spread_yesterday(string instrument)
 //+------------------------------------------------------------------+
 void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,string instrument)
   {
-   double distance_pts;
+   double pending_order_distance_pts=0;
    double periods_pivot_price;
    color arrow_color;
    int digits=(int)MarketInfo(instrument,MODE_DIGITS);
    double point=MarketInfo(instrument,MODE_POINT);
+   //double HOP=0,LOP=0;
+   double takeprofit_pts=0,stoploss_pts=0;
+   double _pullback_percent=pullback_percent;
+   double periods_range_pts=0;
+      
+   if(_pullback_percent==NULL) 
+     {
+       _pullback_percent=0;
+     }
+   if(retracement_percent>0)
+     {
+       /*HOP=periods_pivot_price(SELLING_MODE,instrument);
+       LOP=periods_pivot_price(BUYING_MODE,instrument);
+       periods_range_pts=HOP-LOP; // TODO: the periods_range_pts here may be out of date*/
+       
+       periods_range_pts=range_pts_calculation(type,instrument);
+       if(_pullback_percent==0) pending_order_distance_pts=0;
+       else pending_order_distance_pts=NormalizeDouble((retracement_percent+_pullback_percent)*periods_range_pts,digits);
+       takeprofit_pts=NormalizeDouble(periods_range_pts*takeprofit_percent,digits);
+       stoploss_pts=NormalizeDouble((periods_range_pts*stoploss_percent)-pending_order_distance_pts,digits);    
+     }
+   else 
+     {
+       pending_order_distance_pts=NormalizeDouble(ADR_pts*_pullback_percent,digits); // If _pullback_percent=0, this will result in the value being 0. 
+       takeprofit_pts=NormalizeDouble(ADR_pts*takeprofit_percent,digits);
+       stoploss_pts=NormalizeDouble((ADR_pts*stoploss_percent)-pending_order_distance_pts,digits);
+     }
    
-   if(pullback_percent==0 || pullback_percent==NULL) distance_pts=0;
-   else distance_pts=NormalizeDouble((ADR_pts*pullback_percent),digits);
-   
-   //Print("try_to_enter_order(): distance_pts: ",DoubleToString(distance_pts));
+   //Print("try_to_enter_order(): distance_pts: ",DoubleToString(pullback_distance_pts));
    
    if(type==OP_BUY /*|| type==OP_BUYSTOP || type==OP_BUYLIMIT*/) // what is the purpose of checking if it is a buystop or sellstop if the only type that gets sent to this function is OP_BUY?
      {
-      //if(!long_allowed) return;
-      periods_pivot_price=periods_pivot_price(BUYING_MODE,instrument);
       arrow_color=arrow_color_long;
+      //if(!long_allowed) return;
+      if(LOP_price>0) periods_pivot_price=LOP_price;
+      else if(retracement_percent==0) periods_pivot_price=periods_pivot_price(BUYING_MODE,instrument);
+      else return;
      }
    else if(type==OP_SELL /*|| type==OP_SELLSTOP || type==OP_SELLLIMIT*/)
      {
-      ///if(!short_allowed) return;
-      periods_pivot_price=periods_pivot_price(SELLING_MODE,instrument);
       arrow_color=arrow_color_short;
+      ///if(!short_allowed) return;
+      if(HOP_price>0) periods_pivot_price=HOP_price; // TODO: the HOP here may be out of date
+      else if(retracement_percent==0) periods_pivot_price=periods_pivot_price(SELLING_MODE,instrument);
+      else return;
      }
    else return;
    
@@ -2011,12 +2198,13 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,str
    int ticket=check_for_entry_errors(instrument,
                                      type,
                                      lots,
-                                     distance_pts, // the distance_pips you are sending to the function should always be positive
+                                     pending_order_distance_pts, // the distance_pips you are sending to the function should always be positive
                                      periods_pivot_price,
-                                     NormalizeDouble((ADR_pts*stoploss_percent)-distance_pts*point_multiplier,digits),
-                                     NormalizeDouble((ADR_pts*takeprofit_percent)*point_multiplier,digits),
+                                     stoploss_pts,
+                                     takeprofit_pts,
                                      max_slippage_pips,
-                                     NormalizeDouble(spread_pts*point_multiplier,digits),
+                                     spread_pts,
+                                     periods_range_pts,
                                      WindowExpertName(),
                                      magic,
                                      (int)(pending_order_expire*3600),
@@ -2042,7 +2230,7 @@ string generate_comment(string instrument,int magic,double sl_pts, double tp_pts
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+ 
-int check_for_entry_errors(string instrument,int cmd,double lots,double _distance_pts,double periods_pivot_price,double sl_pts,double tp_pts,int max_slippage,double spread_points,string _EA_name=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false,int retries=3,int sleep_milisec=500)
+int check_for_entry_errors(string instrument,int cmd,double lots,double _distance_pts,double periods_pivot_price,double sl_pts,double tp_pts,int max_slippage,double spread_points,double range_pts,string _EA_name=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false,int retries=3,int sleep_milisec=500)
   {
    int ticket=0;
    for(int i=0;i<retries;i++)
@@ -2052,13 +2240,13 @@ int check_for_entry_errors(string instrument,int cmd,double lots,double _distanc
       else if(!IsExpertEnabled()) Print("The EA can't enter a trade because EAs are not enabled in trading platform.");
       else if(IsTradeContextBusy()) Print("The EA can't enter a trade because the trade context is busy.");
       else if(!IsTradeAllowed()) Print("The EA can't enter a trade because the trade is not allowed in the trading platform.");
-      else ticket=send_and_get_order_ticket(instrument,cmd,lots,_distance_pts,periods_pivot_price,sl_pts,tp_pts,max_slippage,spread_points,_EA_name,magic,expire,a_clr,market);
+      else ticket=send_and_get_order_ticket(instrument,cmd,lots,_distance_pts,periods_pivot_price,sl_pts,tp_pts,max_slippage,spread_points,range_pts,_EA_name,magic,expire,a_clr,market);
       if(ticket>0) break;
       else
       { 
         // TODO: setup an email and SMS alert.
-        Print(instrument," , ",WindowExpertName(),": An order was attempted but it did not succeed. If there are no errors here, market factors may not have met the code's requirements within the send_and_get_order_ticket function. Last Error:, (",IntegerToString(GetLastError(),0),"), Retry: "+IntegerToString(i,0),"/"+IntegerToString(retries));
-        Alert(instrument," , ",WindowExpertName(),": An order was attempted but it did not succeed. Check the Journal tab of the Navigator window for errors.");
+        Print(instrument," , ",WindowExpertName(),": A ",cmd," order was attempted but it did not succeed. If there are no errors here, market factors may not have met the code's requirements within the send_and_get_order_ticket function. Last Error:, (",IntegerToString(GetLastError(),0),"), Retry: "+IntegerToString(i,0),"/"+IntegerToString(retries));
+        //Alert(instrument," , ",WindowExpertName(),": A ",cmd," order was attempted but it did not succeed. Check the Journal tab of the Navigator window for errors.");
       }
       Sleep(sleep_milisec);
      }
@@ -2084,20 +2272,21 @@ void generate_spread_not_acceptable_message(double spread_pts,string instrument)
 //|                                                                  |
 //+------------------------------------------------------------------+
 // the distanceFromCurrentPrice parameter is used to specify what type of order you would like to enter
-int send_and_get_order_ticket(string instrument,int cmd,double lots,double _distance_pts,double periods_pivot_price,double sl_pts,double tp_pts,int max_slippage,double spread_pts,string _EA_name=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool market=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
+int send_and_get_order_ticket(string instrument,int cmd,double lots,double _distance_pts,double periods_pivot_price,double sl_pts,double tp_pts,int max_slippage,double spread_pts,double range_pts,string _EA_name=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool _market_exec=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
   {
    double entry_price=0; 
    double price_sl=0, price_tp=0;
    double point=MarketInfo(instrument,MODE_POINT);
-   double min_distance_pts=MarketInfo(instrument,MODE_STOPLEVEL)*point*point_multiplier;
+   double min_distance_pts=MarketInfo(instrument,MODE_STOPLEVEL)*point;
    int digits=(int)MarketInfo(instrument,MODE_DIGITS);
    datetime expire_time=0; // 0 means there is no expiration time for a pending order
    int order_type=-1; // -1 means there is no order because actual orders are >=0
+   double _ADR_pts=ADR_pts;
    
-
    //Print("send_and_get_order_ticket(): tp_pts before adding spread_pts: ",DoubleToString(tp_pts)); 
    
    tp_pts+=spread_pts; // increase the take profit so the user can get the full pips of profit you wanted if the take profit price is hit
+   if(range_pts>_ADR_pts) _ADR_pts=range_pts;
    
    //Print("send_and_get_order_ticket(): lots: ",DoubleToString(lots));
    //Print("send_and_get_order_ticket(): _distance_pts: ",DoubleToString(_distance_pts));   
@@ -2112,16 +2301,16 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
    
    if(cmd==OP_BUY) // logic for long trades
      {
-      bool instant_exec=!market;
+      bool instant_exec=!market_exec;
       if(_distance_pts>0) order_type=OP_BUYLIMIT;
       else if(_distance_pts==0) order_type=OP_BUY;
       else /*if(_distance_pts<0) order_type=OP_BUYSTOP*/ return 0;
       if(order_type==OP_BUYLIMIT /*|| order_type==OP_BUYSTOP*/)
         {
          if(periods_pivot_price<0) return 0;
-         entry_price=(periods_pivot_price+ADR_pts)-_distance_pts+average_spread_yesterday /*(which should make it close to MODE_ASK which is similar to what the immediate buy order does)*/; // setting the entry_price this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
+         entry_price=(periods_pivot_price+_ADR_pts)-_distance_pts+average_spread_yesterday /*(which should make it close to MODE_ASK which is similar to what the immediate buy order does)*/; // setting the entry_price this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
          //Print("send_and_get_order_ticket(): periods_pivot_price-Bid: ",DoubleToString(periods_pivot_price-Bid));
-         //Print("send_and_get_order_ticket(): ADR_pts: ",DoubleToString(ADR_pts));
+         //Print("send_and_get_order_ticket(): _ADR_pts: ",DoubleToString(_ADR_pts));
          //Print("send_and_get_order_ticket(): average_spread_yesterday: ",DoubleToString(average_spread_yesterday));         
         }
       else if(order_type==OP_BUY)
@@ -2156,14 +2345,14 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
      }
    else if(cmd==OP_SELL) // logic for short trades
      {
-      bool instant_exec=!market;
+      bool instant_exec=!market_exec;
       if(_distance_pts>0) order_type=OP_SELLLIMIT;
       else if(_distance_pts==0) order_type=OP_SELL;
       else /*if(_distance_pts<0) order_type=OP_SELLSTOP*/ return 0;
       if(order_type==OP_SELLLIMIT /*|| order_type==OP_SELLSTOP*/)
         {
          if(periods_pivot_price<0) return 0;
-         entry_price=(periods_pivot_price-ADR_pts)+_distance_pts-average_spread_yesterday /*(which should make it close to MODE_BID which is similar to what the immediate buy order does*/; // setting the entry_price this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
+         entry_price=(periods_pivot_price-_ADR_pts)+_distance_pts-average_spread_yesterday /*(which should make it close to MODE_BID which is similar to what the immediate buy order does*/; // setting the entry_price this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
         }
       else if(order_type==OP_SELL)
         {
@@ -2199,7 +2388,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
      expire_time=0; // if it is NOT a pending order, set the expire_time to 0 because it cannot have an expire_time
    else if(expire>0) // if the user wants pending orders to expire
      expire_time=(datetime)MarketInfo(instrument,MODE_TIME)+expire; // expiration of the order = current time + expire time
-   if(market) // If the user wants market execution (which does NOT allow them to input the sl and tp prices), this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
+   if(market_exec) // If the user wants market execution (which does NOT allow them to input the sl and tp prices), this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
      {
       int ticket=OrderSend(instrument,order_type,lots,entry_price,max_slippage,0,0,generated_comment,magic,expire_time,a_clr);
       if(ticket>0) // if there is a valid ticket
@@ -2218,8 +2407,8 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
                   if(compare_doubles(tp_pts,min_distance_pts,digits)==-1) price_sl=OrderOpenPrice()+min_distance_pts;                   
                   else price_tp=OrderOpenPrice()+tp_pts;
                  }
-               uptrend_triggered=true;
-               downtrend_triggered=false;
+               uptrend_trade_happened_last=true;
+               downtrend_trade_happened_last=false;
               }
             else if(cmd==OP_SELL)
               {
@@ -2233,8 +2422,8 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
                   if(compare_doubles(tp_pts,min_distance_pts,digits)==-1) price_sl=OrderOpenPrice()-min_distance_pts; 
                   price_tp=OrderOpenPrice()-tp_pts;
                  }
-               uptrend_triggered=false;
-               downtrend_triggered=true;
+               uptrend_trade_happened_last=false;
+               downtrend_trade_happened_last=true;
               }
             bool result=modify(ticket,price_sl,price_tp);
            }
@@ -2248,13 +2437,13 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
         {
           if(cmd==OP_BUY)
             {
-              uptrend_triggered=true;
-              downtrend_triggered=false;
+              uptrend_trade_happened_last=true;
+              downtrend_trade_happened_last=false;
             }
           else if(cmd==OP_SELL)
             {
-              uptrend_triggered=false;
-              downtrend_triggered=true;
+              uptrend_trade_happened_last=false;
+              downtrend_trade_happened_last=true;
             }
         }
     }
@@ -2296,6 +2485,7 @@ double get_lots(ENUM_MM method,string instrument,double lots,double _risk_percen
   {
    double balance=0;
    double tick_value=MarketInfo(instrument,MODE_TICKVALUE);
+   double point=MarketInfo(instrument,MODE_POINT);
    
    if(compound_balance) balance=AccountBalance();
    else balance=5000;
@@ -2322,7 +2512,7 @@ double get_lots(ENUM_MM method,string instrument,double lots,double _risk_percen
    double min_lot=MarketInfo(instrument,MODE_MINLOT);
    double max_lot=MarketInfo(instrument,MODE_MAXLOT);
    int lot_digits=(int) -MathLog10(MarketInfo(instrument,MODE_LOTSTEP)); // MathLog10 returns the logarithm of a number (in this case, the MODE_LOTSTEP) base 10. So, this finds out how many digits in the lot the broker accepts.
-   lots=NormalizeDouble(lots/1000,lot_digits);
+   lots=NormalizeDouble(lots*point,lot_digits); // TODO: multiply by point?
    // If the lots value is below or above the broker's MODE_MINLOT or MODE_MAXLOT, the lots will be change to one of those lot sizes. This is in order to prevent Error 131 - invalid trade volume
    if(lots<min_lot) lots=min_lot;
    if(lots>max_lot) lots=max_lot;
