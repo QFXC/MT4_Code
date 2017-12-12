@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Quant FX Capital"
 #property link      "https://www.quantfxcapital.com"
-#property version   "1.05"
+#property version   "1.06"
 #property strict
 // TODO: When strategy testing, make sure you have all the M5, H1, D1, and W1 data because it is reference in the code.
 // TODO: Always use NormalizeDouble() when computing the price (or lots or ADR?) yourself. This is not necessary for internal functions like OrderOPenPrice(), OrderStopLess(),OrderClosePrice(),Bid,Ask
@@ -110,6 +110,7 @@ enum ENUM_MM // Money Management
 	int           virtual_sl=0; //0 TODO: Change to a percent of ADR
 	int           virtual_tp=0; //0 TODO: Change to a percent of ADR
 	
+	input bool    reverse_trade_direction=false;
 	//input bool  only_enter_on_new_bar=false; // Should you only enter trades when a new bar begins?
 	input bool    exit_opposite_signal=false; //false exit_opposite_signal: Should the EA exit trades when there is a signal in the opposite direction?
   //bool        long_allowed=true; //true Are long trades allowed?
@@ -1414,7 +1415,6 @@ void get_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_out
       { 
         Print("A raw ADR of ",DoubleToString(raw_ADR_pts,digits)," for ",instrument," was generated.");
         ADR_pts=NormalizeDouble(raw_ADR_pts,digits);
-        //retracement_pts=NormalizeDouble(ADR_pts*retracement_percent,digits);
         if(instrument==current_chart)
           {
             ObjectSetText(current_chart+"_ADR_pts",DoubleToString(raw_ADR_pts*100),0);
@@ -1427,7 +1427,6 @@ void get_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_out
         double changed_ADR_pts=NormalizeDouble(((raw_ADR_pts*change_by_percent)+raw_ADR_pts),digits); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
         Print("A raw ADR of ",DoubleToString(raw_ADR_pts,digits)," for ",instrument," was generated. As requested by the user, it has been changed to ",DoubleToString(changed_ADR_pts,digits));
         ADR_pts=changed_ADR_pts;
-        //retracement_pts=NormalizeDouble(ADR_pts*retracement_percent,digits);
         if(instrument==current_chart)
           {
             ObjectSetText(current_chart+"_ADR_pts",DoubleToString(changed_ADR_pts*100),0);
@@ -1453,7 +1452,7 @@ int get_moves_start_bar(string instrument,double _H1s_to_roll,int gmt_offset,dou
    
    if(day==0 || day==6) // if the day is Sunday or Saturday
      {
-       // reset all static variables
+       // reset all static variables to the default values
        weeks_open_time=0; // aka Monday
        last_weeks_end_time=0;
        weeks_open_price=0;
@@ -1773,8 +1772,8 @@ double uptrend_ADR_threshold_met_price(string instrument,bool get_current_bid_in
            }
           else 
            {
-             double triggered_price=LOP+ADR_pts;
-             return triggered_price;
+             double met_price=LOP+ADR_pts;
+             return met_price;
            }
          }
        else return -1;
@@ -1842,8 +1841,8 @@ double downtrend_ADR_threshold_met_price(string instrument,bool get_current_bid_
              }
            else 
              {
-               double triggered_price=HOP-ADR_pts;
-               return triggered_price;
+               double met_price=HOP-ADR_pts;
+               return met_price;
              }
          }
        else return -1;
@@ -2112,7 +2111,7 @@ double calculate_avg_spread_yesterday(string instrument)
     return NormalizeDouble(spread_total/(new_server_day_bar-end_server_day_bar),Digits); // return the average spread*/
     
     double avg_spread_yesterday=NormalizeDouble(MarketInfo(instrument,MODE_SPREAD)*point,digits); // this line is temporary until I find a way to get spread history
-    Print("calculate_avg_spread_yesterday() returns: ",avg_spread_yesterday);
+    //Print("calculate_avg_spread_yesterday() returns: ",avg_spread_yesterday);
     return avg_spread_yesterday;
   }
 //+------------------------------------------------------------------+
@@ -2125,50 +2124,39 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,str
    color arrow_color;
    int digits=(int)MarketInfo(instrument,MODE_DIGITS);
    double point=MarketInfo(instrument,MODE_POINT);
-   //double HOP=0,LOP=0;
    double takeprofit_pts=0,stoploss_pts=0;
    double _pullback_percent=pullback_percent;
+   double _retracement_percent=retracement_percent;
    double periods_range_pts=ADR_pts; // keep at ADR_pts
       
    if(_pullback_percent==NULL) 
      {
        _pullback_percent=0;
      }
-   if(retracement_percent>0)
+   if(_retracement_percent>0)
      {
-       /*HOP=periods_pivot_price(SELLING_MODE,instrument);
-       LOP=periods_pivot_price(BUYING_MODE,instrument);
-       periods_range_pts=HOP-LOP; // TODO: the periods_range_pts here may be out of date*/
-       
        periods_range_pts=range_pts_calculation(type,instrument);
-       if(_pullback_percent>0) pending_order_distance_pts=NormalizeDouble((retracement_percent+_pullback_percent)*periods_range_pts,digits);
-       takeprofit_pts=NormalizeDouble(periods_range_pts*takeprofit_percent,digits);
-       stoploss_pts=NormalizeDouble((periods_range_pts*stoploss_percent)-pending_order_distance_pts,digits);    
+       if(_pullback_percent>0) pending_order_distance_pts=NormalizeDouble((_retracement_percent+_pullback_percent)*periods_range_pts,digits); 
      }
    else 
      {
        if(_pullback_percent>0) pending_order_distance_pts=NormalizeDouble(periods_range_pts*_pullback_percent,digits);
-       takeprofit_pts=NormalizeDouble(periods_range_pts*takeprofit_percent,digits);
-       stoploss_pts=NormalizeDouble((periods_range_pts*stoploss_percent)-pending_order_distance_pts,digits);
      }
-   
    //Print("try_to_enter_order(): distance_pts: ",DoubleToString(pullback_distance_pts));
    
    if(type==OP_BUY /*|| type==OP_BUYSTOP || type==OP_BUYLIMIT*/) // what is the purpose of checking if it is a buystop or sellstop if the only type that gets sent to this function is OP_BUY?
      {
-      arrow_color=arrow_color_long;
       //if(!long_allowed) return;
-      if(LOP_price>0) periods_pivot_price=LOP_price;
-      else if(retracement_percent==0) periods_pivot_price=periods_pivot_price(BUYING_MODE,instrument);
-      else return;
+      arrow_color=arrow_color_long;
+      if(_retracement_percent>0 && LOP_price>0) periods_pivot_price=LOP_price;
+      else periods_pivot_price=periods_pivot_price(BUYING_MODE,instrument);
      }
    else if(type==OP_SELL /*|| type==OP_SELLSTOP || type==OP_SELLLIMIT*/)
      {
-      arrow_color=arrow_color_short;
       ///if(!short_allowed) return;
-      if(HOP_price>0) periods_pivot_price=HOP_price; // TODO: the HOP here may be out of date
-      else if(retracement_percent==0) periods_pivot_price=periods_pivot_price(SELLING_MODE,instrument);
-      else return;
+      arrow_color=arrow_color_short;
+      if(_retracement_percent>0 && HOP_price>0) periods_pivot_price=HOP_price;
+      else periods_pivot_price=periods_pivot_price(SELLING_MODE,instrument);
      }
    else return;
    
@@ -2181,8 +2169,8 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,str
                                      lots,
                                      pending_order_distance_pts, // the distance_pips you are sending to the function should always be positive
                                      periods_pivot_price,
-                                     stoploss_pts,
-                                     takeprofit_pts,
+                                     NormalizeDouble((periods_range_pts*stoploss_percent)-pending_order_distance_pts,digits),
+                                     NormalizeDouble(periods_range_pts*takeprofit_percent,digits),
                                      max_slippage_pips,
                                      spread_pts,
                                      periods_range_pts,
@@ -2296,7 +2284,8 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
         {
          if(acceptable_spread(instrument,max_spread_percent,based_on_raw_ADR,spread_pts,true))
           {
-            entry_price=MarketInfo(instrument,MODE_ASK);// Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+            if(reverse_trade_direction) entry_price=MarketInfo(instrument,MODE_BID);
+            else entry_price=MarketInfo(instrument,MODE_ASK);// Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
             //Print("send_and_get_order_ticket(): entry_price: ",DoubleToString(entry_price));
           }
          else
@@ -2337,7 +2326,8 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
         {
          if(acceptable_spread(instrument,max_spread_percent,based_on_raw_ADR,spread_pts,true)) 
           {
-          entry_price=MarketInfo(instrument,MODE_BID); // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+            if(reverse_trade_direction) entry_price=MarketInfo(instrument,MODE_ASK);
+            else entry_price=MarketInfo(instrument,MODE_BID); // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
          // TODO: create an alert informing the user that the trade was not executed because the spread was too wide  
           }       
          else 
@@ -2367,6 +2357,19 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
      expire_time=0; // if it is NOT a pending order, set the expire_time to 0 because it cannot have an expire_time
    else if(expire>0) // if the user wants pending orders to expire
      expire_time=(datetime)MarketInfo(instrument,MODE_TIME)+expire; // expiration of the order = current time + expire time
+   if(reverse_trade_direction)
+     {
+       bool switched=false;
+       if(cmd==OP_BUY && switched==false) 
+         {
+           cmd=OP_SELL;
+           switched=true;
+         }
+       if(cmd==OP_SELL && switched==false) 
+         {
+           cmd=OP_BUY;
+         }
+     }
    if(market_exec) // If the user wants market execution (which does NOT allow them to input the sl and tp prices), this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
      {
       int ticket=OrderSend(instrument,order_type,lots,entry_price,max_slippage,0,0,generated_comment,magic,expire_time,a_clr);
@@ -2611,15 +2614,18 @@ void trailingstop_check_order(int ticket,double _threshold_percent,double _step_
    int digits=(int) MarketInfo(OrderSymbol(),MODE_DIGITS);
    double current_sl=OrderStopLoss();
    double trail_pts;
+   double order_sl_pts=ADR_pts;
    
-   if(same_stoploss) trail_pts=NormalizeDouble(ADR_pts-(ADR_pts*pullback_percent),digits);
-   else trail_pts=ADR_pts;
+   if(retracement_percent>0) order_sl_pts=MathAbs(current_sl-OrderOpenPrice());
+   if(compare_doubles(order_sl_pts,ADR_pts,digits)==-1) order_sl_pts=ADR_pts;
+   if(same_stoploss) trail_pts=NormalizeDouble(order_sl_pts-(order_sl_pts*pullback_percent),digits);
+   else trail_pts=order_sl_pts;
 
    if(OrderType()==OP_BUY)
      {
       if(current_sl-OrderOpenPrice()>=0) return; // Turn off trailing stop if the stoploss is at breakeven or above. This line should be above all the calculations. If it is true, all those calculations do not need to be done.
-      double threshold_pts=NormalizeDouble(_threshold_percent*(takeprofit_percent*ADR_pts),digits);
-      double step_pts=NormalizeDouble(_step_percent*(takeprofit_percent*ADR_pts),digits);
+      double threshold_pts=NormalizeDouble(_threshold_percent*(takeprofit_percent*order_sl_pts),digits);
+      double step_pts=NormalizeDouble(_step_percent*(takeprofit_percent*order_sl_pts),digits);
       double moving_sl=OrderClosePrice()-trail_pts; // the current price - the trail in pips
       double thresholds_activation_price=OrderOpenPrice()+threshold_pts;
       double new_sl=thresholds_activation_price-trail_pts;
@@ -2637,8 +2643,8 @@ void trailingstop_check_order(int ticket,double _threshold_percent,double _step_
    else if(OrderType()==OP_SELL)
      {
       if(OrderOpenPrice()-current_sl>=0) return; // Turn off trailing stop if the stoploss is at breakeven or above. This line should be above all the calculations. If it is true, all those calculations do not need to be done.
-      double threshold_pts=NormalizeDouble(_threshold_percent*(takeprofit_percent*ADR_pts),digits);
-      double step_pts=NormalizeDouble(_step_percent*(takeprofit_percent*ADR_pts),digits);
+      double threshold_pts=NormalizeDouble(_threshold_percent*(takeprofit_percent*order_sl_pts),digits);
+      double step_pts=NormalizeDouble(_step_percent*(takeprofit_percent*order_sl_pts),digits);
       double moving_sl=OrderClosePrice()+trail_pts;
       double thresholds_activation_price=OrderOpenPrice()-threshold_pts;
       double new_sl=thresholds_activation_price+trail_pts;
@@ -2695,11 +2701,15 @@ bool breakeven_check_order(int ticket,double threshold_percent,double plus_perce
    if(!OrderSelect(ticket,SELECT_BY_TICKET)) return false; // if there is no ticket, it cannot be process so return false
    int digits=(int)MarketInfo(OrderSymbol(),MODE_DIGITS); // how many digit broker
    bool result=true; // initialize the variable result
-   double order_sl=OrderStopLoss();
-   double threshold_pts=NormalizeDouble(threshold_percent*(takeprofit_percent*ADR_pts),digits);
    double plus_pts=0;
+   double order_sl=OrderStopLoss();
+   double order_sl_pts=ADR_pts; // keep at ADR_pts
    
-   if(plus_percent!=0) plus_pts=NormalizeDouble(plus_percent*(takeprofit_percent*ADR_pts),digits);
+   if(retracement_percent>0) order_sl_pts=MathAbs(order_sl-OrderOpenPrice());
+   if(compare_doubles(order_sl_pts,ADR_pts,digits)==-1) order_sl_pts=ADR_pts;
+   double threshold_pts=NormalizeDouble(threshold_percent*(takeprofit_percent*order_sl_pts),digits);
+   
+   if(plus_percent!=0) plus_pts=NormalizeDouble(plus_percent*(takeprofit_percent*order_sl_pts),digits);
    
    if(OrderType()==OP_BUY) // if it is a buy order
      {
@@ -2711,7 +2721,6 @@ bool breakeven_check_order(int ticket,double threshold_percent,double plus_perce
             result=try_to_modify_order(ticket,NormalizeDouble(new_sl,digits));
             Print("previous sl: ",DoubleToStr(order_sl,digits),", new breakeven sl: ",DoubleToStr(new_sl,digits));         
            }
-
      }
    else if(OrderType()==OP_SELL)
      {
@@ -2735,7 +2744,9 @@ void breakeven_check_all_orders(double threshold_percent,double plus_percent,int
      {
       if(OrderSelect(i,SELECT_BY_POS))
          if(magic==-1 || magic==OrderMagicNumber())
-            breakeven_check_order(OrderTicket(),threshold_percent,plus_percent);
+           {
+             breakeven_check_order(OrderTicket(),threshold_percent,plus_percent);
+           }   
      }
   }
 //+------------------------------------------------------------------+
