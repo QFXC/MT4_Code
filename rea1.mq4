@@ -101,6 +101,7 @@ enum ENUM_MM // Money Management
 // general settings
 	//string        symbol=NULL; // TODO: finish changing the code to get rid of this global variable
   /*input*/ bool auto_adjust_broker_digits=true;
+	input bool    market_exec=true;                 //market_exec: False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
   static int    EA_1_magic_num; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
   static bool   uptrend=false, downtrend=false;
   static bool   uptrend_trade_happened_last=false, downtrend_trade_happened_last=false;
@@ -174,7 +175,6 @@ enum ENUM_MM // Money Management
 	
 	input double  active_order_expire=0;              //0 active_order_expire: Any hours or fractions of hour(s). How many hours can a trade be on that hasn't hit stoploss or takeprofit?
 	input double  pending_order_expire=6;             //6 pending_order_expire: Any hours or fractions of hour(s). In how many hours do you want your pending orders to expire?
-	/*input*/ bool market_exec=false;                 //market_exec: False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
 	color         arrow_color_short=clrRed;
 	color         arrow_color_long=clrGreen;
 	
@@ -435,11 +435,11 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
           double bid_price=MarketInfo(current_chart,MODE_BID);
           if(ObjectFind(current_chart+"_day_of_week")<0)
             {
-              ObjectCreate(current_chart+"_day_of_week",OBJ_TEXT,0,TimeCurrent(),bid_price); 
-              ObjectSetText(current_chart+"_day_of_week","0",15,NULL,clrWhite);     
+              ObjectCreate(current_chart+"_day_of_week",OBJ_TEXT,0,TimeCurrent(),bid_price);
+              ObjectSetText(current_chart+"_day_of_week","0",15,NULL,clrWhite);
             }
           ObjectSetText(current_chart+"_day_of_week",IntegerToString(DayOfWeek(),1),0);
-          ObjectMove(current_chart+"_day_of_week",0,TimeCurrent(),bid_price+ADR_pts/2);   
+          ObjectMove(current_chart+"_day_of_week",0,TimeCurrent(),bid_price+ADR_pts/2);
         }
         /*Print("in time range ",in_time_range);
         Print("ready ",ready);
@@ -517,6 +517,11 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
          int days_seconds=(int)(current_time-(iTime(instrument,PERIOD_D1,0))+(gmt_hour_offset*3600)); // i am assuming it is okay to typecast a datetime (iTime) into an int since datetime is count of the number of seconds since 1970
          //int efficient_end_index=MathMin((MathMax(max_trades_within_x_hours*x_hours,max_directional_trades_each_day*24)*max_directional_trades_at_once*max_num_EAs_at_once-1),OrdersHistoryTotal()-1); // calculating the maximum orders that could have been placed so at least the program doesn't have to iterate through all orders in history (which can slow down the EA)
          
+         if(reverse_trade_direction==true)
+           {
+             if(enter_signal==DIRECTION_BIAS_BUY) enter_signal=DIRECTION_BIAS_SELL;
+             else if(enter_signal==DIRECTION_BIAS_SELL) enter_signal=DIRECTION_BIAS_BUY;
+           }
          if(enter_signal==DIRECTION_BIAS_BUY)
            {
             ENUM_ORDER_SET order_set=ORDER_SET_LONG;
@@ -1893,7 +1898,7 @@ bool modify_order(int ticket,double sl_pts,double tp_pts=-1,double entry_price=-
 //|                                                                  |
 //+------------------------------------------------------------------+
 // check for errors before modifying the order
-bool try_to_modify_order(int ticket,double sl_pts,double tp_pts=-1,double entryPrice=-1,datetime expire=0,color a_color=clrNONE,int retries=3,int sleep_milisec=500) // TODO: should the defaults really be -1?
+bool try_to_modify_order(int ticket,double sl_pts,double tp_pts=-1,datetime expire=0,double entryPrice=-1,color a_color=clrNONE,int retries=3,int sleep_milisec=500) // TODO: should the defaults really be -1?
   {
    bool result=false;
    if(ticket>0)
@@ -2144,6 +2149,11 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,str
      }
    //Print("try_to_enter_order(): distance_pts: ",DoubleToString(pullback_distance_pts));
    
+   if(reverse_trade_direction)
+     {
+       if(type==OP_BUY) type=OP_SELL;
+       else if(type==OP_SELL) type=OP_BUY;
+     }
    if(type==OP_BUY /*|| type==OP_BUYSTOP || type==OP_BUYLIMIT*/) // what is the purpose of checking if it is a buystop or sellstop if the only type that gets sent to this function is OP_BUY?
      {
       //if(!long_allowed) return;
@@ -2243,14 +2253,13 @@ void generate_spread_not_acceptable_message(double spread_pts,string instrument)
 // the distanceFromCurrentPrice parameter is used to specify what type of order you would like to enter
 int send_and_get_order_ticket(string instrument,int cmd,double lots,double _distance_pts,double periods_pivot_price,double sl_pts,double tp_pts,int max_slippage,double spread_pts,double range_pts,string _EA_name=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool _market_exec=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
   {
-   double entry_price=0; 
-   double price_sl=0, price_tp=0;
+   double entry_price=0, price_sl=0, price_tp=0;
    double point=MarketInfo(instrument,MODE_POINT);
    double min_distance_pts=MarketInfo(instrument,MODE_STOPLEVEL)*point;
    int digits=(int)MarketInfo(instrument,MODE_DIGITS);
    datetime expire_time=0; // 0 means there is no expiration time for a pending order
    int order_type=-1; // -1 means there is no order because actual orders are >=0
-   
+   bool instant_exec=!market_exec;
    //Print("send_and_get_order_ticket(): tp_pts before adding spread_pts: ",DoubleToString(tp_pts)); 
    
    tp_pts+=spread_pts; // increase the take profit so the user can get the full pips of profit they wanted if the take profit price is hit
@@ -2265,10 +2274,20 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
    //Print("send_and_get_order_ticket(): spread_pts: ",DoubleToString(spread_pts)); 
    //Print("send_and_get_order_ticket(): tp_pts: ",DoubleToString(tp_pts)); 
    //Print("send_and_get_order_ticket(): magic: ",IntegerToString(magic));  
-   
+   /*if(reverse_trade_direction)
+     {
+       if(cmd==OP_BUY) cmd=OP_SELL;
+       else if(cmd==OP_SELL) cmd=OP_BUY;
+     }*/
+   if(acceptable_spread(instrument,max_spread_percent,based_on_raw_ADR,spread_pts,true)==false)
+    {
+      // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
+      generate_spread_not_acceptable_message(spread_pts,instrument);
+      // TODO: create an alert informing the user that the trade was not executed because the spread was too wide
+      return 0;
+    }
    if(cmd==OP_BUY) // logic for long trades
      {
-      bool instant_exec=!market_exec;
       if(_distance_pts>0) order_type=OP_BUYLIMIT;
       else if(_distance_pts==0) order_type=OP_BUY;
       else /*if(_distance_pts<0) order_type=OP_BUYSTOP*/ return 0;
@@ -2282,17 +2301,9 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
         }
       else if(order_type==OP_BUY)
         {
-         if(acceptable_spread(instrument,max_spread_percent,based_on_raw_ADR,spread_pts,true))
-          {
-            if(reverse_trade_direction) entry_price=MarketInfo(instrument,MODE_BID);
-            else entry_price=MarketInfo(instrument,MODE_ASK);// Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
-            //Print("send_and_get_order_ticket(): entry_price: ",DoubleToString(entry_price));
-          }
-         else
-          {
-            generate_spread_not_acceptable_message(spread_pts,instrument);
-            return 0;
-          }
+          if(reverse_trade_direction) entry_price=MarketInfo(instrument,MODE_BID);
+          else entry_price=MarketInfo(instrument,MODE_ASK);
+          //Print("send_and_get_order_ticket(): entry_price: ",DoubleToString(entry_price));
         }
       if(instant_exec) // if the user wants instant execution (in which the broker's system allows them to input sl and tp prices with the SendOrder)
         {
@@ -2301,7 +2312,6 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
             if(compare_doubles(sl_pts,min_distance_pts,digits)==-1) price_sl=entry_price-min_distance_pts; 
             else price_sl=entry_price-sl_pts;
             //Print(price_sl,"=",entry_price,"-",sl_pts);
-
           }
          if(compare_doubles(tp_pts,spread_pts,digits)==1)
           {
@@ -2313,7 +2323,6 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
      }
    else if(cmd==OP_SELL) // logic for short trades
      {
-      bool instant_exec=!market_exec;
       if(_distance_pts>0) order_type=OP_SELLLIMIT;
       else if(_distance_pts==0) order_type=OP_SELL;
       else /*if(_distance_pts<0) order_type=OP_SELLSTOP*/ return 0;
@@ -2324,60 +2333,72 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
         }
       else if(order_type==OP_SELL)
         {
-         if(acceptable_spread(instrument,max_spread_percent,based_on_raw_ADR,spread_pts,true)) 
-          {
-            if(reverse_trade_direction) entry_price=MarketInfo(instrument,MODE_ASK);
-            else entry_price=MarketInfo(instrument,MODE_BID); // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
-         // TODO: create an alert informing the user that the trade was not executed because the spread was too wide  
-          }       
-         else 
-          {
-            generate_spread_not_acceptable_message(spread_pts,instrument);
-            return 0;
-          }
+          if(reverse_trade_direction) entry_price=MarketInfo(instrument,MODE_ASK);
+          else entry_price=MarketInfo(instrument,MODE_BID); // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).      
         }
-      if(instant_exec) // if the user wants instant execution (in which allows them to input the sl and tp prices)
+    if(instant_exec) // if the user wants instant execution (in which allows them to input the sl and tp prices)
+      {
+       if(sl_pts>0) 
         {
-         if(sl_pts>0) 
-          {
-            if(compare_doubles(sl_pts,min_distance_pts,digits)==-1) price_sl=entry_price+min_distance_pts;
-            else price_sl=entry_price+sl_pts;          
-          }
-         if(compare_doubles(tp_pts,spread_pts,digits)==1)
-          {
-            if(compare_doubles(tp_pts,min_distance_pts,digits)==-1) price_tp=entry_price-min_distance_pts; 
-            else price_tp=entry_price-tp_pts; 
-          }
+          if(compare_doubles(sl_pts,min_distance_pts,digits)==-1) price_sl=entry_price+min_distance_pts;
+          else price_sl=entry_price+sl_pts;          
         }
-     }
-   string generated_comment=generate_comment(instrument,magic,sl_pts,tp_pts,spread_pts);
-   if(order_type<0) 
-     return 0; // if there is no order
-   else if(order_type==0 || order_type==1) 
-     expire_time=0; // if it is NOT a pending order, set the expire_time to 0 because it cannot have an expire_time
-   else if(expire>0) // if the user wants pending orders to expire
-     expire_time=(datetime)MarketInfo(instrument,MODE_TIME)+expire; // expiration of the order = current time + expire time
-   if(reverse_trade_direction)
+       if(compare_doubles(tp_pts,spread_pts,digits)==1)
+        {
+          if(compare_doubles(tp_pts,min_distance_pts,digits)==-1) price_tp=entry_price-min_distance_pts; 
+          else price_tp=entry_price-tp_pts; 
+        }
+      }
+    }
+    if(reverse_trade_direction)
+      {
+        double new_price_sl=price_tp;
+        double new_price_tp=price_sl;
+        
+        price_tp=new_price_tp;
+        price_sl=new_price_sl;
+        
+        if(order_type==OP_BUY) order_type=OP_SELL;
+        else if(order_type==OP_SELL) order_type=OP_BUY;
+        if(order_type==OP_BUYLIMIT) order_type=OP_SELLLIMIT;
+        else if(order_type==OP_SELLLIMIT) order_type=OP_BUYLIMIT;
+      }
+    if(order_type<0) return 0; // if there is no order
+    else if(order_type==OP_BUY || order_type==OP_SELL) expire_time=0; // if it is NOT a pending order, set the expire_time to 0 because it cannot have an expire_time
+    else if(expire>0) expire_time=(datetime)MarketInfo(instrument,MODE_TIME)+expire; // expiration of the order = current time + expire time
+    string generated_comments=generate_comment(instrument,magic,sl_pts,tp_pts,spread_pts);
+    
+    if(instant_exec)
+      {
+        Print("instant_exec expire_time=",expire_time);
+        int ticket=OrderSend(instrument,order_type,lots,entry_price,max_slippage,price_sl,price_tp,generated_comments,magic,expire_time,a_clr);
+        if(ticket>0)
+          {
+            if(OrderSelect(ticket,SELECT_BY_TICKET))
+              {
+                if(order_type==OP_BUY || order_type==OP_BUYLIMIT)
+                  {
+                    uptrend_trade_happened_last=true;
+                    downtrend_trade_happened_last=false;
+                  }
+                else if(order_type==OP_SELL || order_type==OP_SELLLIMIT)
+                  {
+                    uptrend_trade_happened_last=false;
+                    downtrend_trade_happened_last=true;
+                  }
+              }
+          }
+        return ticket;
+      }
+    else if(market_exec) // If the user wants market execution (which does NOT allow them to input the sl and tp prices), this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
      {
-       bool switched=false;
-       if(cmd==OP_BUY && switched==false) 
-         {
-           cmd=OP_SELL;
-           switched=true;
-         }
-       if(cmd==OP_SELL && switched==false) 
-         {
-           cmd=OP_BUY;
-         }
-     }
-   if(market_exec) // If the user wants market execution (which does NOT allow them to input the sl and tp prices), this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
-     {
-      int ticket=OrderSend(instrument,order_type,lots,entry_price,max_slippage,0,0,generated_comment,magic,expire_time,a_clr);
+      Print("market_exec expire_time=",expire_time);
+      int ticket=OrderSend(instrument,order_type,lots,entry_price,max_slippage,0,0,generated_comments,magic,expire_time,a_clr);
       if(ticket>0) // if there is a valid ticket
         {
          if(OrderSelect(ticket,SELECT_BY_TICKET))
            {
-            if(cmd==OP_BUY)
+            if(order_type==OP_BUY || order_type==OP_BUYLIMIT)
               {
                if(sl_pts>0) 
                 {
@@ -2386,13 +2407,13 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
                 }
                if(compare_doubles(tp_pts,spread_pts,digits)==1)
                  {
-                  if(compare_doubles(tp_pts,min_distance_pts,digits)==-1) price_sl=OrderOpenPrice()+min_distance_pts;                   
+                  if(compare_doubles(tp_pts,min_distance_pts,digits)==-1) price_tp=OrderOpenPrice()+min_distance_pts;                   
                   else price_tp=OrderOpenPrice()+tp_pts;
                  }
                uptrend_trade_happened_last=true;
                downtrend_trade_happened_last=false;
               }
-            else if(cmd==OP_SELL)
+            else if(order_type==OP_SELL || order_type==OP_SELLLIMIT)
               {
                if(sl_pts>0) 
                  {
@@ -2401,35 +2422,18 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
                  }
                if(compare_doubles(tp_pts,spread_pts,digits)==1)
                  {
-                  if(compare_doubles(tp_pts,min_distance_pts,digits)==-1) price_sl=OrderOpenPrice()-min_distance_pts; 
+                  if(compare_doubles(tp_pts,min_distance_pts,digits)==-1) price_tp=OrderOpenPrice()-min_distance_pts; 
                   price_tp=OrderOpenPrice()-tp_pts;
                  }
                uptrend_trade_happened_last=false;
                downtrend_trade_happened_last=true;
               }
-            bool result=try_to_modify_order(ticket,price_sl,price_tp);
+            bool result=try_to_modify_order(ticket,price_sl,price_tp,expire_time);
            }
         }
       return ticket;
      }
-   int ticket=OrderSend(instrument,order_type,lots,entry_price,max_slippage,price_sl,price_tp,generated_comment,magic,expire_time,a_clr);
-   if(ticket>0)
-    {
-      if(OrderSelect(ticket,SELECT_BY_TICKET))
-        {
-          if(cmd==OP_BUY)
-            {
-              uptrend_trade_happened_last=true;
-              downtrend_trade_happened_last=false;
-            }
-          else if(cmd==OP_SELL)
-            {
-              uptrend_trade_happened_last=false;
-              downtrend_trade_happened_last=true;
-            }
-        }
-    }
-   return ticket;
+    else return 0;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
