@@ -172,7 +172,7 @@ enum ENUM_MM // Money Management
 	input double  trail_step_percent=.1;               //.1 trail_step_percent: The % of takeprofit to set the minimum difference between the proposed new value of the stoploss to the current stoploss price
 	input bool    same_stoploss_distance=false;       //false same_stoploss_distance: Use the same stoploss pips that the trade already had? If false, use the ADR as the stoploss.
 	
-	/*input*/ int entering_max_slippage_pips=5;       //5 entering_max_slippage_pips: Must be in whole number. // TODO: Is this really pips and not points?
+	/*input*/ int entering_max_slippage_pips=50;       //5 entering_max_slippage_pips: Must be in whole number. // TODO: If you make this 5 and not 50, it causes a significant amount of "130" errors. Why?
 //input int unfavorable_slippage=5;
 //exit_order
 	/*input*/ int exiting_max_slippage_pips=50;       //50 exiting_max_slippage_pips: Must be in whole number.
@@ -260,16 +260,17 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set,string instrument)
     Print("margin_to_maintain_open_orders: ",DoubleToStr(margin_to_mainain_open_orders));
     Print("hedged_margin: ",DoubleToStr(hedged_margin));
     Print("margin_required: ",DoubleToStr(margin_required));
-    Print("freeze_level_pts: ",DoubleToStr(freeze_level_pts));   
+    Print("freeze_level_pts: ",DoubleToStr(freeze_level_pts));
     Print("tick_value: ",DoubleToStr(tick_value));
     Print("Point: ",DoubleToStr(point));
     Print("spread before the function calls: ",DoubleToStr(spread));
     Print("spread before the function calls * point: ",DoubleToStr(spread*point));
-    Print("spread before the function calls * point * point_multiploer: ",DoubleToStr(spread*point*point_multiplier));
+    Print("spread before the function calls * point * point_multiplier: ",DoubleToStr(spread*point*point_multiplier));
     Print("ADR_pts: ",DoubleToStr(ADR_pts)); 
     Print("bid_price: ",DoubleToStr(bid_price));
     Print("min_distance_pips: ",DoubleToStr(min_distance_pips));
     Print("min_distance_pips*point: ",DoubleToStr(min_distance_pips*point));
+    Print("min_distance_pips*point*point_multiplier: ",DoubleToStr(min_distance_pips*point*point_multiplier));
     Print("min_lot: ",DoubleToStr(min_lot)," .01=micro lots, .1=mini lots, 1=standard lots");
     Print("max_lot: ",DoubleToStr(max_lot));
     Print("lot_digits: ",IntegerToString(lot_digits)," after the decimal point.");
@@ -2355,6 +2356,7 @@ int check_for_entry_errors(string instrument,int cmd,double lots,double _distanc
       }
       Sleep(sleep_milisec);
      }
+   Print("ticket: ",IntegerToString(ticket));
    return ticket;
   }
 //+------------------------------------------------------------------+
@@ -2377,35 +2379,42 @@ void generate_spread_not_acceptable_message(double spread_pts,string instrument)
 //|                                                                  |
 //+------------------------------------------------------------------+
 // the distanceFromCurrentPrice parameter is used to specify what type of order you would like to enter
+// Documentation: Requirements and Limitions in Making Trades https://book.mql4.com/appendix/limits
 int send_and_get_order_ticket(string instrument,int cmd,double lots,double _distance_pts,double periods_pivot_price,double sl_pts,double tp_pts,int max_slippage,double spread_pts,double range_pts,string _EA_name=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool _market_exec=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
   {
    double entry_price=0, price_sl=0, price_tp=0;
    double point=MarketInfo(instrument,MODE_POINT);
-   double min_distance_pts=MarketInfo(instrument,MODE_STOPLEVEL)*point;
+   double min_distance_pts=MarketInfo(instrument,MODE_STOPLEVEL)*point*point_multiplier;
    int digits=(int)MarketInfo(instrument,MODE_DIGITS);
+   RefreshRates();
+   double current_ask=MarketInfo(instrument,MODE_ASK);
+   double current_bid=MarketInfo(instrument,MODE_BID);
    datetime expire_time=0; // 0 means there is no expiration time for a pending order
    int order_type=-1; // -1 means there is no order because actual orders are >=0
-   bool instant_exec=!market_exec;
+   bool instant_exec=!_market_exec;
    //Print("send_and_get_order_ticket(): tp_pts before adding spread_pts: ",DoubleToString(tp_pts)); 
    
    tp_pts+=spread_pts; // increase the take profit so the user can get the full pips of profit they wanted if the take profit price is hit
    //if(range_pts>ADR_pts) _ADR_pts=range_pts;
    
    Print("send_and_get_order_ticket(): lots: ",DoubleToString(lots));
-   Print("send_and_get_order_ticket(): _distance_pts: ",DoubleToString(_distance_pts));   
+   Print("send_and_get_order_ticket(): _distance_pts: ",DoubleToString(_distance_pts));
    Print("send_and_get_order_ticket(): min_distance_pts: ",DoubleToString(min_distance_pts));
-   Print("send_and_get_order_ticket(): current_price: ",DoubleToString(Bid)); 
+   Print("send_and_get_order_ticket(): current_price: ",DoubleToString(Bid));
    Print("send_and_get_order_ticket(): periods_pivot_price: ",DoubleToString(periods_pivot_price));
    Print("send_and_get_order_ticket(): max_slippage: ",IntegerToString(max_slippage));
-   Print("send_and_get_order_ticket(): spread_pts: ",DoubleToString(spread_pts)); 
-   Print("send_and_get_order_ticket(): tp_pts: ",DoubleToString(tp_pts)); 
-   Print("send_and_get_order_ticket(): magic: ",IntegerToString(magic));  
+   Print("send_and_get_order_ticket(): spread_pts: ",DoubleToString(spread_pts));
+   Print("send_and_get_order_ticket(): tp_pts: ",DoubleToString(tp_pts));
+   Print("send_and_get_order_ticket(): sl_pts: ",DoubleToString(sl_pts));
+   Print("send_and_get_order_ticket(): magic: ",IntegerToString(magic));
    /*if(reverse_trade_direction)
      {
        if(cmd==OP_BUY) cmd=OP_SELL;
        else if(cmd==OP_SELL) cmd=OP_BUY;
      }*/
-   if(acceptable_spread(instrument,max_spread_percent,based_on_raw_ADR,spread_pts,true)==false)
+   bool is_acceptable_spread=acceptable_spread(instrument,max_spread_percent,based_on_raw_ADR,spread_pts,false);
+   Print("send_and_get_order_ticket(): is_acceptable_spread: ",is_acceptable_spread);
+   if(is_acceptable_spread==false) 
     {
       // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
       generate_spread_not_acceptable_message(spread_pts,instrument);
@@ -2420,15 +2429,17 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
       if(order_type==OP_BUYLIMIT /*|| order_type==OP_BUYSTOP*/)
         {
          if(periods_pivot_price<0) return 0;
-         entry_price=(periods_pivot_price+range_pts)-_distance_pts+average_spread_yesterday /*(which should make it close to MODE_ASK which is similar to what the immediate buy order does)*/; // setting the entry_price this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
+         // get the Min to prevent Error 130 caused by the entry_price distance from the current price from being too small
+         if(reverse_trade_direction) entry_price=MathMin((periods_pivot_price+range_pts)-_distance_pts/*+average_spread_yesterday*/,current_bid-min_distance_pts); // setting the entry_price this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
+         else entry_price=MathMin((periods_pivot_price+range_pts)-_distance_pts+average_spread_yesterday,current_ask-min_distance_pts) /*(adding average_spread_yesterday should make it close to MODE_ASK which is similar to what the immediate buy order does)*/; // setting the entry_price this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
          //Print("send_and_get_order_ticket(): periods_pivot_price-Bid: ",DoubleToString(periods_pivot_price-Bid));
          //Print("send_and_get_order_ticket(): range_pts: ",DoubleToString(_ADR_pts));
          //Print("send_and_get_order_ticket(): average_spread_yesterday: ",DoubleToString(average_spread_yesterday));         
         }
       else if(order_type==OP_BUY)
         {
-          if(reverse_trade_direction) entry_price=MarketInfo(instrument,MODE_BID);
-          else entry_price=MarketInfo(instrument,MODE_ASK);
+          if(reverse_trade_direction) entry_price=current_bid;
+          else entry_price=current_ask;
           //Print("send_and_get_order_ticket(): entry_price: ",DoubleToString(entry_price));
         }
       if(instant_exec) // if the user wants instant execution (in which the broker's system allows them to input sl and tp prices with the SendOrder)
@@ -2455,12 +2466,14 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
       if(order_type==OP_SELLLIMIT /*|| order_type==OP_SELLSTOP*/)
         {
          if(periods_pivot_price<0) return 0;
-         entry_price=(periods_pivot_price-range_pts)+_distance_pts-average_spread_yesterday /*(which should make it close to MODE_BID which is similar to what the immediate buy order does*/; // setting the entry_price this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
+         // get the Max to prevent Error 130 caused by the entry_price distance from the current price from being too small
+         if(reverse_trade_direction) entry_price=MathMax((periods_pivot_price-range_pts)+_distance_pts+average_spread_yesterday,current_ask+min_distance_pts); // setting the entry_price this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
+         else entry_price=MathMax((periods_pivot_price-range_pts)+_distance_pts/*-average_spread_yesterday*/,current_bid+min_distance_pts) /*(subtracting average_spread_yesterday should make it close to MODE_BID which is similar to what the immediate buy order does*/; // setting the entry_price this way prevents setting your limit and stop orders based on the current price (which would have caused inaccurate setting of prices)
         }
       else if(order_type==OP_SELL)
         {
-          if(reverse_trade_direction) entry_price=MarketInfo(instrument,MODE_ASK);
-          else entry_price=MarketInfo(instrument,MODE_BID); // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).      
+          if(reverse_trade_direction) entry_price=current_ask;
+          else entry_price=current_bid;     
         }
     if(instant_exec) // if the user wants instant execution (in which allows them to input the sl and tp prices)
       {
@@ -2497,7 +2510,22 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
     if(instant_exec)
       {
         //Print("instant_exec expire_time=",expire_time);
-        int ticket=OrderSend(instrument,order_type,lots,entry_price,max_slippage,price_sl,price_tp,generated_comments,magic,expire_time,a_clr);
+        Print("send_and_get_order_ticket(): entry_price: ",DoubleToString(entry_price,digits));        
+        Print("send_and_get_order_ticket(): current_bid: ",DoubleToString(current_bid,digits));
+        Print("send_and_get_order_ticket(): current_ask: ",DoubleToString(current_ask,digits));
+        Print("send_and_get_order_ticket(): price_sl: ",DoubleToString(price_sl,digits));
+        Print("send_and_get_order_ticket(): price_tp: ",DoubleToString(price_tp,digits));
+        Print("send_and_get_order_ticket(): price_tp-entry_price: ",DoubleToString(MathAbs(price_tp-entry_price),digits));
+        Print("send_and_get_order_ticket(): price_sl-entry_price: ",DoubleToString(MathAbs(price_sl-entry_price),digits));
+        Print("instrument: ",instrument,", ordertype: ",order_type,", lots: ",lots,", entryprice: ",DoubleToString(entry_price),", max_slippage: ",IntegerToString(max_slippage),", price_sl: ",DoubleToString(price_sl),", price_tp: ",price_tp,", magic: ",magic,", expire_time: ",expire_time);
+        
+        if(order_type==0 || order_type==2)
+          {
+            if(compare_doubles(current_ask-entry_price,min_distance_pts,digits)==-1) Print("If BuyLimit, this will result in an Open Price error because current_ask-entry_price(",DoubleToString(current_ask-entry_price),")<min_distance_pips");
+            if(compare_doubles(entry_price-price_sl,min_distance_pts,digits)==-1) Print("If BuyLimit, this will result in an Stoploss error because entry_price-price_sl(",DoubleToString(entry_price-price_sl),")<min_distance_pips");
+            if(compare_doubles(price_tp-entry_price,min_distance_pts,digits)==-1) Print("If BuyLimit, this will result in an Takeprofit error because price_tp-entry_price(",DoubleToString(price_tp-entry_price),")<min_distance_pips");
+          }
+        int ticket=OrderSend(instrument,order_type,lots,NormalizeDouble(entry_price,digits),max_slippage,NormalizeDouble(price_sl,digits),NormalizeDouble(price_tp,digits),generated_comments,magic,expire_time,a_clr);
         if(ticket>0)
           {
             if(OrderSelect(ticket,SELECT_BY_TICKET))
@@ -2514,9 +2542,10 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
                   }
               }
           }
+        Print("returning instant_exec ticket");
         return ticket;
       }
-    else if(market_exec) // If the user wants market execution (which does NOT allow them to input the sl and tp prices), this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
+    else if(_market_exec) // If the user wants market execution (which does NOT allow them to input the sl and tp prices), this will calculate the stoploss and takeprofit AFTER the order to buy or sell is sent.
      {
       //Print("market_exec expire_time=",expire_time);
       if(reverse_trade_direction)
@@ -2526,7 +2555,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
           tp_pts=new_tp_pts;
           sl_pts=new_sl_pts;
         }
-      int ticket=OrderSend(instrument,order_type,lots,entry_price,max_slippage,0,0,generated_comments,magic,expire_time,a_clr);
+      int ticket=OrderSend(instrument,order_type,lots,NormalizeDouble(entry_price,digits),max_slippage,0,0,generated_comments,magic,expire_time,a_clr);
       if(ticket>0) // if there is a valid ticket
         {
          if(OrderSelect(ticket,SELECT_BY_TICKET))
@@ -2561,7 +2590,9 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
                uptrend_trade_happened_last=false;
                downtrend_trade_happened_last=true;
               }
-            bool result=try_to_modify_order(ticket,price_sl,retries,price_tp,expire_time);
+            Print("send_and_get_order_ticket(): price_sl: ",DoubleToString(price_sl,digits));
+            Print("send_and_get_order_ticket(): price_tp: ",DoubleToString(price_tp,digits));
+            bool result=try_to_modify_order(ticket,NormalizeDouble(price_sl,digits),retries,NormalizeDouble(price_tp,digits),expire_time);
            }
         }
       return ticket;
