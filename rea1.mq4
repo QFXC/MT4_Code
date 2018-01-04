@@ -119,9 +119,10 @@ enum ENUM_MM // Money Management
 	input string  space_1="----------------------------------------------------------------------------------------";
 	
 	input bool        filter_over_extended_trends=true;   //filter_over_extended_trends: //TODO: test that this filter works
+	/*input*/ int     max_market_trades_at_once=2;            //market_trades_at_once: How many long or short market trades can be on at the same time?
 	/*input*/ int     max_directional_trades_at_once=1;   //1 max_directional_trades_at_once: How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
 	/*input*/ int     max_trades_within_x_hours=1;        //1 max_trades_within_x_hours: 0-x days (x depends on the setting of the Account History tab of the terminal). // How many trades are allowed to be opened (even if they are closed now) within the last x_hours?
-	/*input*/ double  x_hours=3;                          //3 x_hours: Any whole or fraction of an hour.
+	/*input*/ double  x_hours=5;                          //3 x_hours: Any whole or fraction of an hour.
 	/*input*/ int     max_directional_trades_each_day=1;  //1 max_directional_trades_each_day: How many trades are allowed to be opened (even if they are close now) after the start of each current day?
   input int         moving_avg_period=0;
   
@@ -286,6 +287,7 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set,string instrument)
       
     downtrend_trade_happened_last=false;
     uptrend_trade_happened_last=false;
+    // assign values to HOP_price, LOP_price, HOP_time, LOP_time
     range_pts_calculation(OP_BUY,instrument);
     range_pts_calculation(OP_SELL,instrument);
     
@@ -543,9 +545,19 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
       if(is_new_M5_bar) moves_start_bar=get_moves_start_bar(instrument,H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week); // this is here so the vertical line can get moved every 5 minutes
       enter_signal=signal_retracement_pullback_after_ADR_triggered(instrument);
       if(enter_signal>0 || enter_signal==DIRECTION_BIAS_IGNORE) enter_signal=signal_bias_compare(enter_signal,signal_MA(instrument),false);
-        
+      if(enter_signal>0 && max_market_trades_at_once>0)
         {
-      if(enter_signal>0) 
+          int market_trades_open=count_orders(ORDER_SET_MARKET,magic,MODE_TRADES,OrdersTotal()-1);
+          if(market_trades_open==max_market_trades_at_once) enter_signal=DIRECTION_BIAS_NEUTRAL;
+        }
+      if(enter_signal>0 && max_trades_within_x_hours>0)
+        {
+          int opened_recently_count=count_orders(ORDER_SET_SHORT_LONG_LIMIT_MARKET,magic,MODE_HISTORY,OrdersHistoryTotal()-1,(int)(x_hours*3600),current_time);
+          if(opened_recently_count==max_trades_within_x_hours) enter_signal=DIRECTION_BIAS_NEUTRAL; 
+        }
+
+      if(enter_signal>0)
+        {
          // the code for every filter after this line needs to know whether the signal was to buy or sell and, therefore, couldn't be in the previous filters
          int days_seconds=(int)(current_time-(iTime(instrument,PERIOD_D1,0))+(gmt_hour_offset*3600)); // i am assuming it is okay to typecast a datetime (iTime) into an int since datetime is count of the number of seconds since 1970
          //int efficient_end_index=MathMin((MathMax(max_trades_within_x_hours*x_hours,max_directional_trades_each_day*24)*max_directional_trades_at_once*max_num_EAs_at_once-1),OrdersHistoryTotal()-1); // calculating the maximum orders that could have been placed so at least the program doesn't have to iterate through all orders in history (which can slow down the EA)
@@ -559,24 +571,15 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
            {
             //Print("try_to_enter_order: OP_BUY");
             //try_to_enter_order(OP_BUY,magic,entering_max_slippage_pips,instrument);
-            
-            /*ENUM_ORDER_SET order_set=ORDER_SET_LONG;
-            ENUM_ORDER_SET order_set2=ORDER_SET_SHORT_LONG_LIMIT_MARKET;
 
             if(exit_opposite_signal) exit_all_trades_set(_exiting_max_slippage,ORDER_SET_SELL,magic);
-            int opened_today_count=count_orders (order_set, // should be first because the days_seconds variable was just calculated
+            int longs_opened_today=count_orders (ORDER_SET_LONG, // should be first because the days_seconds variable was just calculated
                                                  magic,
                                                  MODE_HISTORY,
                                                  OrdersHistoryTotal()-1,
                                                  days_seconds,
                                                  current_time);
-            int opened_recently_count=count_orders(order_set2,
-                                                 magic,
-                                                 MODE_HISTORY,
-                                                 OrdersHistoryTotal()-1,
-                                                 (int)(x_hours*3600),
-                                                 current_time);
-            int current_long_count=count_orders (order_set, // should be last because the harder and more similar ones should go first
+            int current_long_count=count_orders (ORDER_SET_LONG, // should be last because the harder and more similar ones should go first
                                                  magic,
                                                  MODE_TRADES,
                                                  OrdersTotal()-1,
@@ -584,8 +587,7 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
                                                  current_time); // counts all long (active and pending) orders for the current EA
             
             if(current_long_count<max_directional_trades_at_once &&  // just long
-               opened_recently_count<max_trades_within_x_hours &&    // long and short
-               opened_today_count<max_directional_trades_each_day)   // just long
+               longs_opened_today<max_directional_trades_each_day)   // just long
               {
                    //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
                 bool overbought_1=false;
@@ -601,30 +603,21 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
                     Print("try_to_enter_order: OP_BUY");
                     try_to_enter_order(OP_BUY,magic,entering_max_slippage_pips,instrument);
                   }
-              }*/
+              }
            }
          else if(enter_signal==DIRECTION_BIAS_SELL)
            {
             //Print("try_to_enter_order: OP_SELL");
             //try_to_enter_order(OP_SELL,magic,entering_max_slippage_pips,instrument);
-            
-            /*ENUM_ORDER_SET order_set=ORDER_SET_SHORT;
-            ENUM_ORDER_SET order_set2=ORDER_SET_SHORT_LONG_LIMIT_MARKET;
 
             if(exit_opposite_signal) exit_all_trades_set(_exiting_max_slippage,ORDER_SET_BUY,magic);
-            int opened_today_count=count_orders (order_set, // should be first because the days_seconds variable was just calculated
+            int shorts_opened_today=count_orders (ORDER_SET_SHORT, // should be first because the days_seconds variable was just calculated
                                                  magic,
                                                  MODE_HISTORY,
                                                  OrdersHistoryTotal()-1,
                                                  days_seconds,
                                                  current_time);
-            int opened_recently_count=count_orders(order_set2,
-                                                 magic,
-                                                 MODE_HISTORY,
-                                                 OrdersHistoryTotal()-1,
-                                                 (int)(x_hours*3600),
-                                                 current_time);
-            int current_short_count=count_orders(order_set, // should be last because the harder and more similar ones should go first
+            int current_short_count=count_orders(ORDER_SET_SHORT, // should be last because the harder and more similar ones should go first
                                                  magic,
                                                  MODE_TRADES,
                                                  OrdersTotal()-1,
@@ -632,8 +625,7 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
                                                  current_time); // counts all short (active and pending) orders for the current EA
             
             if(current_short_count<max_directional_trades_at_once && // just short
-               opened_recently_count<max_trades_within_x_hours &&    // short and long
-               opened_today_count<max_directional_trades_each_day)   // just short
+               shorts_opened_today<max_directional_trades_each_day)   // just short
               {
                    //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
                 bool oversold_1=false;
@@ -649,7 +641,7 @@ bool Relativity_EA_ran(string instrument,int magic,datetime current_time,int exi
                     Print("try_to_enter_order: OP_SELL");
                     try_to_enter_order(OP_SELL,magic,entering_max_slippage_pips,instrument);
                   }
-              }*/
+              }
            }
         }
      }
@@ -906,6 +898,7 @@ int signal_pullback_after_ADR_triggered(string instrument)
  
     if(uptrend_trade_happened_last==false /*&& uptrend==false*/) // if there is no uptrend, monitor the market for an uptrend. But stopped monitoring it if a uptrend has been identified.
       {
+        if(is_new_M5_bar) Print("uptrend_ADR_threshold_met_price is running");
         RefreshRates();
         if(uptrend_ADR_threshold_met_price(instrument,false)>0)
           {
@@ -916,6 +909,7 @@ int signal_pullback_after_ADR_triggered(string instrument)
    // if the pullback_entry_price is met or exceeded, signal = TRADE_SIGNAL_BUY
     if(downtrend_trade_happened_last==false /*&& downtrend==false*/) // if there is no downtrend, monitor the market for a downtrend. But stopped monitoring it if a downtrend has been identified.
       {
+        if(is_new_M5_bar) Print("downtrend_ADR_threshold_met_price is running");
         RefreshRates();
         if(downtrend_ADR_threshold_met_price(instrument,false)>0) 
           {
@@ -2057,13 +2051,13 @@ double downtrend_ADR_threshold_met_price(string instrument,bool get_current_bid_
     string LOP_text=current_chart+"LOP";
     string HOP_text=current_chart+"HOP";
     
-    if(is_new_M5_bar) Print("downtrend_ADR_threshold_met_price is running");
+    
     
     if(HOP==0) HOP=periods_pivot_price(SELLING_MODE,instrument);
     if(is_new_M5_bar) 
       {
-        Print("HOP: ",DoubleToString(HOP));
-        Print("current_bid: ",DoubleToString(current_bid));
+        Print("HOP: ",DoubleToString(HOP),Digits);
+        Print("current_bid: ",DoubleToString(current_bid,Digits));
       }
     if(draw_visuals && current_chart_matches)
       {
