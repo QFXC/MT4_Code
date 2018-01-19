@@ -113,17 +113,18 @@ enum ENUM_MM // Money Management
 	input bool        reverse_trade_direction=false;
 	//input bool      only_enter_on_new_bar=false; // Should you only enter trades when a new bar begins?
 	/*input*/ bool    exit_opposite_signal=false; //false exit_opposite_signal: Should the EA exit trades when there is a signal in the opposite direction?
-  //bool            long_allowed=true; //true Are long trades allowed?
-	//bool            short_allowed=true; //true Are short trades allowed?
+  bool              long_allowed=true; // Are long trades allowed?
+	bool              short_allowed=true; // Are short trades allowed?
 	
 	input string  space_1="----------------------------------------------------------------------------------------";
 	
 	input bool        filter_over_extended_trends=true;   //filter_over_extended_trends: //TODO: test that this filter works
-	input int         max_market_trades_at_once=2;            //market_trades_at_once: How many long or short market trades can be on at the same time?
+	input int         max_pending_orders_at_once=2;
+	//input int         max_open_trades_at_once=2;            //market_trades_at_once: How many long or short market trades can be on at the same time?
 	input int         max_directional_trades_at_once=1;   //1 max_directional_trades_at_once: How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
-	input int         max_trades_within_x_hours=1;        //1 max_trades_within_x_hours: 0-x days (x depends on the setting of the Account History tab of the terminal). // How many trades are allowed to be opened (even if they are closed now) within the last x_hours?
-	input double      x_hours=5;                          //3 x_hours: Any whole or fraction of an hour.
-	input int         max_directional_trades_each_day=1;  //1 max_directional_trades_each_day: How many trades are allowed to be opened (even if they are close now) after the start of each current day?
+	//input int         max_orders_within_x_hours=1;        //1 max_orders_within_x_hours: 0-x days (x depends on the setting of the Account History tab of the terminal). // How many orders are allowed to be opened (even if they are closed now) within the last x_hours?
+	//input double      x_hours=5;                          //3 x_hours: Any whole or fraction of an hour.
+	input int         max_directional_trades_each_day=2;  //1 max_directional_trades_each_day: How many trades are allowed to be opened (even if they are close now) after the start of each current day?
   input int         moving_avg_period=0;
   
   input string  space_2="----------------------------------------------------------------------------------------";
@@ -178,7 +179,7 @@ enum ENUM_MM // Money Management
 //exit_order
 	/*input*/ int     exiting_max_slippage_pips=50;       //50 exiting_max_slippage_pips: Must be in whole number. // TODO: For 3 and 5 digit brokers, is 50 equivalent to 5 pips?
 	
-	/*input*/ double  active_order_expire=0;              //0 active_order_expire: Any hours or fractions of hour(s). How many hours can a trade be on that hasn't hit stoploss or takeprofit?
+	/*input*/ double  active_trade_expire=0;              //0 active_trade_expire: Any hours or fractions of hour(s). How many hours can a trade be on that hasn't hit stoploss or takeprofit?
 	input double      pending_order_expire=6;             //6 pending_order_expire: Any hours or fractions of hour(s). In how many hours do you want your pending orders to expire?
 	input double      retracement_expire_hours=6;         //retracement_expire_hours: Any hours or fractions of hour(s). In how many hours after the high/low do you want the potential retracement trades to expire?
 	
@@ -401,7 +402,7 @@ void OnTick()
     int       exit_signal=DIRECTION_BIAS_NEUTRAL, exit_signal_2=DIRECTION_BIAS_NEUTRAL; // 0
     int       _exiting_max_slippage=exiting_max_slippage_pips;
     bool      relativity_ea_2_on=false;
-    bool      answer=false;
+    bool      ea_ran=false;
 
     if(pullback_percent!=0) cleanup_risky_pending_orders();
     is_new_M5_bar=is_new_M5_bar(instrument,wait_next_M5_on_load);
@@ -416,15 +417,16 @@ void OnTick()
       }
     if(is_new_custom_D1_bar)  // this must run before relativity_ea_ran function is run
       {
+        ready=false; // Set ready to false at the beginning of every day. The code will soon check if it is ready once again. The relativity_ea_ran function has to be called soon.
         is_new_custom_W1_bar=is_new_custom_W1_bar(instrument);
         //Print("new day");
       }
     //if(is_new_custom_W1_bar) Print("new week");
     
-    answer=relativity_ea_ran(instrument,EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage); // TODO: test by typing "USDJPYpro" as a replacement to instrument
-    if(answer && relativity_ea_2_on) 
+    ea_ran=relativity_ea_ran(instrument,EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage); // TODO: test by typing "USDJPYpro" as a replacement to instrument
+    if(ea_ran && relativity_ea_2_on) 
       {
-        answer=relativity_ea_ran("EURUSDpro",EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
+        ea_ran=relativity_ea_ran("EURUSDpro",EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage);
       }
     // Because the functions that return the true/false of whether it is a new bar do not run on every tick, you need to set all the global variables to false after all the previous code gets run. Otherwise, many of them will stay true much too frequently.
     is_new_M5_bar=false;
@@ -482,7 +484,7 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
     if(is_new_M5_bar) // only check if it is in the time range once the EA is loaded and, then, afterward at the beginning of every M5 bar
       {
         //Print("Got past is_new_M5_bar");
-        if(active_order_expire>0) exit_all_trades_set(_exiting_max_slippage,ORDER_SET_MARKET,magic,(int)(active_order_expire*3600),current_time); // This runs every 5 minutes (whether the time is in_time_range or not). It only exit trades that have been on for too long and haven't hit stoploss or takeprofit.
+        if(active_trade_expire>0) exit_all_trades_set(_exiting_max_slippage,ORDER_SET_MARKET,magic,(int)(active_trade_expire*3600),current_time); // This runs every 5 minutes (whether the time is in_time_range or not). It only exit trades that have been on for too long and haven't hit stoploss or takeprofit.
         in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,fri_end_time_hour,fri_end_time_minute,gmt_hour_offset);     
 
         if(_draw_visuals && is_new_H1_bar)
@@ -544,12 +546,12 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
                 
                 flag4=true;       
               }*/   
-            if(ADR_pts>0 && magic>0 && is_acceptable_spread==true)
+            if(ADR_pts>0 && magic>0 && is_acceptable_spread==true && days_open_time>0) // days_open_time is required to have been generated in order to prevent duplicate trades or allow trades to happen
               {
                 // reset all trend analysis and uptrend/downtrend alternating to start fresh for the day
                 uptrend_trade_was_last=false;
                 downtrend_trade_was_last=false;
-                ObjectSetString(0,current_chart+"last_trade_direction",OBJPROP_TEXT,"? trade happened last");
+                ObjectSetString(0,current_chart+"_last_trade_direction",OBJPROP_TEXT,"? trade happened last");
                 uptrend=false;
                 downtrend=false;
                 ObjectSet(current_chart+"_HOP",OBJPROP_WIDTH,1); 
@@ -566,65 +568,61 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
             else ready=false; // never assign average_spread_yesterday to anything in this scope
         }
       }
-   if(ready && in_time_range && days_open_time>0) // days_open_time is required to have been generated in order to prevent duplicate trades or allow trades to happen
+   if(ready && in_time_range) 
      {
       ENUM_DIRECTION_BIAS enter_signal=DIRECTION_BIAS_NEUTRAL; // 0
-      
-      /*int instruments_long_count=count_orders(ORDER_SET_BUY,magic,MODE_TRADES,OrdersTotal()-1);
-      if(instruments_long_count==0) uptrend_trade_happened_last=false;
-      int instruments_short_count=count_orders(ORDER_SET_BUY,magic,MODE_TRADES,OrdersTotal()-1);
-      if(instruments_short_count==0) downtrend_trade_happened_last=false; */
 
       if(is_new_M5_bar) get_moves_start_bar(instrument,H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week); // this is here so the vertical line can get moved every 5 minutes
       if(retracement_percent>0) enter_signal=signal_retracement_pullback_after_ADR_triggered(instrument);
       else enter_signal=signal_ADR_triggered(instrument);
       if(enter_signal>0 || enter_signal==DIRECTION_BIAS_IGNORE) enter_signal=signal_bias_compare(enter_signal,signal_MA(instrument),false);
-      if((enter_signal>0 || enter_signal==DIRECTION_BIAS_IGNORE) && max_market_trades_at_once>1)
+      /*if((enter_signal>0 || enter_signal==DIRECTION_BIAS_IGNORE) && max_open_trades_at_once>0)
         {
           int market_trades_open=count_orders(ORDER_SET_MARKET,magic,MODE_TRADES,OrdersTotal()-1); // count all open order (but only for the specific magic number)
-          if(market_trades_open>=max_market_trades_at_once) enter_signal=DIRECTION_BIAS_NEUTRAL;
-        }
-      if(enter_signal>0 && max_trades_within_x_hours>0) // no need to check whether enter_signal==DIRECTION_BIAS_IGNORE
+          if(market_trades_open>=max_open_trades_at_once) enter_signal=DIRECTION_BIAS_NEUTRAL;
+        }*/
+      /*if(enter_signal>0 && max_orders_within_x_hours>0) // no need to check whether enter_signal==DIRECTION_BIAS_IGNORE
         {
           int opened_recently_count=count_orders(ORDER_SET_SHORT_LONG_LIMIT_MARKET,magic,MODE_HISTORY,OrdersHistoryTotal()-1,(int)(x_hours*3600),current_time);
-          if(opened_recently_count==max_trades_within_x_hours) enter_signal=DIRECTION_BIAS_NEUTRAL; 
+          if(opened_recently_count>=max_orders_within_x_hours) enter_signal=DIRECTION_BIAS_NEUTRAL; 
+        }*/
+      if((enter_signal>0 || enter_signal==DIRECTION_BIAS_IGNORE) && pullback_percent>0 && max_pending_orders_at_once>0)
+        {
+          int pending_orders_open=count_orders(ORDER_SET_PENDING,magic,MODE_TRADES,OrdersTotal()-1); // count all open order (but only for the specific magic number)
+          if(pending_orders_open>=max_pending_orders_at_once) enter_signal=DIRECTION_BIAS_NEUTRAL;
         }
-      if(enter_signal>0 && retracement_percent>0 && retracement_trade_expired(enter_signal,current_time,int(retracement_expire_hours*3600))==true) enter_signal=DIRECTION_BIAS_NEUTRAL;
+      if(enter_signal>0 && retracement_percent>0) 
+          if(retracement_trade_expired(enter_signal,current_time,int(retracement_expire_hours*3600))==true) enter_signal=DIRECTION_BIAS_NEUTRAL; //two if statements to reduce the calling of a function
       if(enter_signal>0)
         {
-         // the code for every filter after this line needs to know whether the signal was to buy or sell and, therefore, couldn't be in the previous filters
-         //int days_seconds=int(current_time-(iTime(instrument,PERIOD_D1,0))+(gmt_hour_offset*3600)); // i am assuming it is okay to typecast a datetime (iTime) into an int since datetime is count of the number of seconds since 1970
          int days_seconds=int(current_time-days_open_time);
-         //int efficient_end_index=MathMin((MathMax(max_trades_within_x_hours*x_hours,max_directional_trades_each_day*24)*max_directional_trades_at_once*max_num_EAs_at_once-1),OrdersHistoryTotal()-1); // calculating the maximum orders that could have been placed so at least the program doesn't have to iterate through all orders in history (which can slow down the EA)
          
          if(reverse_trade_direction==true)
            {
              if(enter_signal==DIRECTION_BIAS_BUY) enter_signal=DIRECTION_BIAS_SELL;
              else if(enter_signal==DIRECTION_BIAS_SELL) enter_signal=DIRECTION_BIAS_BUY;
            }
-         if(enter_signal==DIRECTION_BIAS_BUY)
+         if(enter_signal==DIRECTION_BIAS_BUY && long_allowed)
            {
             //Print("try_to_enter_order: OP_BUY");
-            //try_to_enter_order(OP_BUY,magic,entering_max_slippage_pips,instrument);
-            
             if(exit_opposite_signal) exit_all_trades_set(_exiting_max_slippage,ORDER_SET_SELL,magic);
-            int longs_opened_today=count_orders (ORDER_SET_LONG, // should be first because the days_seconds variable was just calculated
+            int long_trades_closed_today=count_orders (ORDER_SET_BUY, // should be first because the days_seconds variable was just calculated
                                                  magic,
                                                  MODE_HISTORY,
                                                  OrdersHistoryTotal()-1,
                                                  days_seconds,
                                                  current_time);
-            int current_long_count=count_orders (ORDER_SET_LONG, // should be last because the harder and more similar ones should go first
+            int current_long_count=count_orders (ORDER_SET_BUY, // should be last because the harder and more similar ones should go first
                                                  magic,
                                                  MODE_TRADES,
                                                  OrdersTotal()-1,
                                                  0,
                                                  current_time); // counts all long (active and pending) orders for the current EA
-            Print(longs_opened_today);
-            Print(current_long_count);
+            //Print(longs_opened_today);
+            //Print(current_long_count);
             
             if(current_long_count<max_directional_trades_at_once &&  // just long
-               longs_opened_today<max_directional_trades_each_day)   // just long
+               current_long_count+long_trades_closed_today<max_directional_trades_each_day)   // just long
               {
                    //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
                 bool overbought_1=false;
@@ -638,23 +636,21 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
                 if(overbought_1==false && overbought_2==false) 
                   {
                     //Print("try_to_enter_order: OP_BUY");
-                    //try_to_enter_order(OP_BUY,magic,entering_max_slippage_pips,instrument);
+                    try_to_enter_order(OP_BUY,magic,entering_max_slippage_pips,instrument);
                   }
               }
            }
-         else if(enter_signal==DIRECTION_BIAS_SELL)
+         else if(enter_signal==DIRECTION_BIAS_SELL && short_allowed)
            {
             //Print("try_to_enter_order: OP_SELL");
-            //try_to_enter_order(OP_SELL,magic,entering_max_slippage_pips,instrument);
-
             if(exit_opposite_signal) exit_all_trades_set(_exiting_max_slippage,ORDER_SET_BUY,magic);
-            int shorts_opened_today=count_orders (ORDER_SET_SHORT, // should be first because the days_seconds variable was just calculated
+            int short_trades_closed_today=count_orders (ORDER_SET_SELL, // should be first because the days_seconds variable was just calculated
                                                  magic,
                                                  MODE_HISTORY,
                                                  OrdersHistoryTotal()-1,
                                                  days_seconds,
                                                  current_time);
-            int current_short_count=count_orders(ORDER_SET_SHORT, // should be last because the harder and more similar ones should go first
+            int current_short_count=count_orders(ORDER_SET_SELL, // should be last because the harder and more similar ones should go first
                                                  magic,
                                                  MODE_TRADES,
                                                  OrdersTotal()-1,
@@ -662,7 +658,7 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
                                                  current_time); // counts all short (active and pending) orders for the current EA
             
             if(current_short_count<max_directional_trades_at_once && // just short
-               shorts_opened_today<max_directional_trades_each_day)   // just short
+               current_short_count+short_trades_closed_today<max_directional_trades_each_day)   // just short
               {
                    //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
                 bool oversold_1=false;
@@ -2454,6 +2450,7 @@ bool acceptable_spread(string instrument,double _max_spread_percent,bool _based_
 bool retracement_trade_expired(ENUM_DIRECTION_BIAS bias,datetime _current_time,int expire_seconds)
   {
     datetime pivot_levels_time;
+    if(expire_seconds==0 || expire_seconds==NULL) return false;
     if(bias==DIRECTION_BIAS_BUY) pivot_levels_time=HOP_time;
     else if(bias==DIRECTION_BIAS_SELL) pivot_levels_time=LOP_time;
     else return false;
@@ -2820,13 +2817,13 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
                   {
                     downtrend_trade_was_last=false;
                     uptrend_trade_was_last=true;
-                    ObjectSetString(0,current_chart+"last_trade_direction",OBJPROP_TEXT,"uptrend trade happened last");
+                    ObjectSetString(0,current_chart+"_last_trade_direction",OBJPROP_TEXT,"uptrend trade happened last");
                   }
                 else if(order_type==OP_SELL || order_type==OP_SELLLIMIT)
                   {
                     uptrend_trade_was_last=false;
                     downtrend_trade_was_last=true;
-                    ObjectSetString(0,current_chart+"last_trade_direction",OBJPROP_TEXT,"downtrend trade happened last"); 
+                    ObjectSetString(0,current_chart+"_last_trade_direction",OBJPROP_TEXT,"downtrend trade happened last"); 
                   }
               }
           }
@@ -2862,7 +2859,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
                  }
                downtrend_trade_was_last=false;
                uptrend_trade_was_last=true;
-               ObjectSetString(0,current_chart+"last_trade_direction",OBJPROP_TEXT,"uptrend trade happened last");
+               ObjectSetString(0,current_chart+"_last_trade_direction",OBJPROP_TEXT,"uptrend trade happened last");
               }
             else if(order_type==OP_SELL || order_type==OP_SELLLIMIT)
               {
@@ -2878,7 +2875,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
                  }
                uptrend_trade_was_last=false;
                downtrend_trade_was_last=true;
-               ObjectSetString(0,current_chart+"last_trade_direction",OBJPROP_TEXT,"downtrend trade happened last");
+               ObjectSetString(0,current_chart+"_last_trade_direction",OBJPROP_TEXT,"downtrend trade happened last");
               }
             Print("send_and_get_order_ticket(): price_sl: ",DoubleToString(price_sl,digits));
             Print("send_and_get_order_ticket(): price_tp: ",DoubleToString(price_tp,digits));
@@ -2976,8 +2973,9 @@ int count_orders(ENUM_ORDER_SET type_needed=ORDER_SET_ALL,int magic=-1,int pool=
             if(magic==-1 || magic==OrderMagicNumber())
               {
                 if(x_seconds_before>0 && since_time>0) // only count them if they are within X seconds of the specified time
-                if(OrderOpenTime()<(since_time-x_seconds_before)) break; // if the time the order was opened is before the time the user wants to start counting orders, do not count it
+                  if(OrderOpenTime()<(since_time-x_seconds_before)) break; // if the time the order was opened is before the time the user wants to start counting orders, do not count it
                 
+                //if(pool==MODE_HISTORY) if(OrderClosePrice()!=0
                 int actual_type=OrderType();
                 //int ticket=OrderTicket(); // the ticket variable may not be needed in the code of this function
                 switch(type_needed)
