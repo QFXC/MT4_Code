@@ -150,11 +150,11 @@ enum ENUM_MM // Money Management
 // enter_order
   /*input*/ ENUM_SIGNAL_SET SIGNAL_SET=SIGNAL_SET_1; //SIGNAL_SET: Which signal set would you like to test? (the details of each signal set are found in the signal_entry function)
   // TODO: make sure you have coded for the scenerios when each of these is set to 0
-	input double      retracement_percent=.38;            //retracement_percent: Must be positive.
-	input double      pullback_percent=0.3;               //.3 pullback_percent:  Must be positive. If you want a buy or sell limit order, it must be positive.
-	input double      takeprofit_percent=.8;              //.8 takeprofit_percent: Must be a positive number. (What % of ADR should you tarket?)
+	input double      retracement_percent=.3;            //retracement_percent: Must be positive.
+	input double      pullback_percent=0;               //.3 pullback_percent:  Must be positive. If you want a buy or sell limit order, it must be positive.
+	input double      takeprofit_percent=.1;              //.8 takeprofit_percent: Must be a positive number. (What % of ADR should you tarket?)
   double            stoploss_percent=1.0;               //1 stoploss_percent: Must be a positive number.
-  input double      change_stoploss=.5;
+  //input double      change_stoploss=.5;
   input bool        prevent_ultrawide_stoploss=false;
 	/*input*/ double  max_spread_percent=.15;           //.1 max_spread_percent: Must be positive. What percent of ADR should the spread be less than? (Only for immediate orders and not pending.)
 	/*input*/ bool    based_on_raw_ADR=true;             //true based_on_raw_ADR: Should the max_spread_percent be calculated from the raw ADR?
@@ -166,7 +166,7 @@ enum ENUM_MM // Money Management
 // breakeven variables
 	input double      breakeven_threshold_percent=.8;      //.8 breakeven_threshold_percent: % of takeprofit before setting the stop to breakeven.
 	input double      breakeven_plus_percent=-.5;          //-.5 breakeven_plus_percent: % of takeprofit above breakeven. Allows you to move the stoploss +/- from the entry price where 0 is breakeven, <0 loss zone, and >0 profit zone
-  input double      negative_threshold_multiplier=2;   //negative_threshold_multiplier:
+  input double      negative_threshold_multiplier=0;     //negative_threshold_multiplier:
   
 // trailing stop variables
 	input double      trail_threshold_percent=.5;          //.2 trail_threshold_percent: % of takeprofit before activating the trailing stop.
@@ -455,14 +455,14 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
             ObjectSet(current_chart+"_HOP_price",OBJPROP_COLOR,clrBlue);
             ObjectSet(current_chart+"_HOP_price",OBJPROP_STYLE,STYLE_DOT);
           }
-        string name=current_chart+"last_trade_direction";
+        string name=current_chart+"_last_trade_direction";
         if(ObjectFind(name)<0)
           {
             ObjectCreate(name,OBJ_LABEL,0,0,0);
             ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_RIGHT_UPPER);
-            if(uptrend_trade_was_last) ObjectSetString(0,name,OBJPROP_TEXT,"uptrend trade happened last");
-            else if(downtrend_trade_was_last) ObjectSetString(0,name,OBJPROP_TEXT,"downtrend trade happened last");
-            else ObjectSetString(0,name,OBJPROP_TEXT,"? trade happened last");      
+            if(uptrend_trade_was_last) ObjectSetString(0,name,OBJPROP_TEXT,"uptrend trade was last");
+            else if(downtrend_trade_was_last) ObjectSetString(0,name,OBJPROP_TEXT,"downtrend trade was last");
+            else ObjectSetString(0,name,OBJPROP_TEXT,"? trade was last");      
           }
         ObjectSet(current_chart+"_LOP_price",OBJPROP_PRICE1,LOP_price);
         ObjectSet(current_chart+"_LOP_price",OBJPROP_TIME1,current_time);
@@ -566,7 +566,7 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
             else ready=false; // never assign average_spread_yesterday to anything in this scope
         }
       }
-   if(ready && in_time_range)
+   if(ready && in_time_range && days_open_time>0) // days_open_time is required to have been generated in order to prevent duplicate trades or allow trades to happen
      {
       ENUM_DIRECTION_BIAS enter_signal=DIRECTION_BIAS_NEUTRAL; // 0
       
@@ -576,9 +576,10 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
       if(instruments_short_count==0) downtrend_trade_happened_last=false; */
 
       if(is_new_M5_bar) get_moves_start_bar(instrument,H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week); // this is here so the vertical line can get moved every 5 minutes
-      enter_signal=signal_retracement_pullback_after_ADR_triggered(instrument);
+      if(retracement_percent>0) enter_signal=signal_retracement_pullback_after_ADR_triggered(instrument);
+      else enter_signal=signal_ADR_triggered(instrument);
       if(enter_signal>0 || enter_signal==DIRECTION_BIAS_IGNORE) enter_signal=signal_bias_compare(enter_signal,signal_MA(instrument),false);
-      if((enter_signal>0 || enter_signal==DIRECTION_BIAS_IGNORE) && max_market_trades_at_once>0)
+      if((enter_signal>0 || enter_signal==DIRECTION_BIAS_IGNORE) && max_market_trades_at_once>1)
         {
           int market_trades_open=count_orders(ORDER_SET_MARKET,magic,MODE_TRADES,OrdersTotal()-1); // count all open order (but only for the specific magic number)
           if(market_trades_open>=max_market_trades_at_once) enter_signal=DIRECTION_BIAS_NEUTRAL;
@@ -588,11 +589,12 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
           int opened_recently_count=count_orders(ORDER_SET_SHORT_LONG_LIMIT_MARKET,magic,MODE_HISTORY,OrdersHistoryTotal()-1,(int)(x_hours*3600),current_time);
           if(opened_recently_count==max_trades_within_x_hours) enter_signal=DIRECTION_BIAS_NEUTRAL; 
         }
-      if(enter_signal>0 && retracement_trade_expired(enter_signal,current_time,int(retracement_expire_hours*3600))==true) enter_signal=DIRECTION_BIAS_NEUTRAL;
+      if(enter_signal>0 && retracement_percent>0 && retracement_trade_expired(enter_signal,current_time,int(retracement_expire_hours*3600))==true) enter_signal=DIRECTION_BIAS_NEUTRAL;
       if(enter_signal>0)
         {
          // the code for every filter after this line needs to know whether the signal was to buy or sell and, therefore, couldn't be in the previous filters
-         int days_seconds=int(current_time-(iTime(instrument,PERIOD_D1,0))+(gmt_hour_offset*3600)); // i am assuming it is okay to typecast a datetime (iTime) into an int since datetime is count of the number of seconds since 1970
+         //int days_seconds=int(current_time-(iTime(instrument,PERIOD_D1,0))+(gmt_hour_offset*3600)); // i am assuming it is okay to typecast a datetime (iTime) into an int since datetime is count of the number of seconds since 1970
+         int days_seconds=int(current_time-days_open_time);
          //int efficient_end_index=MathMin((MathMax(max_trades_within_x_hours*x_hours,max_directional_trades_each_day*24)*max_directional_trades_at_once*max_num_EAs_at_once-1),OrdersHistoryTotal()-1); // calculating the maximum orders that could have been placed so at least the program doesn't have to iterate through all orders in history (which can slow down the EA)
          
          if(reverse_trade_direction==true)
@@ -618,6 +620,8 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
                                                  OrdersTotal()-1,
                                                  0,
                                                  current_time); // counts all long (active and pending) orders for the current EA
+            Print(longs_opened_today);
+            Print(current_long_count);
             
             if(current_long_count<max_directional_trades_at_once &&  // just long
                longs_opened_today<max_directional_trades_each_day)   // just long
@@ -631,10 +635,10 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
                     overbought_1=over_extended_trend(instrument,3,BUYING_MODE,HIGH_MINUS_LOW,.75,3,false);
                     overbought_2=over_extended_trend(instrument,3,BUYING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,false);           
                   }
-                if(!overbought_1 || !overbought_2) 
+                if(overbought_1==false && overbought_2==false) 
                   {
                     //Print("try_to_enter_order: OP_BUY");
-                    try_to_enter_order(OP_BUY,magic,entering_max_slippage_pips,instrument);
+                    //try_to_enter_order(OP_BUY,magic,entering_max_slippage_pips,instrument);
                   }
               }
            }
@@ -669,7 +673,7 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
                     oversold_1=over_extended_trend(instrument,3,SELLING_MODE,HIGH_MINUS_LOW,.75,3,false);
                     oversold_2=over_extended_trend(instrument,3,SELLING_MODE,OPEN_MINUS_CLOSE_ABSOLUTE,.75,3,false);
                   }
-                if(!oversold_1 || !oversold_2) 
+                if(oversold_1==false && oversold_2==false) 
                   {
                     //Print("try_to_enter_order: OP_SELL");
                     try_to_enter_order(OP_SELL,magic,entering_max_slippage_pips,instrument);
@@ -682,7 +686,7 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
      {
        ready=false; // this makes sure to set it to false so when the time is within the time range again, the ADR can get generated
        average_spread_yesterday=0; // do not change this from 0
-       //ADR_pts=0; // ADR_pts can't be set to 0 here because the trailing and breakeven functions need ADR_pts
+       //ADR_pts=0; // ADR_pts can't be set to 0 here because the trailing and breakeven functions need ADR_pts at all times
        
       /*static bool flag1=false;
       if(flag1==false)
@@ -924,11 +928,11 @@ bool over_extended_trend(string instrument,int days_to_check,ENUM_DIRECTIONAL_MO
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int signal_pullback_after_ADR_triggered(string instrument)
+ENUM_DIRECTION_BIAS signal_ADR_triggered(string instrument)
   {
-    int signal=DIRECTION_BIAS_NEUTRAL;
+    ENUM_DIRECTION_BIAS signal=DIRECTION_BIAS_NEUTRAL;
  
-    if(uptrend_trade_was_last==false /*&& uptrend==false*/) // if there is no uptrend, monitor the market for an uptrend. But stopped monitoring it if a uptrend has been identified.
+    if(uptrend_trade_was_last==false || retracement_percent==0/*&& uptrend==false*/) // if there is no uptrend, monitor the market for an uptrend. But stopped monitoring it if a uptrend has been identified.
       {
         //if(is_new_M5_bar) Print("uptrend_ADR_threshold_met_price is running");
         RefreshRates();
@@ -939,7 +943,7 @@ int signal_pullback_after_ADR_triggered(string instrument)
       }
    // for a buying signal, take the level that adr was triggered and subtract the pullback_pips to get the pullback_entry_price
    // if the pullback_entry_price is met or exceeded, signal = TRADE_SIGNAL_BUY
-    if(downtrend_trade_was_last==false /*&& downtrend==false*/) // if there is no downtrend, monitor the market for a downtrend. But stopped monitoring it if a downtrend has been identified.
+    if(downtrend_trade_was_last==false || retracement_percent==0/*&& downtrend==false*/) // if there is no downtrend, monitor the market for a downtrend. But stopped monitoring it if a downtrend has been identified.
       {
         //if(is_new_M5_bar) Print("downtrend_ADR_threshold_met_price is running");
         RefreshRates();
@@ -955,7 +959,7 @@ int signal_pullback_after_ADR_triggered(string instrument)
 //+------------------------------------------------------------------+
 ENUM_DIRECTION_BIAS signal_retracement_pullback_after_ADR_triggered(string instrument)
   {
-    signal_pullback_after_ADR_triggered(instrument); // this must be here because it is used to calculate and assign some values required within the below functions
+    signal_ADR_triggered(instrument); // this must be here because it is used to calculate and assign some values required within the below functions
     ENUM_DIRECTION_BIAS signal=DIRECTION_BIAS_NEUTRAL;
     if(uptrend_retracement_met_price(instrument,false)>0) signal=DIRECTION_BIAS_BUY;
     //if(signal==DIRECTION_BIAS_BUY) Print("buy signal");
@@ -2031,8 +2035,8 @@ double uptrend_ADR_threshold_met_price(string instrument,bool get_current_bid_in
     double          current_bid=MarketInfo(instrument,MODE_BID); // TODO: always make sure RefreshRates() was called before. In this case, it was called before running this function.
     string          current_chart=Symbol();
     bool            current_chart_matches=(current_chart==instrument);
-    string          LOP_text=current_chart+"LOP";
-    string          HOP_text=current_chart+"HOP";
+    string          LOP_text=current_chart+"_LOP";
+    string          HOP_text=current_chart+"_HOP";
     
     if(LOP==0) LOP=periods_pivot_price(BUYING_MODE,instrument);
     if(draw_visuals && current_chart_matches)
@@ -2048,7 +2052,7 @@ double uptrend_ADR_threshold_met_price(string instrument,bool get_current_bid_in
             ObjectSet(HOP_text,OBJPROP_COLOR,clrWhite);
           }     
       } 
-    if(LOP==-1) // this part is necessary in case periods_pivot_price ever returns 0
+    if(LOP==-1) // this part is necessary in case periods_pivot_price ever returns -1
       {
         return -1;
       }
@@ -2057,7 +2061,7 @@ double uptrend_ADR_threshold_met_price(string instrument,bool get_current_bid_in
         // since the bottom of the range was surpassed, you have to reset the LOP. You might as well take this opportunity to take the period into account.
         LOP=periods_pivot_price(BUYING_MODE,instrument);
         uptrend=false;
-        ObjectSet(HOP_text,OBJPROP_WIDTH,1); 
+        ObjectSet(HOP_text,OBJPROP_WIDTH,1);
     
         if(current_chart_matches)
           {
@@ -2122,8 +2126,8 @@ double downtrend_ADR_threshold_met_price(string instrument,bool get_current_bid_
     double          current_bid=MarketInfo(instrument,MODE_BID); // TODO: always make sure RefreshRates() was called before. In this case, it was called before running this function.
     string          current_chart=Symbol();
     bool            current_chart_matches=(current_chart==instrument);
-    string          LOP_text=current_chart+"LOP";
-    string          HOP_text=current_chart+"HOP";
+    string          LOP_text=current_chart+"_LOP";
+    string          HOP_text=current_chart+"_HOP";
     
     if(HOP==0) HOP=periods_pivot_price(SELLING_MODE,instrument);
     /*if(is_new_M5_bar) 
@@ -2786,7 +2790,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
     else if(order_type==OP_BUY || order_type==OP_SELL) expire_time=0; // if it is NOT a pending order, set the expire_time to 0 because it cannot have an expire_time
     else if(expire>0) expire_time=(datetime)MarketInfo(instrument,MODE_TIME)+expire; // expiration of the order = current time + expire time
     string generated_comments;
-    if(breakeven_threshold_percent>0) generated_comments=DoubleToStr(range_pts,digits);
+    if(breakeven_threshold_percent>0) generated_comments=DoubleToStr(range_pts,digits); // check the breakeven function before changing this line because the breakeven function uses the contents of the comments to work
     else generated_comments=generate_comment(instrument,magic,sl_pts,tp_pts,spread_pts);
     
     if(instant_exec)
@@ -3157,19 +3161,18 @@ void breakeven_check_order(int ticket,double threshold_percent,double plus_perce
   {
     if(ticket<=0) return; // if it is not a valid ticket
     if(!OrderSelect(ticket,SELECT_BY_TICKET) || plus_percent<0) return; // if there is no ticket, it cannot be processed
-    if(OrderType()<2)
+    int ordertype=OrderType();
+    if(ordertype<2)
       {
         double plus_pts=0;
-        double order_sl=OrderStopLoss();
-        double order_open=OrderOpenPrice();
+        double order_open=OrderOpenPrice(),order_sl=OrderStopLoss();
         double periods_range_pts=StringToDouble(OrderComment());
         int    digits=(int)MarketInfo(OrderSymbol(),MODE_DIGITS);
         double threshold_pts=NormalizeDouble(threshold_percent*(takeprofit_percent*periods_range_pts),digits);
-        double negative_threshold_multiplier=2;
+        //double negative_threshold_multiplier=2;
         double negative_threshold=threshold_pts*-negative_threshold_multiplier;
-
-        
-        if(OrderType()==OP_BUY) // if breakeven was already applied
+  
+        if(ordertype==OP_BUY) // if breakeven was already applied
           {
             if(order_sl!=0 && compare_doubles(order_sl,order_open,digits)>=0) return;
             double point_gain=OrderClosePrice()-order_open; // calculate how many points in profit the trade is in so far
@@ -3179,7 +3182,9 @@ void breakeven_check_order(int ticket,double threshold_percent,double plus_perce
                 //if it gets to this point, the stoploss should be modified
                 if(plus_percent>0) plus_pts=NormalizeDouble(plus_percent*(takeprofit_percent*periods_range_pts),digits);
                 double new_sl=order_open+plus_pts; // calculate the price of the new stoploss
-                try_to_modify_order(ticket,NormalizeDouble(new_sl,digits),retries);          
+                try_to_modify_order(ticket,NormalizeDouble(new_sl,digits),retries);
+                //Print("previous sl: ",DoubleToStr(order_sl,digits),", new breakeven sl: ",DoubleToStr(new_sl,digits));
+                Print("point_gain: ",DoubleToStr(point_gain,digits),", threshold_pts: ",DoubleToStr(threshold_pts,digits));
               }
             else if(negative_threshold_multiplier>0 && compare_doubles(point_gain,negative_threshold,digits)<=0)
               {
@@ -3188,7 +3193,7 @@ void breakeven_check_order(int ticket,double threshold_percent,double plus_perce
                 try_to_modify_order(ticket,-1,retries,NormalizeDouble(new_tp,digits));        
               }
           }
-        else if(OrderType()==OP_SELL) // if breakeven was already applied
+        else if(ordertype==OP_SELL) // if breakeven was already applied
           {
             if(order_sl!=0 && compare_doubles(order_open,order_sl,digits)>=0) return;
             double point_gain=order_open-OrderClosePrice(); // calculate how many points in profit the trade is in so far
@@ -3198,7 +3203,9 @@ void breakeven_check_order(int ticket,double threshold_percent,double plus_perce
                 //if it gets to this point, the stoploss should be modified
                 if(plus_percent>0) plus_pts=NormalizeDouble(plus_percent*(takeprofit_percent*periods_range_pts),digits);
                 double new_sl=order_open-plus_pts; // calculate the price of the new stoploss
-                try_to_modify_order(ticket,NormalizeDouble(new_sl,digits),retries);          
+                try_to_modify_order(ticket,NormalizeDouble(new_sl,digits),retries);         
+                //Print("previous sl: ",DoubleToStr(order_sl,digits),", new breakeven sl: ",DoubleToStr(new_sl,digits));
+                Print("point_gain: ",DoubleToStr(point_gain,digits),", threshold_pts: ",DoubleToStr(threshold_pts,digits));
               }
             else if(negative_threshold_multiplier>0 && compare_doubles(point_gain,negative_threshold,digits)<=0)
               {
@@ -3207,7 +3214,7 @@ void breakeven_check_order(int ticket,double threshold_percent,double plus_perce
                 try_to_modify_order(ticket,-1,retries,NormalizeDouble(new_tp,digits));        
               }
           }
-        //Print("previous sl: ",DoubleToStr(order_sl,digits),", new breakeven sl: ",DoubleToStr(new_sl,digits));
+        
       }
   }
 //+------------------------------------------------------------------+
