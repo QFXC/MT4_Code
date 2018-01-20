@@ -99,7 +99,6 @@ enum ENUM_MM // Money Management
   /*input*/ bool    wait_next_M5_on_load=false; //wait_next_M5_on_load: This setting currently affects all bars (including D1) so do not set it to true unless code changes are made. // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade or calculate ADR?
   
 // general settings
-	//string          symbol=NULL; // TODO: finish changing the code to get rid of this global variable
   /*input*/ bool    auto_adjust_broker_digits=true;
   input bool        draw_visuals=true;
   int               point_multiplier;
@@ -122,7 +121,6 @@ enum ENUM_MM // Money Management
 	input int         max_pending_orders_at_once=2;
 	//input int         max_open_trades_at_once=2;            //market_trades_at_once: How many long or short market trades can be on at the same time?
 	input int         max_directional_trades_at_once=1;   //1 max_directional_trades_at_once: How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
-	//input int         max_orders_within_x_hours=1;        //1 max_orders_within_x_hours: 0-x days (x depends on the setting of the Account History tab of the terminal). // How many orders are allowed to be opened (even if they are closed now) within the last x_hours?
 	input int         max_directional_trades_in_x_hours=2;  //1 max_directional_trades_each_day: How many trades are allowed to be opened (even if they are close now) after the start of each current day?
 	input double      x_hours=6;                          //3 x_hours: Any whole or fraction of an hour. // FYI, this setting only takes affect when
   input int         moving_avg_period=0;
@@ -130,7 +128,7 @@ enum ENUM_MM // Money Management
   input string  space_2="----------------------------------------------------------------------------------------";
   
 // time filters - only allow EA to enter trades between a range of time in a day
-	/*input*/ int     gmt_hour_offset=0;                  //0 gmt_hour_offset: -2 if using Gain Capital and 1 of using FXDD. The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). Adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
+	input int     gmt_hour_offset=0;                  //0 gmt_hour_offset: -2 if using Gain Capital and 1 of using FXDD. The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). Adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
 	input int         start_time_hour=0;                  //0 start_time_hour: 0-23
 	input int         start_time_minute=0;                //0 start_time_minute: 0-59
 	input int         end_time_hour=22;                   //22 end_time_hour: 0-23
@@ -210,7 +208,6 @@ enum ENUM_MM // Money Management
   static datetime   last_weeks_end_time=-1;
   static datetime   days_open_time=-1;  // keep it at -1
   static datetime   hours_open_time=-1;
-  
 
   input string  space_7="----------------------------------------------------------------------------------------";
 // ADR()
@@ -408,7 +405,7 @@ void OnTick()
         if(pending_orders_open>max_pending_orders_at_once) 
           {
             // cancel the oldest pending order
-            int ticket=last_trade_ticket(ORDER_SET_PENDING,false);
+            int ticket=last_order_ticket(ORDER_SET_PENDING,false);
             if(ticket>0) try_to_exit_order(ticket,exiting_max_slippage_pips);
           }
       }
@@ -463,14 +460,14 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
             ObjectSet(current_chart+"_HOP_price",OBJPROP_COLOR,clrBlue);
             ObjectSet(current_chart+"_HOP_price",OBJPROP_STYLE,STYLE_DOT);
           }
-        string name=current_chart+"_last_trade_direction";
+        string name=current_chart+"_last_order_direction";
         if(ObjectFind(name)<0)
           {
             ObjectCreate(name,OBJ_LABEL,0,0,0);
             ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_RIGHT_UPPER);
-            if(uptrend_order_was_last) ObjectSetString(0,name,OBJPROP_TEXT,"uptrend trade was last");
-            else if(downtrend_order_was_last) ObjectSetString(0,name,OBJPROP_TEXT,"downtrend trade was last");
-            else ObjectSetString(0,name,OBJPROP_TEXT,"? trade was last");      
+            if(uptrend_order_was_last) ObjectSetString(0,name,OBJPROP_TEXT,"uptrend order was last");
+            else if(downtrend_order_was_last) ObjectSetString(0,name,OBJPROP_TEXT,"downtrend order was last");
+            else ObjectSetString(0,name,OBJPROP_TEXT,"? order was last");      
           }
         ObjectSet(current_chart+"_LOP_price",OBJPROP_PRICE1,LOP_price);
         ObjectSet(current_chart+"_LOP_price",OBJPROP_TIME1,current_time);
@@ -557,7 +554,7 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
                 // reset all trend analysis and uptrend/downtrend alternating to start fresh for the day
                 uptrend_order_was_last=false;
                 downtrend_order_was_last=false;
-                ObjectSetString(0,current_chart+"_last_trade_direction",OBJPROP_TEXT,"? trade happened last");
+                ObjectSetString(0,current_chart+"_last_order_direction",OBJPROP_TEXT,"? order was last");
                 uptrend=false;
                 downtrend=false;
                 ObjectSet(current_chart+"_HOP",OBJPROP_WIDTH,1); 
@@ -578,7 +575,11 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
      {
       ENUM_DIRECTION_BIAS enter_signal=DIRECTION_BIAS_NEUTRAL; // 0
 
-      if(is_new_M5_bar) get_moves_start_bar(instrument,H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week); // this is here so the vertical line can get moved every 5 minutes
+      if(is_new_M5_bar) 
+        {
+          get_moves_start_bar(instrument,H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week); // this is here so the vertical line can get moved every 5 minutes
+          Print("moves_start_bar=",moves_start_bar);
+        }
       if(retracement_percent>0) enter_signal=signal_retracement_pullback_after_ADR_triggered(instrument);
       else enter_signal=signal_ADR_triggered(instrument);
       if(enter_signal>0 || enter_signal==DIRECTION_BIAS_IGNORE) enter_signal=signal_bias_compare(enter_signal,signal_MA(instrument),false);
@@ -1522,7 +1523,7 @@ void get_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_out
 //+------------------------------------------------------------------+  
 void get_moves_start_bar(string instrument,double _H1s_to_roll,int gmt_offset,double _max_weekend_gap_percent,bool _include_last_week=true) // TODO: include current_time as a parameter?
   {
-    int         _moves_start_bar=(int)_H1s_to_roll*12/*-1*/; // any double divisible by .5 will always be an integer when multiplied by an even number like 12 so it is okay to convert it into an int
+    int         _moves_start_bar=int(_H1s_to_roll*12/*-1*/); // any double divisible by .5 will always be an integer when multiplied by an even number like 12 so it is okay to convert it into an int
     string      current_chart=Symbol();
     string      move_start_text=current_chart+"_Move_Start";
     int         digits=(int)MarketInfo(instrument,MODE_DIGITS); 
@@ -1710,8 +1711,11 @@ double periods_pivot_price(ENUM_DIRECTIONAL_MODE mode,string instrument)
     
     if(mode==BUYING_MODE)
       { 
-        int lowest_bar=iLowest(instrument,PERIOD_M5,MODE_LOW,moves_start_bar,0);
+        int lowest_bar;
+        if(moves_start_bar==0) lowest_bar=0;
+        else lowest_bar=iLowest(instrument,PERIOD_M5,MODE_LOW,moves_start_bar,0);
         double pivot_price=iLow(instrument,PERIOD_M5,lowest_bar); // get the price of the bar that has the lowest price for the determined period
+        //Print("The buying mode lowest_bar is: ",DoubleToString(lowest_bar));
         //Print("The buying mode pivot_price is: ",DoubleToString(pivot_price));
         //Print("periods_pivot_price(): Bid: ",DoubleToString(Bid));
         //Print("periods_pivot_price(): Bid-periods_pivot_price: ",DoubleToString(Bid-pivot_price));
@@ -1720,8 +1724,11 @@ double periods_pivot_price(ENUM_DIRECTIONAL_MODE mode,string instrument)
       }
     else if(mode==SELLING_MODE)
       {
-        int highest_bar=iHighest(instrument,PERIOD_M5,MODE_HIGH,moves_start_bar,0);
+        int highest_bar;
+        if(moves_start_bar==0) highest_bar=0;
+        else highest_bar=iHighest(instrument,PERIOD_M5,MODE_HIGH,moves_start_bar,0);
         double pivot_price=iHigh(instrument,PERIOD_M5,highest_bar); // get the price of the bar that has the highest price for the determined period
+        //Print("The selling mode highest_bar is: ",DoubleToString(highest_bar));
         //Print("The selling mode pivot_price is: ",DoubleToString(pivot_price));
         //Print("periods_pivot_price(): Bid: ",DoubleToString(Bid));
         //Print("periods_pivot_price(): periods_pivot_price-Bid: ",DoubleToString(pivot_price-Bid));
@@ -2085,6 +2092,8 @@ double uptrend_ADR_threshold_met_price(string instrument,bool get_current_bid_in
           }     
         if(current_bid-LOP>=ADR_pts) // TODO: use compare_doubles()?
           {
+            //Print(DoubleToString(current_bid),"-",DoubleToString(LOP),">=",ADR_pts);
+            
             uptrend=true;
             downtrend=false;
             ObjectSet(HOP_text,OBJPROP_WIDTH,4);
@@ -2817,13 +2826,13 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
                   {
                     downtrend_order_was_last=false;
                     uptrend_order_was_last=true;
-                    ObjectSetString(0,current_chart+"_last_trade_direction",OBJPROP_TEXT,"uptrend trade happened last");
+                    ObjectSetString(0,current_chart+"_last_order_direction",OBJPROP_TEXT,"uptrend order was last");
                   }
                 else if(order_type==OP_SELL || order_type==OP_SELLLIMIT)
                   {
                     uptrend_order_was_last=false;
                     downtrend_order_was_last=true;
-                    ObjectSetString(0,current_chart+"_last_trade_direction",OBJPROP_TEXT,"downtrend trade happened last"); 
+                    ObjectSetString(0,current_chart+"_last_order_direction",OBJPROP_TEXT,"downtrend order was last"); 
                   }
               }
           }
@@ -2859,7 +2868,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
                  }
                downtrend_order_was_last=false;
                uptrend_order_was_last=true;
-               ObjectSetString(0,current_chart+"_last_trade_direction",OBJPROP_TEXT,"uptrend trade happened last");
+               ObjectSetString(0,current_chart+"_last_order_direction",OBJPROP_TEXT,"uptrend order was last");
               }
             else if(order_type==OP_SELL || order_type==OP_SELLLIMIT)
               {
@@ -2875,7 +2884,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
                  }
                uptrend_order_was_last=false;
                downtrend_order_was_last=true;
-               ObjectSetString(0,current_chart+"_last_trade_direction",OBJPROP_TEXT,"downtrend trade happened last");
+               ObjectSetString(0,current_chart+"_last_order_direction",OBJPROP_TEXT,"downtrend order was last");
               }
             Print("send_and_get_order_ticket(): price_sl: ",DoubleToString(price_sl,digits));
             Print("send_and_get_order_ticket(): price_tp: ",DoubleToString(price_tp,digits));
@@ -3291,67 +3300,70 @@ void cleanup_risky_pending_orders(string instrument) // deletes pending orders o
 
     if(last_trades_count<trades_count) // true if a limit order gets triggered and becomes a market order
       {
-        if(OrderSelect(last_trade_ticket(ORDER_SET_MARKET,true),SELECT_BY_TICKET)==false) return;
-        int market_trades_direction=OrderType(); // i already know it is a market order ticket because the previous line ensures that only a market trade is selected
-        if(market_trades_direction==OP_BUY && compare_doubles(OrderTakeProfit(),OrderStopLoss(),digits)>=0) return; // if the market trade is at breakeven or higher, there is no reason to cleanup pending orders because the risk is reduced
-        else if(market_trades_direction==OP_SELL && compare_doubles(OrderStopLoss(),OrderTakeProfit(),digits)>=0) return;
-        else
+        bool newest_ticket_selected=OrderSelect(last_order_ticket(ORDER_SET_MARKET,true),SELECT_BY_TICKET);
+        if(newest_ticket_selected)
           {
-            string market_trades_symbol=OrderSymbol();
-            string market_trades_1st_ccy=StringSubstr(market_trades_symbol,0,3); // this only works if the first 3 characters of the symbol is a currency
-            string market_trades_2nd_ccy=StringSubstr(market_trades_symbol,3,3); // this only works if the next 3 characters of the symbol is a currency
-            
-            for(int i=OrdersTotal()-1;i>=0;i--)
+            int market_trades_direction=OrderType(); // i already know it is a market order ticket because the previous line ensures that only a market trade is selected
+            if(market_trades_direction==OP_BUY && compare_doubles(OrderTakeProfit(),OrderStopLoss(),digits)>=0) return; // if the market trade is at breakeven or higher, there is no reason to cleanup pending orders because the risk is reduced
+            else if(market_trades_direction==OP_SELL && compare_doubles(OrderStopLoss(),OrderTakeProfit(),digits)>=0) return;
+            else
               {
-                if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+                string market_trades_symbol=OrderSymbol();
+                string market_trades_1st_ccy=StringSubstr(market_trades_symbol,0,3); // this only works if the first 3 characters of the symbol is a currency
+                string market_trades_2nd_ccy=StringSubstr(market_trades_symbol,3,3); // this only works if the next 3 characters of the symbol is a currency
+                
+                for(int i=OrdersTotal()-1;i>=0;i--)
                   {
-                    int pending_orders_direction=OrderType();
-                    if(pending_orders_direction<=1) // if it is a market order, move on to the next iteration
+                    if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
                       {
-                        break;
+                        int pending_orders_direction=OrderType();
+                        if(pending_orders_direction<=1) // if it is a market order, move on to the next iteration
+                          {
+                            break;
+                          }
+                        else
+                          {
+                            string pending_orders_symbol=OrderSymbol();
+                            string pending_orders_1st_ccy=StringSubstr(pending_orders_symbol,0,3);
+                            string pending_orders_2nd_ccy=StringSubstr(pending_orders_symbol,3,3);
+                            bool delete_pending_order=false;           
+                            
+                            if(market_trades_direction==OP_BUY && pending_orders_direction==OP_BUYLIMIT)
+                              {
+                                if(market_trades_1st_ccy==pending_orders_1st_ccy) delete_pending_order=true;
+                                else if(market_trades_2nd_ccy==pending_orders_2nd_ccy) delete_pending_order=true;      
+                              }
+                            else if(market_trades_direction==OP_SELL && pending_orders_direction==OP_SELLLIMIT)
+                              {
+                                if(market_trades_1st_ccy==pending_orders_1st_ccy) delete_pending_order=true;
+                                else if(market_trades_2nd_ccy==pending_orders_2nd_ccy) delete_pending_order=true;       
+                              }
+                            else if(market_trades_direction==OP_BUY && pending_orders_direction==OP_SELLLIMIT)
+                              {
+                                if(market_trades_1st_ccy==pending_orders_2nd_ccy) delete_pending_order=true;
+                                else if(market_trades_2nd_ccy==pending_orders_1st_ccy) delete_pending_order=true;
+                              }
+                            else if(market_trades_direction==OP_SELL && pending_orders_direction==OP_BUYLIMIT)
+                              {
+                                if(market_trades_1st_ccy==pending_orders_2nd_ccy) delete_pending_order=true;
+                                else if(market_trades_2nd_ccy==pending_orders_1st_ccy) delete_pending_order=true;
+                              }
+                            if(delete_pending_order==true)
+                              {
+                                last_trades_count=trades_count;
+                                try_to_exit_order(OrderTicket(),exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
+                              }
+                          }
                       }
-                    else
-                      {
-                        string pending_orders_symbol=OrderSymbol();
-                        string pending_orders_1st_ccy=StringSubstr(pending_orders_symbol,0,3);
-                        string pending_orders_2nd_ccy=StringSubstr(pending_orders_symbol,3,3);
-                        bool delete_pending_order=false;           
-                        
-                        if(market_trades_direction==OP_BUY && pending_orders_direction==OP_BUYLIMIT)
-                          {
-                            if(market_trades_1st_ccy==pending_orders_1st_ccy) delete_pending_order=true;
-                            else if(market_trades_2nd_ccy==pending_orders_2nd_ccy) delete_pending_order=true;      
-                          }
-                        else if(market_trades_direction==OP_SELL && pending_orders_direction==OP_SELLLIMIT)
-                          {
-                            if(market_trades_1st_ccy==pending_orders_1st_ccy) delete_pending_order=true;
-                            else if(market_trades_2nd_ccy==pending_orders_2nd_ccy) delete_pending_order=true;       
-                          }
-                        else if(market_trades_direction==OP_BUY && pending_orders_direction==OP_SELLLIMIT)
-                          {
-                            if(market_trades_1st_ccy==pending_orders_2nd_ccy) delete_pending_order=true;
-                            else if(market_trades_2nd_ccy==pending_orders_1st_ccy) delete_pending_order=true;
-                          }
-                        else if(market_trades_direction==OP_SELL && pending_orders_direction==OP_BUYLIMIT)
-                          {
-                            if(market_trades_1st_ccy==pending_orders_2nd_ccy) delete_pending_order=true;
-                            else if(market_trades_2nd_ccy==pending_orders_1st_ccy) delete_pending_order=true;
-                          }
-                        if(delete_pending_order==true)
-                          {
-                            last_trades_count=trades_count;
-                            try_to_exit_order(OrderTicket(),exiting_max_slippage_pips); // TODO: get rid of the requirement for the slippage parameter
-                          }
-                      }
-                  }
-              } 
+                  } 
+              }         
           }
       }
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int last_trade_ticket(ENUM_ORDER_SET order_set,bool most_recent) 
+int last_order_ticket(ENUM_ORDER_SET order_set,bool most_recent) 
 {
   datetime order_time=-1;
   int count=0;
@@ -3367,7 +3379,7 @@ int last_trade_ticket(ENUM_ORDER_SET order_set,bool most_recent)
               bool correct_order=false;
               bool correct_time=false;
               if(order_set==ORDER_SET_MARKET && OrderType()<=1) correct_order=true;
-              else if(order_set==ORDER_SET_LIMIT && (OrderType()==2 || OrderType()==3)) correct_order=true;
+              else if(order_set==ORDER_SET_LIMIT && OrderType()>=2) correct_order=true;
               if(most_recent==true) correct_time=OrderOpenTime()>order_time;
               else // where the most_recent boolean parameter is set to false (meaning, the oldest orders should be selected)
                 {
@@ -3387,7 +3399,7 @@ int last_trade_ticket(ENUM_ORDER_SET order_set,bool most_recent)
             {
               bool correct_order=false;
               if(order_set==ORDER_SET_MARKET && OrderType()<=1) correct_order=true;
-              else if(order_set==ORDER_SET_LIMIT && (OrderType()==2 || OrderType()==3)) correct_order=true; // 2 and 3 are both limit orders
+              else if(order_set==ORDER_SET_LIMIT && OrderType()>=2) correct_order=true; // 2 and 3 are both limit orders
               if(correct_order && OrderOpenTime()==order_time) 
                 {
                   count++;
@@ -3404,7 +3416,7 @@ int last_trade_ticket(ENUM_ORDER_SET order_set,bool most_recent)
           bool correct_order=false;
           bool correct_time=false;
           if(order_set==ORDER_SET_MARKET && OrderType()<=1) correct_order=true;
-          else if(order_set==ORDER_SET_LIMIT && (OrderType()==2 || OrderType()==4)) correct_order=true;
+          else if(order_set==ORDER_SET_LIMIT && OrderType()>=2) correct_order=true;
           if(correct_order) 
             {     
               ticket=OrderTicket();
