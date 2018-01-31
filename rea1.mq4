@@ -197,7 +197,7 @@ enum ENUM_MM // Money Management
   input double      H1s_to_roll=6;                     //11 H1s_to_roll: Only divisible by .5 // How many hours should you roll to determine a short term market trend?
   input double      max_weekend_gap_percent=.15;        //.15 max_weekend_gap_percent: What is the maximum weekend gap (as a percent of raw ADR) for H1s_to_roll to not take the previous week into account?
   input double      too_big_move_percent=1.3;          //too_big_move_percent:
-  input bool        use_fixed_ADR=false;               //use_fixed_ADR:
+  input bool        use_fixed_ADR=true;               //use_fixed_ADR:
   input int         fixed_ADR_pips=60;                 //fixed_ADR_pips:
   static double     ADR_pts;
   static double     HOP_price;
@@ -1333,8 +1333,10 @@ double ADR_calculation(string instrument,double low_outlier,double high_outlier/
     double adr_pts;
     if(use_fixed_ADR && fixed_ADR_pips>0)
       {
-        int point=(int)MarketInfo(instrument,MODE_POINT);
+        double point=MarketInfo(instrument,MODE_POINT);
         adr_pts=fixed_ADR_pips*point*point_multiplier;
+        //Print("ADR_calculation point: ",DoubleToStr(point));
+        //Print("ADR_calculation point_multiplier: ",point_multiplier);
       }
     else
       {
@@ -1409,7 +1411,7 @@ double ADR_calculation(string instrument,double low_outlier,double high_outlier/
         adr_pts=NormalizeDouble((x_mnth_non_sunday_ADR_sum/x_mnth_non_sunday_count),digits);
         //Print("ADR_calculation returned: ",DoubleToStr(adr_pts,digits));
       }
-    Print(DoubleToStr(adr_pts));
+    //Print("ADR_calculation adr_pts: ",DoubleToStr(adr_pts));
     return adr_pts;  
   }
 //+------------------------------------------------------------------+
@@ -1427,10 +1429,10 @@ double get_raw_ADR_pts(string instrument,double hours_to_roll,double low_outlier
       {
         double calculated_adr_pts=ADR_calculation(instrument,low_outlier,high_outlier);
         _adr_pts=calculated_adr_pts; // make the function remember the calculation the next time it is called
-        //Print("get_raw_ADR_pts 1 returns:",DoubleToStr(_adr_pts));
+        Print("get_raw_ADR_pts 1 returns:",DoubleToStr(_adr_pts));
         return _adr_pts;
       }
-    //Print("get_raw_ADR_pts 2 returns:",DoubleToStr(_adr_pts));
+    Print("get_raw_ADR_pts 2 returns:",DoubleToStr(_adr_pts));
     return _adr_pts; // if it is not the first time the function is called it is the middle of a bar, return the static adr
   }
 //+------------------------------------------------------------------+
@@ -1440,7 +1442,7 @@ void get_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_out
   {
     double   raw_ADR_pts=get_raw_ADR_pts(instrument,hours_to_roll,low_outlier,high_outlier);
     int      digits=(int)MarketInfo(instrument,MODE_DIGITS);
-    int      point=(int)MarketInfo(instrument,MODE_POINT);
+    double   point=MarketInfo(instrument,MODE_POINT);
     string   current_chart=Symbol();
     double   bid_price=MarketInfo(current_chart,MODE_BID);
     string   ADR_pts_object=current_chart+"_ADR_pts";
