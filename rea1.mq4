@@ -15,7 +15,12 @@ Remember:
 -It has to be for a broker that will give you D1 data for at least around 6 months in order to calculate the Average Daily Range (ADR).
 -This EA calls the OrdersHistoryTotal() function which counts the ordres of the "Account History" tab of the terminal. Set the history there to 3 days.
 */
-
+enum ENUM_INSTRUMENTS
+  {
+    EURJPY=-1490791745,
+    EURUSD=-1490779688,
+    USDJPY=-867500417
+  };
 enum ENUM_SIGNAL_SET
   {
     SIGNAL_SET_NONE=0,
@@ -97,6 +102,7 @@ enum ENUM_MM // Money Management
   input bool        option=false;
   input bool        option2=false;
   input string      EA_version="1.08";
+  input bool        use_recommended_settings=false; //use_recommended_settings:
   bool              ready=false, in_time_range=false;
 // timeframe changes
   bool              is_new_M5_bar, is_new_H1_bar, is_new_custom_D1_bar,is_new_custom_W1_bar;
@@ -120,7 +126,7 @@ enum ENUM_MM // Money Management
 	bool              short_allowed=true; // Are short trades allowed? // TODO: this is never set to anything in the code
 		
 	input bool        filter_over_extended_trends=false;  // filter_over_extended_trends: //TODO: test that this filter works
-	input int         max_pending_orders_at_once=2;
+	/*input*/ int         max_pending_orders_at_once=2;
 	//input int       max_open_trades_at_once=2;          // market_trades_at_once: How many long or short market trades can be on at the same time?
 	input int         max_directional_trades_at_once=1;   // max_directional_trades_at_once: How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
 	input int         max_directional_trades_in_x_hours=1;// max_directional_trades_in_x_hours: How many trades are allowed to be opened (even if they are close now) after the start of each current day?
@@ -129,20 +135,20 @@ enum ENUM_MM // Money Management
   
   input int         moving_avg_period=500;              // moving_avg_period:
   input double      ma_multiplier=1;                    // ma_multiplier:
-  input bool        includ_weaker_ma_setup=false;        // includ_weaker_ma_setup:
+  input bool        include_weaker_ma_setup=false;        // includ_weaker_ma_setup:
   
 // time filters - only allow EA to enter trades between a range of time in a day
 	input int         gmt_hour_offset=0;                  // gmt_hour_offset: -2 if using Gain Capital and 1 of using FXDD. The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). Adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
 	input int         start_time_hour=0;                  // start_time_hour: 0-23
 	input int         start_time_minute=30;               // start_time_minute: 0-59
-	input int         end_time_hour=20;                   // end_time_hour: 0-23
-	input int         end_time_minute=0;                  // end_time_minute: 0-59
+	extern int        end_time_hour=17;                   // end_time_hour: 0-23
+	extern int        end_time_minute=0;                  // end_time_minute: 0-59
 	input bool        exit_trades_EOD=true;               // exit_trades_EOD
   input int         exit_time_hour=23;                  // exit_time_hour: should be before the trading range start_time and after trading range end_time
   input int         exit_time_minute=50;                // exit_time_minute: 0-59
 	
 	input bool        trade_friday=true;                  // trade_friday:
-	input int         fri_end_time_hour=19;               // fri_end_time_hour: 0-23
+	input int         fri_end_time_hour=17;               // fri_end_time_hour: 0-23
 	input int         fri_end_time_minute=0;              // fri_end_time_minute: 0-59
   input int         fri_exit_time_hour=22;              // fri_exit_time_hour
   input int         fri_exit_time_min=50;               // fri_exit_time_min
@@ -150,9 +156,9 @@ enum ENUM_MM // Money Management
 // enter_order
   /*input*/ ENUM_SIGNAL_SET SIGNAL_SET=SIGNAL_SET_1; //SIGNAL_SET: Which signal set would you like to test? (the details of each signal set are found in the signal_entry function)
   // TODO: make sure you have coded for the scenerios when each of these is set to 0
-	input double      retracement_percent=.4;             // retracement_percent: Must be positive.
-	input double      pullback_percent=0;                 // pullback_percent:  Must be positive. If you want a buy or sell limit order, it must be positive.
-	input double      takeprofit_percent=.25;             // takeprofit_percent: Must be a positive number. (What % of ADR should you tarket?)
+	extern double     retracement_percent=.3;             // retracement_percent: Must be positive.
+	/*input*/ double     pullback_percent=0;                 // pullback_percent:  Must be positive. If you want a buy or sell limit order, it must be positive.
+	extern double     takeprofit_percent=.25;             // takeprofit_percent: Must be a positive number. (What % of ADR should you tarket?)
   input double      stoploss_percent=1.0;               // stoploss_percent: Must be a positive number.
   input bool        prevent_ultrawide_stoploss=false;
 	/*input*/ double  max_spread_percent=.15;             // max_spread_percent: Must be positive. What percent of ADR should the spread be less than? (Only for immediate orders and not pending.)
@@ -171,15 +177,14 @@ enum ENUM_MM // Money Management
 	input double      trail_threshold_percent=0;          // trail_threshold_percent: % of takeprofit before activating the trailing stop.
 	input double      trail_step_percent=0;               // trail_step_percent: The % of takeprofit to set the minimum difference between the proposed new value of the stoploss to the current stoploss price
 	//input bool      same_stoploss_distance=true;        // false same_stoploss_distance: Use the same stoploss pips that the trade already had? If false, use the ADR as the stoploss.
-	
 	/*input*/ int     entering_max_slippage_pips=50;      // entering_max_slippage_pips: Must be in whole number. // TODO: For 3 and 5 digit brokers, is 50 equivalent to 5 pips?
 //input int         unfavorable_slippage=5;
 
 // exit or do not take orders based on time
 	/*input*/ int     exiting_max_slippage_pips=50;       // exiting_max_slippage_pips: Must be in whole number. // TODO: For 3 and 5 digit brokers, is 50 equivalent to 5 pips?
-	input double      active_trade_expire=0;              // active_trade_expire: Any hours or fractions of hour(s). How many hours can a trade be on that hasn't hit stoploss or takeprofit?
-	input double      pending_order_expire=2;             // pending_order_expire: Any hours or fractions of hour(s). In how many hours do you want your pending orders to expire?
-	input double      retracement_virtual_expire=2;       //retracement_virtual_expire: Any hours or fractions of hour(s). In how many hours after the high/low do you want the potential retracement trades to expire?
+	extern double      active_trade_expire=2;              // active_trade_expire: Any hours or fractions of hour(s). How many hours can a trade be on that hasn't hit stoploss or takeprofit?
+	/*input*/ double     pending_order_expire=1;             // pending_order_expire: Any hours or fractions of hour(s). In how many hours do you want your pending orders to expire?
+	extern double     retracement_virtual_expire=1;       //retracement_virtual_expire: Any hours or fractions of hour(s). In how many hours after the high/low do you want the potential retracement trades to expire?
 	int               pending_orders_open;
   
 // calculate_lots/mm variables
@@ -192,6 +197,7 @@ enum ENUM_MM // Money Management
 	input int         increase_lots_after_x_losses=0;
 	input double      increase_lots_by_percent=0;
 	input bool        reduce_risk_for_weaker_setups=true;
+	input int         max_risky_trades=2;
 	 
 // Market Trends
   input bool        include_previous_day=true;
@@ -200,8 +206,8 @@ enum ENUM_MM // Money Management
   input double      max_weekend_gap_percent=.15;        // max_weekend_gap_percent: What is the maximum weekend gap (as a percent of raw ADR) for H1s_to_roll to not take the previous week into account?
   input double      too_big_move_percent=0;             // too_big_move_percent: 1.7
   input bool        use_fixed_ADR=true;                 // use_fixed_ADR:
-  input int         fixed_ADR_pips=65;                  // fixed_ADR_pips:
-  input int         ma_range_pts=65;                    // ma_range_pts:
+  extern int        fixed_ADR_pips=65;                  // fixed_ADR_pips:
+  extern int        ma_range_pts=65;                    // ma_range_pts:
   static double     HOP_price;
   static datetime   HOP_time;
   static double     LOP_price;
@@ -215,7 +221,7 @@ enum ENUM_MM // Money Management
 // Average Daily Range
   static double     ADR_pts;
   /*input*/ int     num_ADR_months=2;                   //2 num_ADR_months: How months back should you use to calculate the average ADR? (Divisible by 1)
-  input double      change_ADR_percent=0;               //.3 change_ADR_percent: this can be a 0, negative, or positive decimal or whole number. 
+  /*input*/ double      change_ADR_percent=0;               //.3 change_ADR_percent: this can be a 0, negative, or positive decimal or whole number. 
 // TODO: make sure you have coded for the scenerios when each of these is set to 0
   /*input*/ double  above_ADR_outlier_percent=1.5;      //1.5 above_ADR_outlier_percent: Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be surpassed in a day for it to be neglected from the average calculation?
   /*input*/ double  below_ADR_outlier_percent=.5;       //.5 below_ADR_outlier_percent: Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be under in a day for it to be neglected from the average calculation?
@@ -233,6 +239,14 @@ int OnInit()
 //+------------------------------------------------------------------+
 int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set,string instrument)
   {
+
+    /*int eurjpy=get_string_integer("EURJPY");
+    int eurusd=get_string_integer("EURUSD");
+    int usdjpy=get_string_integer("USDJPY");
+    Print(eurjpy);
+    Print(eurusd);
+    Print(usdjpy);*/
+
     //EventSetTimer(60);
     get_point_multiplier(instrument);
     get_changed_ADR_pts(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent,instrument);
@@ -241,25 +255,27 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set,string instrument)
     is_new_custom_D1_bar(instrument); // This is here so I do not have to rely on the is_new_H1_bar function to return true, in order to populate the variables which are populated within the function. This has to be run after the get_custom_D1_open_time function
     get_custom_W1_times(instrument,include_last_week,H1s_to_roll,gmt_hour_offset); // this will get a value for the weeks_open_time global variable
     is_new_custom_W1_bar(instrument);
-    double tick_value=MarketInfo(instrument,MODE_TICKVALUE);
-    double point=MarketInfo(instrument,MODE_POINT);
-    double spread=MarketInfo(instrument,MODE_SPREAD);
-    double bid_price=MarketInfo(instrument,MODE_BID);
-    double min_distance_pips=MarketInfo(instrument,MODE_STOPLEVEL);
-    double min_lot=MarketInfo(instrument,MODE_MINLOT);
-    double max_lot=MarketInfo(instrument,MODE_MAXLOT);
-    int lot_digits=(int) -MathLog10(MarketInfo(instrument,MODE_LOTSTEP));
-    int lot_step=(int)(MarketInfo(instrument,MODE_LOTSTEP));
-    int digits=(int)MarketInfo(instrument,MODE_DIGITS);
+    string  expert_name=WindowExpertName();
+    double  tick_value=MarketInfo(instrument,MODE_TICKVALUE);
+    double  point=MarketInfo(instrument,MODE_POINT);
+    double  spread=MarketInfo(instrument,MODE_SPREAD);
+    double  bid_price=MarketInfo(instrument,MODE_BID);
+    double  min_distance_pips=MarketInfo(instrument,MODE_STOPLEVEL);
+    double  min_lot=MarketInfo(instrument,MODE_MINLOT);
+    double  max_lot=MarketInfo(instrument,MODE_MAXLOT);
+    int     lot_digits=(int) -MathLog10(MarketInfo(instrument,MODE_LOTSTEP));
+    int     lot_step=(int)(MarketInfo(instrument,MODE_LOTSTEP));
+    int     digits=(int)MarketInfo(instrument,MODE_DIGITS);
     datetime current_bar_open_time=iTime(instrument,PERIOD_M5,0);        
     datetime current_time=(datetime)MarketInfo(instrument,MODE_TIME);
-    int trade_allowed=(int)MarketInfo(instrument,MODE_TRADEALLOWED);
-    double one_lot_initial_margin=MarketInfo(instrument,MODE_MARGININIT);
-    double margin_to_mainain_open_orders=MarketInfo(instrument,MODE_MARGINMAINTENANCE);
-    double hedged_margin=MarketInfo(instrument,MODE_MARGINHEDGED);
-    double margin_required=MarketInfo(instrument,MODE_MARGINREQUIRED);
-    double freeze_level_pts=MarketInfo(instrument,MODE_FREEZELEVEL);
-    string current_chart=Symbol();
+    int     trade_allowed=(int)MarketInfo(instrument,MODE_TRADEALLOWED);
+    double  one_lot_initial_margin=MarketInfo(instrument,MODE_MARGININIT);
+    double  margin_to_mainain_open_orders=MarketInfo(instrument,MODE_MARGINMAINTENANCE);
+    double  hedged_margin=MarketInfo(instrument,MODE_MARGINHEDGED);
+    double  margin_required=MarketInfo(instrument,MODE_MARGINREQUIRED);
+    double  freeze_level_pts=MarketInfo(instrument,MODE_FREEZELEVEL);
+    string  current_chart=Symbol();
+    Print("expert_name: ",expert_name);
     Print("trade_allowed: ",trade_allowed);
     Print("one_lot_initial_margin: ",DoubleToStr(one_lot_initial_margin));
     Print("margin_to_maintain_open_orders: ",DoubleToStr(margin_to_mainain_open_orders));
@@ -488,7 +504,7 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
             downtrend=false;
           }
         //Print("Got past is_new_M5_bar");       
-        if(active_trade_expire>0) exit_all_trades_set(_exiting_max_slippage,ORDER_SET_MARKET,magic,(int)(active_trade_expire*3600),current_time); // This runs every 5 minutes (whether the time is in_time_range or not). It only exit trades that have been on for too long and haven't hit stoploss or takeprofit.
+        if(active_trade_expire>0) exit_all_trades_set(_exiting_max_slippage,ORDER_SET_MARKET,magic,int(active_trade_expire*3600),current_time); // This runs every 5 minutes (whether the time is in_time_range or not). It only exit trades that have been on for too long and haven't hit stoploss or takeprofit.
         if(_draw_visuals)
           {
             if(is_new_H1_bar)
@@ -593,7 +609,7 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
         if(enter_signal>0 || enter_signal==DIRECTION_BIAS_IGNORE) 
           {
             ENUM_DIRECTION_BIAS ma_bias=signal_MA_better(instrument);
-            if(ma_bias==DIRECTION_BIAS_PREVENT_TRADE && includ_weaker_ma_setup) 
+            if(ma_bias==DIRECTION_BIAS_PREVENT_TRADE && include_weaker_ma_setup) 
               {
                 enter_signal=signal_bias_compare(enter_signal,signal_MA_worse(instrument));
                 if(reduce_risk_for_weaker_setups && enter_signal>0) 
@@ -674,7 +690,7 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
                     if(overbought_1==false && overbought_2==false) 
                       {
                         //Print("try_to_enter_order: OP_BUY");
-                        try_to_enter_order(OP_BUY,magic,entering_max_slippage_pips,instrument,reduced_risk);
+                        try_to_enter_order(OP_BUY,magic,entering_max_slippage_pips,instrument,reduced_risk,max_risky_trades);
                         //uptrend_order_was_last=true;
                         //downtrend_order_was_last=false;
                       }
@@ -709,7 +725,7 @@ bool relativity_ea_ran(string instrument,int magic,datetime current_time,int exi
                     if(oversold_1==false && oversold_2==false) 
                       {
                         //Print("try_to_enter_order: OP_SELL");
-                        try_to_enter_order(OP_SELL,magic,entering_max_slippage_pips,instrument,reduced_risk);
+                        try_to_enter_order(OP_SELL,magic,entering_max_slippage_pips,instrument,reduced_risk,max_risky_trades);
                         //downtrend_order_was_last=true;
                         //uptrend_order_was_last=false;
                       }
@@ -1323,6 +1339,20 @@ ENUM_DIRECTION_BIAS signal_bias_compare(ENUM_DIRECTION_BIAS current_bias,ENUM_DI
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+int get_string_integer(string string1)
+  {
+    int i, combined_letter_int=0, letter_int=0;
+    for(i=0; i<StringLen(string1); i++)
+      {
+        letter_int=StringGetChar(string1,i);
+        //Print(combined_letter_int,"+",letter_int);
+        combined_letter_int=(combined_letter_int<<5)+combined_letter_int+letter_int; // << Bitwise Left shift operator shifts all bits towards left by certain number of specified bits.
+      }
+    return combined_letter_int;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int generate_magic_num(string instrument, ENUM_SIGNAL_SET)
   {
      /*int total_variable_count=10;
@@ -1377,15 +1407,9 @@ started work on a different option if the one above does not work out.
      }
      return large_random_num;
    */
-   int i, combined_letter_int=0, letter_int=0;
-   for(i=0; i<StringLen(instrument); i++)
-     {
-      letter_int=StringGetChar(instrument,i);
-      //Print(combined_letter_int,"+",letter_int);
-      combined_letter_int=(combined_letter_int<<5)+combined_letter_int+letter_int; // << Bitwise Left shift operator shifts all bits towards left by certain number of specified bits.
-      //Print(combined_letter_int);
-     }
-   return(combined_letter_int);
+   
+   int instrument_int=get_string_integer(instrument);
+   return(instrument_int);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2834,7 +2858,7 @@ double calculate_avg_spread_yesterday(string instrument)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,string instrument,bool _reduced_risk)
+void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,string instrument,bool _reduced_risk,int _max_risky_trades)
   {
     double  pending_order_distance_pts=0; // keep at 0
     double  periods_pivot_price;
@@ -2904,7 +2928,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,str
             uptrend_order_was_last=true;
             ObjectSet(current_chart+"_HOP",OBJPROP_WIDTH,1);
             ObjectSetString(0,current_chart+"_last_order_direction",OBJPROP_TEXT,"uptrend SIGNAL(not order) was last");
-            bias=signal_check_risky_market_trade(instrument,DIRECTION_BIAS_BUY);
+            bias=signal_check_risky_market_trade(instrument,DIRECTION_BIAS_BUY,_max_risky_trades);
           }
         else if(temp_type==OP_SELL)
           {
@@ -2912,7 +2936,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,str
             uptrend_order_was_last=false;
             ObjectSet(current_chart+"_LOP",OBJPROP_WIDTH,1);
             ObjectSetString(0,current_chart+"_last_order_direction",OBJPROP_TEXT,"downtrend SIGNAL(not order) was last");
-            bias=signal_check_risky_market_trade(instrument,DIRECTION_BIAS_SELL);      
+            bias=signal_check_risky_market_trade(instrument,DIRECTION_BIAS_SELL,_max_risky_trades);      
           }
         if((bias<=0 && bias!=DIRECTION_BIAS_IGNORE && bias!=NULL) 
             return; // do not make any trades
@@ -3271,21 +3295,33 @@ double get_lots(ENUM_MM method,bool _reduced_risk,int magic,string instrument,do
     double point=MarketInfo(instrument,MODE_POINT);
     double lots=0;
     double balance=0;
-    double lot_multiplier=1;
-    double micro_multiplier=100; // 10000 EURUSD // 100 EURJPY
-    
-    if(instrument=="EURJPYpro") micro_multiplier=100;
-    else if(instrument=="EURUSDpro") micro_multiplier=100*100;
-    
+    double lot_multiplier=1; // keep at 1
+    double micro_multiplier=0; // micro account multiplier
+    int instrument_int=get_string_integer(StringSubstr(instrument,0,6));
+    switch(instrument_int)
+      {
+        case EURJPY:
+          micro_multiplier=point_multiplier*100;
+            break;
+        case EURUSD:
+          micro_multiplier=point_multiplier*10000;
+            break;
+        case USDJPY:
+          micro_multiplier=point_multiplier*100;
+            break;
+        default:
+          micro_multiplier=0;
+            break;
+      }    
     if(compound_balance) balance=AccountBalance();
     else balance=5000;
     switch(method)
       {
         case MM_RISK_PERCENT_PER_ADR:
-          if(pts>0) lots=((balance*_risk_percent_per_ADR)/pts)/(tick_value*point_multiplier*micro_multiplier); 
+          if(pts>0) lots=((balance*_risk_percent_per_ADR)/pts)/(tick_value*micro_multiplier); 
             break;
         case MM_RISK_PERCENT:
-          if(pts>0) lots=((balance*risk_mm1_percent)/pts)/(tick_value*point_multiplier*micro_multiplier);
+          if(pts>0) lots=((balance*risk_mm1_percent)/pts)/(tick_value*micro_multiplier);
             break;
         /*case MM_FIXED_RATIO:
           lots=balance*lots_mm2/per_mm2;
@@ -3306,7 +3342,7 @@ double get_lots(ENUM_MM method,bool _reduced_risk,int magic,string instrument,do
     // get information from the broker and then Normalize the lots double
     double min_lot=MarketInfo(instrument,MODE_MINLOT);
     double max_lot=MarketInfo(instrument,MODE_MAXLOT);
-    int lot_digits=(int) -MathLog10(MarketInfo(instrument,MODE_LOTSTEP)); // MathLog10 returns the logarithm of a number (in this case, the MODE_LOTSTEP) base 10. So, this finds out how many digits in the lot the broker accepts.
+    int lot_digits=int(-MathLog10(MarketInfo(instrument,MODE_LOTSTEP))); // MathLog10 returns the logarithm of a number (in this case, the MODE_LOTSTEP) base 10. So, this finds out how many digits in the lot the broker accepts.
     if(_reduced_risk==true) 
       {
         //Print("lots before changing: ",DoubleToStr(NormalizeDouble(lots*lot_multiplier,lot_digits)));
@@ -3718,7 +3754,7 @@ void cleanup_risky_pending_orders(string instrument) // deletes pending orders o
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-ENUM_DIRECTION_BIAS signal_check_risky_market_trade(string instrument,ENUM_DIRECTION_BIAS current_bias)
+ENUM_DIRECTION_BIAS signal_check_risky_market_trade(string instrument,ENUM_DIRECTION_BIAS current_bias,int _max_risk_trades)
   {
     ENUM_DIRECTION_BIAS bias=DIRECTION_BIAS_IGNORE;
     if(pullback_percent!=0)
@@ -3741,6 +3777,8 @@ ENUM_DIRECTION_BIAS signal_check_risky_market_trade(string instrument,ENUM_DIREC
                 potential_short_ccy=potential_1st_ccy; 
               }
             else return bias;
+            
+            int count=0;
             for(int i=OrdersTotal()-1;i>=0;i--)
               {
                 if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
@@ -3754,20 +3792,30 @@ ENUM_DIRECTION_BIAS signal_check_risky_market_trade(string instrument,ENUM_DIREC
                         string trades_long_ccy,trades_short_ccy;
                         if(trades_direction==OP_BUY)
                           {
-                            if(compare_doubles(OrderTakeProfit(),OrderStopLoss(),digits)>=0) break; // if the market trade is at breakeven or higher, there is no reason to analyze any further
+                            if(compare_doubles(OrderTakeProfit(),OrderStopLoss(),digits)>=0) break; // if the market trade is at breakeven or higher, there is no reason to analyze this iteration any further
                             trades_long_ccy=trades_1st_ccy;
                             trades_short_ccy=trades_2nd_ccy;
                           }
                         else if(trades_direction==OP_SELL)
                           {
-                            if(compare_doubles(OrderTakeProfit(),OrderStopLoss(),digits)<=0) break; // if the market trade is at breakeven or higher, there is no reason to analyze any further
+                            if(compare_doubles(OrderTakeProfit(),OrderStopLoss(),digits)<=0) break; // if the market trade is at breakeven or higher, there is no reason to analyze this iteration any further
                             trades_long_ccy=trades_2nd_ccy;
                             trades_short_ccy=trades_1st_ccy;
                           }                
-                        if(trades_long_ccy==potential_long_ccy) return DIRECTION_BIAS_PREVENT_TRADE;
-                        if(trades_short_ccy==potential_short_ccy) return DIRECTION_BIAS_PREVENT_TRADE;
+                        if(trades_long_ccy==potential_long_ccy) 
+                          {
+                            count++;
+                            //return DIRECTION_BIAS_PREVENT_TRADE;
+                          }
+                        if(trades_short_ccy==potential_short_ccy) 
+                          {
+                            count++;
+                            //return DIRECTION_BIAS_PREVENT_TRADE;
+                          }
                       }
                   }
+                if(count<=+max_risky_trades) bias=DIRECTION_BIAS_IGNORE;
+                else bias=DIRECTION_BIAS_PREVENT_TRADE;
               }        
           }      
       }
