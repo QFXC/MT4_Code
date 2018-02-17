@@ -1676,8 +1676,8 @@ bool set_gmt_offset(string instrument,datetime current_time) // Automatic gmt_of
                     if(TimeDayOfWeek(current_bar_time)==1 && TimeDayOfWeek(previous_bar_time)==0) // if the current bar is Monday and the previous bar is Sunday
                       {
                         sundays_bar_time=previous_bar_time;
-                        int start_hour=get_sundays_start_hour(instrument,sundays_bar_time,1);
-                        sundays_bar_time+=(start_hour*3600);
+                        int market_start_hour=get_sundays_start_hour(instrument,sundays_bar_time,1);
+                        sundays_bar_time+=(market_start_hour*3600);
                         int temp_gmt_offset=(current_bar_time-sundays_bar_time)/3600;
                         if(current_bar_time>sundays_bar_time)
                           {
@@ -1794,7 +1794,11 @@ bool is_new_custom_D1_bar(string instrument) // this function gets called once a
     static datetime   D1_current_bar_close_time=0;
     datetime          D1_current_bar_open_time;
     if(DayOfWeek()==0 && gmt_hour_offset<0) 
-        D1_current_bar_open_time=get_sundays_start_hour(instrument,iTime(NULL,PERIOD_D1,0),4);
+      {
+        datetime day_start=iTime(NULL,PERIOD_D1,0);
+        int market_start_hour=get_sundays_start_hour(instrument,day_start,4);
+        D1_current_bar_open_time=day_start+(market_start_hour*3600);
+      }
     else              
         D1_current_bar_open_time=iTime(NULL,PERIOD_D1,0)+(gmt_hour_offset*3600);
     double            D1_current_bar_open_price=iOpen(NULL,PERIOD_M5,iBarShift(NULL,PERIOD_M5,D1_current_bar_open_time,false));
@@ -1861,9 +1865,12 @@ bool is_new_custom_W1_bar(string instrument,bool wait_for_next_bar) // this func
             int i_day=TimeDayOfWeek(days_start_time);
             if(i_day==0) // if it is Sunday
               {
-                W1_current_bar_open_time=days_start_time;
+                int market_open_hour=get_sundays_start_hour(instrument,days_start_time,5);
+                W1_current_bar_open_time=days_start_time+(market_open_hour*3600);
                 int _weeks_start_bar=iBarShift(NULL,PERIOD_M5,W1_current_bar_open_time,false);
+                Print("W1_current_bar_open_time: ",TimeToStr(W1_current_bar_open_time));
                 W1_current_bar_open_price=iOpen(NULL,PERIOD_M5,_weeks_start_bar);
+                Print("W1_current_bar_open_price: ",DoubleToStr(W1_current_bar_open_price));
                 got_monday=true;
               } 
             else if(i_day==1) // if it is Monday
@@ -1980,8 +1987,8 @@ int get_sundays_start_hour(string instrument,datetime sundays_bar_time,int comin
     static datetime last_date;
     if(last_hour==NULL || sundays_bar_time!=last_date)
       {
-        //if(sundays_bar_time!=last_date) Print(TimeToStr(sundays_bar_time),"!=",TimeToStr(last_date)," so the loop ran. Coming from: ",coming_from);
-        //if(last_hour==NULL) Print("last_hour==NULL so the loop ran. Coming from: ",coming_from);
+        if(sundays_bar_time!=last_date) Print(TimeToStr(sundays_bar_time),"!=",TimeToStr(last_date)," so the loop ran. Coming from: ",coming_from);
+        if(last_hour==NULL) Print("last_hour==NULL so the loop ran. Coming from: ",coming_from);
         int bar=-1;
         bool found_hour=false;
         for(int hr=0;hr<23;hr++)
@@ -1998,11 +2005,11 @@ int get_sundays_start_hour(string instrument,datetime sundays_bar_time,int comin
               }
           }
       }
-    /*else
+    else
       {
         if(sundays_bar_time==last_date) Print(TimeToStr(sundays_bar_time),"==",TimeToStr(last_date)," so the loop DIDNT need to run. Coming from: ",coming_from);
         if(last_hour!=NULL) Print("last_hour!=NULL so the loop DIDNT need to run. Coming from: ",coming_from);
-      }*/
+      }
     return last_hour;  
   }
 //+------------------------------------------------------------------+
@@ -2029,10 +2036,7 @@ void set_custom_W1_times(string instrument,bool _include_last_week,double _H1s_t
                     if(i_day==0) // if it is Sunday
                       {
                         int market_start_hour=get_sundays_start_hour(instrument,server_days_start_time,2);
-                        if(market_start_hour!=-1) 
-                          {
-                            server_days_start_time=server_days_start_time+(market_start_hour*3600);
-                          }
+                        server_days_start_time=server_days_start_time+(market_start_hour*3600);
                         weeks_open_time=server_days_start_time; // there is no need to add a gmt offset because if the broker's server says it is Sunday, the D1 start time is indeed the beginning of the week
                         got_monday=true; // got_monday does indeed=true because, in reality the broker's Sunday server time is the same as a Monday                            
                       }                     
