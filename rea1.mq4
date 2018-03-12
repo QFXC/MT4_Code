@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Quant FX Capital/Tom Mazurek"
 #property link      "https://www.quantfxcapital.com"
-#property version   "2.00"
+#property version   "2.01"
 #property strict
 /* 
 Remember:
@@ -26,6 +26,7 @@ enum ENUM_INSTRUMENTS
   {
     EURJPY=-1490791745,
     EURUSD=-1490779688,
+    GBPJPY=-1435125332,
     GBPUSD=-1435113275,
     USDJPY=-867500417
   };
@@ -96,7 +97,7 @@ enum ENUM_MM // Money Management
 //+------------------------------------------------------------------+
   input bool        option=false;
   input bool        option2=false;
-  input string      version="1.08";
+  input string      version="2.01";
   input bool        use_recommended_settings=true;     // use_recommended_settings:
   int               init_result=INIT_FAILED;
   bool              ready=false, in_time_range=false;
@@ -111,7 +112,7 @@ enum ENUM_MM // Money Management
   input bool        display_chart_objects=false;                // display_chart_objects:
   input bool        print_time_info=false;
   int               point_multiplier;
-  /*input*/ bool    market_exec=false;                 // market_exec: False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
+  input bool        market_exec=false;                 // market_exec: False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
   int               retries=3; // TODO: eventually get rid of this global variable
   static int        EA_1_magic_num; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
   static bool       uptrend=false, downtrend=false;
@@ -128,13 +129,11 @@ enum ENUM_MM // Money Management
 	input bool        filter_over_extended_trends=false;  // filter_over_extended_trends: // TODO: test that this filter works
 	/*input*/ int     max_pending_orders_at_once=2;
 	//input int       max_open_trades_at_once=2;          // market_trades_at_once: How many long or short market trades can be on at the same time?
-	input int         max_directional_trades_at_once=1;   // max_directional_trades_at_once: How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
-	input int         max_directional_trades_in_x_hours=1;// max_directional_trades_in_x_hours: How many trades are allowed to be opened (even if they are close now) after the start of each current day?
-	input double      x_hours=6;                          // x_hours: Any whole or fraction of an hour. // FYI, this setting only takes affect when
-  input double      move_too_big_multiplier=6;          // move_too_big_multiplier:
+	extern int        max_directional_trades_at_once=1;   // max_directional_trades_at_once: How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
+	extern int        max_directional_trades_in_x_hours=1;// max_directional_trades_in_x_hours: How many trades are allowed to be opened (even if they are close now) after the start of each current day?
+	extern double     x_hours=6;                          // x_hours: Any whole or fraction of an hour. // FYI, this setting only takes affect when
   
-  extern int        past_x_days_same=0;                 // past_x_days_same: 
-  extern int        moving_avg_period=500;              // moving_avg_period:
+  extern int        moving_avg_period=450;              // moving_avg_period:
   input double      ma_multiplier=1;                    // ma_multiplier:
   input bool        include_weaker_ma_setup=false;      // include_weaker_ma_setup:
   
@@ -208,7 +207,10 @@ enum ENUM_MM // Money Management
   input bool        include_last_week=false;            // include_last_week: Should the EA take Friday's moves into account when starting to determine length of the current move? FYI, when include_previous_day==false, this setting has no affect.
   extern double     H1s_to_roll=2;                      // H1s_to_roll: Only divisible by .5 // How many hours should you roll to determine a short term market trend?
   input double      max_weekend_gap_percent=.15;        // max_weekend_gap_percent: What is the maximum weekend gap (as a percent of raw ADR) for H1s_to_roll to not take the previous week into account?
-  input double      too_big_move_percent=0;             // too_big_move_percent: 1.7
+  extern double     too_big_move_percent=0;             // too_big_move_percent: 1.7
+  input int         over_extended_x_days=0;             // over_extended_x_days: 
+  extern int        past_x_days_same=0;                 // past_x_days_same: 
+  input double      move_too_big_multiplier=6;          // move_too_big_multiplier:
   input bool        use_fixed_ADR=true;                 // use_fixed_ADR:
   extern int        fixed_ADR_pips=65;                  // fixed_ADR_pips:
   extern int        ma_range_pts=65;                    // ma_range_pts:
@@ -240,7 +242,7 @@ int OnInit()
     init_result=INIT_FAILED;
     init_result=OnInit_Relativity_EA_1(SIGNAL_SET,Symbol());
     //print_info(Symbol());
-    Print("INIT_FAILED=",INIT_FAILED," and the OnInit() result is: ",init_result," (anything other than 0 means it failed)");
+    print_and_email("Error","INIT_FAILED="+IntegerToString(INIT_FAILED)+" and the OnInit() result is: "+IntegerToString(init_result)+" (anything other than 0 means it failed)");
     if(init_result==INIT_FAILED) ExpertRemove();
     return init_result;
   }
@@ -357,25 +359,22 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set,string instrument)
     Print(instrument,"'s Magic Number: ",IntegerToString(EA_1_magic_num));
     if(exit_time>range_start_time && exit_time<range_end_time)
       {
-        Print("The initialization of the EA failed. Make sure that the trade exit_time_hour and exit_time_minute combination does not fall within the trading range start and end times or else there will be trouble!");
-        Alert("The initialization of the EA failed. Make sure that the trade exit_time_hour and exit_time_minute combination does not fall within the trading range start and end times or else there will be trouble!");
+        print_and_email("Error","The initialization of the EA failed. Make sure that the trade exit_time_hour and exit_time_minute combination does not fall within the trading range start and end times or else there will be trouble!");
         return(INIT_FAILED);
       }
     else if(EA_1_magic_num<=0)
       {
-        Print("The initialization of the EA failed. The magic number (",EA_1_magic_num,") is not a valid magic number for the Expert Advisor (EA). Without one, the EA will not run correctly. Get a MQL4 programmer check the code to find out why.");
-        Alert("The initialization of the EA failed. The magic number (",EA_1_magic_num,") is not a valid magic number for the Expert Advisor (EA). Without one, the EA will not run correctly. Get a MQL4 programmer check the code to find out why.");
+        print_and_email("Error","The initialization of the EA failed. The magic number ("+IntegerToString(EA_1_magic_num)+") is not a valid magic number for the Expert Advisor (EA). Without one, the EA will not run correctly. Get a MQL4 programmer check the code to find out why.");
         return(INIT_FAILED);
       }
     else if(!all_user_input_variables_valid())
       {
-        Print("The initialization of the EA failed. One or more of the user input variables are not valid. The EA will not run correctly.");
-        Alert("The initialization of the EA failed. One or more of the user input variables are not valid. The EA will not run correctly.");
+        print_and_email("Error","The initialization of the EA failed. One or more of the user input variables are not valid. The EA will not run correctly.");
         return(INIT_FAILED);
       }
     else if(ran==false)
       {
-        Print("The initialization of the EA failed. Not every function ran.");
+        print_and_email("Error","The initialization of the EA failed. Not every function ran.");
         return(INIT_FAILED);
       }
     else
@@ -482,12 +481,12 @@ void OnTick()
                 //Print("hourly gmt: ",gmt_hour_offset);
                 if(gmt_offset_visible==false && (gmt_hour_offset!=0 /*|| gmt_hour_offset==NULL*/)) 
                   {
-                    Print("THE EA WILL BE TERMINATED BECAUSE THE gmt_hour_offset IS 0 OR NULL");
+                    print_and_email("Error","THE EA WILL BE TERMINATED BECAUSE THE gmt_hour_offset IS 0 OR NULL");
                     ExpertRemove();
                   }
                 set_custom_D1_open_time(instrument,0); // Since the gmt_hour_offset was just set, that means that the custom D1 open time can also be different and, also, the next line (is_new_custom_D1_bar) uses the days_open_time variable. So this function needs to be here to assign the updated value to the variable.
                 is_new_custom_D1_bar=is_new_custom_D1_bar(instrument); // set_gmt_offset needs to be run before is_new_custom_D1_bar because is_new_custom_D1_bar uses the gmt_offset_hour variable
-                if(trading_paused) Print("Trading is still paused.");
+                if(trading_paused) print_and_email("Warning","Trading is still paused.");
                 if(is_new_custom_D1_bar)  // this must run before relativity_ea_ran function is run
                   {
                     //if(day_not_to_trade==true) 
@@ -499,15 +498,14 @@ void OnTick()
                     if(is_new_custom_W1_bar)
                       {
                         int orders_for_week=count_orders(ORDER_SET_ALL,EA_1_magic_num,MODE_HISTORY,OrdersHistoryTotal(),604800,current_time);
-                        Print("Total orders for the week: ",IntegerToString(orders_for_week));
+                        print_and_email("Info","Total orders for the week: "+IntegerToString(orders_for_week));
                         safe_to_trade=boolean_compare(safe_to_trade,set_gmt_offset(instrument,current_time)); // since it is a new week, it will trigger the gmt_offset_required to re-evaluate (which I want to happen at the beginning of each week
-                        
                       }
                     if(trading_paused) 
                       {
                         trading_paused=false;
                         Print("Trading should have unpaused and resumed.");
-                      }  
+                      }
                   }
                 is_new_D1_bar=is_new_D1_bar(instrument,false);
                 if(is_new_D1_bar)
@@ -522,7 +520,7 @@ void OnTick()
           {
             trading_paused=true;
             //gmt_hour_offset=NULL; // setting gmt_hour_offset to NULL will allow the set_gmt_offset function to try to set it the next time it is called
-            Print("IT IS NOT SAFE TO TRADE TODAY. TRADING WILL BE PAUSED AND RE-EVALUATED THE NEXT TIME GMT IS 0:00.");
+            print_and_email("Warning","IT IS NOT SAFE TO TRADE TODAY. TRADING WILL BE PAUSED AND RE-EVALUATED THE NEXT TIME GMT IS 0:00.");
           }  
         if(is_new_D1_bar || is_new_custom_D1_bar) safe_to_trade=true; // by setting safe_to_trade=true, you are letting it be re-evaluated on the first tick for each D1 broker and custom bar
         // Since the functions that return the true/false of whether it is a new bar do not run on every tick, the global variables need to be set to false after all the previous code gets run. Otherwise, many of them will stay true much too frequently.
@@ -537,7 +535,7 @@ void OnTick()
       }
     else 
       {
-        Print("The OnInit function failed to complete and, therefore, the algorithm cannot proceed running.");
+        print_and_email("Error","The OnInit function failed to complete and, therefore, the algorithm cannot proceed running.");
         ExpertRemove();
       }
   }
@@ -562,7 +560,7 @@ bool is_previous_D1_bar_correct_length(string instrument,datetime current_time)
         if(MathMod(hours_yesterday,24)!=0 || hours_yesterday>48) Print("WARNING WARNING WARNING hours_yesterday: ",hours_yesterday); // the reason I am using MathMod is because sometimes brokers don't provide data or trading on holiday so, if the calculation is two days (24+24)=48 then that is okay
         if(current_day-previous_day==1 && hours_yesterday==24) return true;
       }
-    Print("WARNING: TRADING WILL NOT HAPPEN TO TODAY BECAUSE THE PREVIOUS D1 BAR WAS NOT 24 HOURS LONG");
+    print_and_email("Warning","TRADING WILL NOT HAPPEN TO TODAY BECAUSE THE PREVIOUS D1 BAR WAS NOT 24 HOURS LONG");
     return false;
   }
 //+------------------------------------------------------------------+
@@ -638,6 +636,14 @@ bool a_trade_closed_since_last_checked(int magic)
         last_trade_count=current_trade_count;
         return false;
       }   
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void print_and_email(string subject,string body)
+  {
+     Print(subject,": ",body);
+     SendMail(subject,body);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -738,17 +744,17 @@ bool relativity_ea_ran(string instrument,int digits,int magic,datetime current_t
               }
             else 
               {
-                Print("WARNING: THE EA IS NOT READY FOR TRADING");
+                print_and_email("Warning","THE EA IS NOT READY FOR TRADING");
                 ready=false; // never assign average_spread_yesterday to anything in this scope
                 if(ADR_pts==0 || ADR_pts==NULL)
-                    Print("... because ADR_pts was not generated");
+                    print_and_email("","... because ADR_pts was not generated");
                 if(magic<=0 || magic==NULL)
-                    Print("... because the magic number was not generated"); 
+                    print_and_email("","... because the magic number was not generated"); 
                 if(days_open_time<=0 || days_open_time==NULL)
-                    Print("... because days_open_time was not generated");
+                    print_and_email("","... because days_open_time was not generated");
                 if(gmt_hour_offset==NULL)
-                    Print("... because gmt_hour_offset was not generated");   
-                if(is_acceptable_spread==false) 
+                    print_and_email("","... because gmt_hour_offset was not generated");   
+                if(is_acceptable_spread==false)
                   {
                     /*Steps that were used to calculate percent_allows_trading:
                     double max_spread=((ADR_pts)*max_spread_percent);
@@ -775,7 +781,7 @@ bool relativity_ea_ran(string instrument,int digits,int magic,datetime current_t
           {
             set_moves_start_bar(instrument,H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week); // this is here so the vertical line can get moved every 5 minutes
             //Print("moves_start_bar=",moves_start_bar);
-          } 
+          }
         if(option)
           {
             enter_signal=_signal_MA_better_test(instrument,Bid);
@@ -838,12 +844,6 @@ bool relativity_ea_ran(string instrument,int digits,int magic,datetime current_t
             else if(enter_signal==DIRECTION_BIAS_SELL && over_extended_trend(instrument,past_x_days_same,UPTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts/2,digits),past_x_days_same,true)) enter_signal=DIRECTION_BIAS_SELL;
             else enter_signal=DIRECTION_BIAS_NEUTRALIZE;
           }
-        /*if(enter_signal>0 && past_x_days_same>0) // TODO: simplify this
-          {
-            if(enter_signal==DIRECTION_BIAS_BUY && past_x_D1_bars_down(instrument,past_x_days_same)) enter_signal=DIRECTION_BIAS_BUY;
-            else if(enter_signal==DIRECTION_BIAS_SELL && past_x_D1_bars_up(instrument,past_x_days_same)) enter_signal=DIRECTION_BIAS_SELL;
-            else enter_signal=DIRECTION_BIAS_NEUTRALIZE;          
-          }*/
         if(enter_signal>0)
           {
             int seconds_span;
@@ -883,11 +883,11 @@ bool relativity_ea_ran(string instrument,int digits,int magic,datetime current_t
                     //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
                     bool overbought_1=false;
                     bool overbought_2=false;
-                    if(filter_over_extended_trends)
+                    if(filter_over_extended_trends && over_extended_x_days>0)
                       {
                         RefreshRates();
-                        overbought_1=over_extended_trend(instrument,3,UPTREND,HIGH_MINUS_LOW,NormalizeDouble(ADR_pts*.75,digits),3,false);
-                        overbought_2=over_extended_trend(instrument,3,UPTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts*.75,digits),3,false);           
+                        overbought_1=over_extended_trend(instrument,over_extended_x_days,UPTREND,HIGH_MINUS_LOW,NormalizeDouble(ADR_pts*.75,digits),over_extended_x_days,false);
+                        overbought_2=over_extended_trend(instrument,over_extended_x_days,UPTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts*.75,digits),over_extended_x_days,false);           
                       }
                     if(overbought_1==false && overbought_2==false) 
                       {
@@ -896,7 +896,7 @@ bool relativity_ea_ran(string instrument,int digits,int magic,datetime current_t
                         //uptrend_order_was_last=true;
                         //downtrend_order_was_last=false;
                       }
-                    else Print("A potential trade was stopped because it was overbought.");
+                    else print_and_email("Info","A potential trade was stopped because it was overbought.");
                   }
               }
             else if(enter_signal==DIRECTION_BIAS_SELL && short_allowed)
@@ -911,18 +911,18 @@ bool relativity_ea_ran(string instrument,int digits,int magic,datetime current_t
                 int current_short_count=count_orders      (ORDER_SET_SELL,
                                                            magic,
                                                            MODE_TRADES,
-                                                           OrdersTotal()-1); 
+                                                           OrdersTotal()-1);
                 if(current_short_count<max_directional_trades_at_once &&
                   current_short_count+short_trades_closed_today<max_directional_trades_in_x_hours)
                   {
                     //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
                     bool oversold_1=false;
                     bool oversold_2=false;
-                    if(filter_over_extended_trends)
+                    if(filter_over_extended_trends && over_extended_x_days>0)
                       {
                         RefreshRates();
-                        oversold_1=over_extended_trend(instrument,3,DOWNTREND,HIGH_MINUS_LOW,NormalizeDouble(ADR_pts*.75,digits),3,false);
-                        oversold_2=over_extended_trend(instrument,3,DOWNTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts*.75,digits),3,false);
+                        oversold_1=over_extended_trend(instrument,over_extended_x_days,DOWNTREND,HIGH_MINUS_LOW,NormalizeDouble(ADR_pts*.75,digits),over_extended_x_days,false);
+                        oversold_2=over_extended_trend(instrument,over_extended_x_days,DOWNTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts*.75,digits),over_extended_x_days,false);
                       }
                     if(oversold_1==false && oversold_2==false) 
                       {
@@ -931,7 +931,7 @@ bool relativity_ea_ran(string instrument,int digits,int magic,datetime current_t
                         //downtrend_order_was_last=true;
                         //uptrend_order_was_last=false;
                       }
-                    else Print("A potential trade was stopped because it was oversold.");
+                    else print_and_email("Info","A potential trade was stopped because it was oversold.");
                   }
               }
           }
@@ -1261,7 +1261,7 @@ bool over_extended_trend(string instrument,int days_to_check,ENUM_TREND trend,EN
                 else days_range=bid_price-open_price; // can be negative
               }
             if(days_range>=points_threshold) // only positive day_ranges pass this point // TODO: use compare_doubles()?
-              { 
+              {
                 if(closed_bar)
                   {
                     double previous_days_close=iClose(instrument,PERIOD_D1,i+1);
@@ -1338,7 +1338,7 @@ bool past_x_D1_bars_down_2(string instrument,int x_bars)
             two_day_weekend=true;
             new_i++;
           }
-        if((day==0 || day==6))
+        if(day==0 || day==6)
           {
             new_i++;
           } 
@@ -1789,29 +1789,29 @@ bool set_gmt_offset(string instrument,datetime current_time) // Automatic gmt_of
               }
             if(gmt_offset_detected==false && gmt_offset_visible==true) 
               {
-                Print("set_gmt_offset: Critical Error: A GMT offset was not detected on the broker's chart but the user indicates that there is supposed to be one");
+                print_and_email("Error","set_gmt_offset: A GMT offset was not detected on the broker's chart but the user indicates that there is supposed to be one");
                 if(gmt_hour_offset<0) 
                   {
-                    Print("set_gmt_offset: gmt_hour_offset will continue to be: ",IntegerToString(gmt_hour_offset)); 
+                    print_and_email("Info","set_gmt_offset: gmt_hour_offset will continue to be: "+IntegerToString(gmt_hour_offset)); 
                     return true; // continue using the previous gmt_hour_offset_value
                   }
                 else 
                   {
-                    Print("set_gmt_offset: gmt_hour_offset was not set previously so the EA has to terminate");
+                    print_and_email("Error","set_gmt_offset: gmt_hour_offset was not set previously so the EA has to terminate");
                     return false; // something is wrong if these to boolean variables do not equal to each other and it is recommended to abort the algorithm
                   }
               }
             else if(gmt_offset_detected==true && gmt_offset_visible==false) 
               {
-                Print("set_gmt_offset: Critical Error: A GMT offset was detected on the broker's chart but the user indicates that there isn't supposed to be one");
+                print_and_email("Error","set_gmt_offset: Critical Error: A GMT offset was detected on the broker's chart but the user indicates that there isn't supposed to be one");
                 if(gmt_hour_offset<0) 
                   {
-                    Print("set_gmt_offset: gmt_hour_offset will continue to be: ",IntegerToString(gmt_hour_offset)); 
+                    print_and_email("Info","set_gmt_offset: gmt_hour_offset will continue to be: "+IntegerToString(gmt_hour_offset)); 
                     return true; // continue using the previous gmt_hour_offset_value
                   }
                 else
                   {
-                    Print("set_gmt_offset: gmt_hour_offset was not set previously so the EA has to terminate");
+                    print_and_email("Error","set_gmt_offset: gmt_hour_offset was not set previously so the EA has to terminate");
                     return false; // something is wrong if these to boolean variables do not equal to each other and it is recommended to abort the algorithm
                   }
               }
@@ -1843,12 +1843,12 @@ bool set_gmt_offset(string instrument,datetime current_time) // Automatic gmt_of
                                 last_date_variable_modified=date;
                                 if(_gmt_hour_offset!=0 && MathMod(_gmt_hour_offset,.5)!=0) 
                                   {
-                                    Print("set_gmt_offset: WARNING: gmt_hour_offset is not divisible by .5 so that is strange");
+                                    print_and_email("Error","set_gmt_offset: WARNING: gmt_hour_offset is not divisible by .5 so that is strange");
                                     return false; // stop the algorithm if the gmt_hour_offset is not completely divisible by .5
                                   }
                                 if(_gmt_hour_offset<-5) 
                                   {
-                                    Print("set_gmt_offset: WARNING: gmt_hour_offset was attempted to be set to less than -5 so that is strange");
+                                    print_and_email("Error","set_gmt_offset: WARNING: gmt_hour_offset was attempted to be set to less than -5 so that is strange");
                                     return false; // something is wrong if these to boolean variables do not equal to each other and it is recommended to abort the algorithm
                                   }
                               }
@@ -1882,7 +1882,7 @@ bool set_gmt_offset(string instrument,datetime current_time) // Automatic gmt_of
                     last_gmt_hour_offset=gmt_hour_offset;
                   }*/
                 
-                Print("set_gmt_offset: gmt_hour_offset has been modified to: ",IntegerToString(gmt_hour_offset)); 
+                print_and_email("Info","set_gmt_offset: gmt_hour_offset has been modified to: "+IntegerToString(gmt_hour_offset)); 
                 //if(sundays_bar_time!=NULL || sundays_bar_time!=0) Print("sundays_bar_time: ",TimeToStr(sundays_bar_time));
                 //Print("Day of Week: ",day);
               }
@@ -1890,7 +1890,7 @@ bool set_gmt_offset(string instrument,datetime current_time) // Automatic gmt_of
               { 
                 gmt_offset_required=NULL;
                 last_date_variable_modified=NULL; // set this variable to NULL so that, on days that are not Sunday or Monday, the code in ths function can try to assign a value to gmt_hour_offset
-                Print("set_gmt_offset: WARNING: gmt_hour_offset was not modified");
+                print_and_email("Error","set_gmt_offset: gmt_hour_offset was not modified");
               }
           }
       }
@@ -2451,7 +2451,7 @@ void set_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_out
     else if(raw_ADR_pts>0)
       {
         double changed_ADR_pts=NormalizeDouble(((raw_ADR_pts*change_by_percent)+raw_ADR_pts),digits); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
-        Print("A raw ADR of ",DoubleToString(raw_ADR_pts,digits)," for ",instrument," was generated. As requested by the user, it has been changed to ",DoubleToString(changed_ADR_pts,digits));
+        print_and_email("Info","A raw ADR of "+DoubleToString(raw_ADR_pts,digits)+" for "+instrument+" was generated. As requested by the user, it has been changed to "+DoubleToString(changed_ADR_pts,digits));
         ADR_pts=changed_ADR_pts;
         if(instrument==current_chart)
           {
@@ -3157,21 +3157,21 @@ bool try_to_modify_order(int ticket,double sl_pts,int _retries=3,double tp_pts=-
       {
         for(int i=0;i<_retries;i++)
           {
-            if(!IsConnected()) Print("The EA can't modify ticket ",IntegerToString(ticket)," because there is no internet connection.");
-            else if(!IsExpertEnabled()) Print("The EA can't modify ticket ",IntegerToString(ticket)," because EAs are not enabled in the trading platform.");
-            else if(IsTradeContextBusy()) Print("The EA can't modify ticket ",IntegerToString(ticket)," because The trade context is busy.");
-            else if(!IsTradeAllowed()) Print("The EA can't modify ticket ",IntegerToString(ticket)," because the trade is not allowed in the trading platform.");
+            if(!IsConnected()) print_and_email("Error","The EA can't modify ticket "+IntegerToString(ticket)+" because there is no internet connection.");
+            else if(!IsExpertEnabled()) print_and_email("Error","The EA can't modify ticket "+IntegerToString(ticket)+" because EAs are not enabled in the trading platform.");
+            else if(IsTradeContextBusy()) print_and_email("Error","The EA can't modify ticket "+IntegerToString(ticket)+" because The trade context is busy.");
+            else if(!IsTradeAllowed()) print_and_email("Error","The EA can't modify ticket "+IntegerToString(ticket)+" because the trade is not allowed while a thread for trading is occupied.");
             else result=modify_order(ticket,sl_pts,tp_pts,expire,entryPrice,a_color); // entryPrice could be -1 if there was no entryPrice sent to this function
             if(result) break;
             Sleep(sleep_milisec);
             // TODO: setup an email and SMS alert.
-            Print(OrderSymbol()," , ",WindowExpertName(),", An order was attempted to be modified but it did not succeed. Last Error: (",IntegerToString(GetLastError(),0),"), Retry: ",IntegerToString(i,0),"/"+IntegerToString(retries));
-            Alert(OrderSymbol()," , ",WindowExpertName(),", An order was attempted to be modified but it did not succeed. Check the Journal tab of the Navigator window for errors.");
+            print_and_email("Error",OrderSymbol()+" , "+WindowExpertName()+", An order was attempted to be modified but it did not succeed. Last Error: ("+IntegerToString(GetLastError(),0)+"), Retry: "+IntegerToString(i,0)+"/"+IntegerToString(retries));
+            //Alert(OrderSymbol()," , ",WindowExpertName(),", An order was attempted to be modified but it did not succeed. Check the Journal tab of the Navigator window for errors.");
           }
       }
     else
       {   
-        Print(OrderSymbol()," , ",WindowExpertName(),", Modifying the order was not successfull. The ticket couldn't be selected.");
+        print_and_email("Error",OrderSymbol()+" , "+WindowExpertName()+", Modifying the order was not successfull. The ticket couldn't be selected.");
       }
     return result;
   }
@@ -3202,16 +3202,16 @@ bool try_to_exit_order(int ticket,int max_slippage_pips,int _retries=3,color a_c
     bool result=false;
     for(int i=0;i<_retries;i++)
       {
-        if(!IsConnected()) Print("The EA can't close ticket ",IntegerToString(ticket)," because there is no internet connection.");
-        else if(!IsExpertEnabled()) Print("The EA can't close ticket ",IntegerToString(ticket)," because EAs are not enabled in the trading platform.");
-        else if(IsTradeContextBusy()) Print("The EA can't close ticket ",IntegerToString(ticket)," because the trade context is busy.");
-        else if(!IsTradeAllowed()) Print("The EA can't close ticket ",IntegerToString(ticket)," because the close order is not allowed in the trading platform.");
+        if(!IsConnected()) print_and_email("Error","The EA can't close ticket "+IntegerToString(ticket)+" because there is no internet connection.");
+        else if(!IsExpertEnabled()) print_and_email("Error","The EA can't close ticket "+IntegerToString(ticket)+" because EAs are not enabled in the trading platform.");
+        else if(IsTradeContextBusy()) print_and_email("Error","The EA can't close ticket "+IntegerToString(ticket)+" because the trade context is busy.");
+        else if(!IsTradeAllowed()) print_and_email("Error","The EA can't close ticket "+IntegerToString(ticket)+" because the close order is not allowed while a thread for trading is occupied.");
         else result=exit_order(ticket,max_slippage_pips,a_color);
         if(result)
           break;
         // TODO: setup an email and SMS alert.
         // Make sure to use OrderSymbol() instead of symbol to get the instrument of the order.
-        Print("Closing order# ",DoubleToStr(OrderTicket(),0)," failed. Last Error: ",DoubleToStr(GetLastError(),0));
+        print_and_email("Error","Closing order# "+IntegerToString(OrderTicket(),0)+" failed. Last Error: "+IntegerToString(GetLastError(),0));
         Sleep(sleep_milisec);
       }
     return result;
@@ -3326,7 +3326,7 @@ bool is_acceptable_spread(string instrument,double _max_spread_percent,bool _bas
             return true; // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
           }
       }
-    Print("is_acceptable_spread: returned false so a trade should not occur");
+    print_and_email("Warning","is_acceptable_spread: returned false so a trade should not occur");
     return false;
   }
 //+------------------------------------------------------------------+
@@ -3456,7 +3456,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,str
       }
     else if(_pullback_percent<0) 
       {
-        Print("Error: pullback_percent cannot be less than 0");
+        print_and_email("Error","pullback_percent cannot be less than 0");
         return;
       }
     if(_retracement_percent>0)
@@ -3464,7 +3464,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,str
         periods_range_pts=HOP_price-LOP_price; // (this will also work:) periods_range_pts=range_pts_calculation(type,instrument); // TODO: is it okay that the periods_range_pts is calculated with the type before the reverse_trade_direction code runs?
         if(periods_range_pts<ADR_pts)
           {
-            Print("WARNING: A trade entry was just attempted with a periods_range_pts of ",DoubleToStr(periods_range_pts,digits)," (which is less than ADR_pts ",DoubleToStr(ADR_pts,digits),").");
+            print_and_email("Warning","A trade entry was just attempted with a periods_range_pts of "+DoubleToStr(periods_range_pts,digits)+" (which is less than ADR_pts "+DoubleToStr(ADR_pts,digits)+").");
             Print("HOP_time: ",TimeToStr(HOP_time)," LOP_time: ",TimeToStr(LOP_time));
             Print("HOP_price: ",DoubleToStr(HOP_price)," LOP_price: ",DoubleToStr(LOP_price));
             //enter_signal=DIRECTION_BIAS_NEUTRALIZE;
@@ -3492,7 +3492,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,str
       }
     else 
       {
-        Print("Error: The programmer can only used OP_BUY and OP_SELL for signals.");
+        print_and_email("Error","The algorithm programmer can only used OP_BUY and OP_SELL for signals.");
         return;
       }
     // This part checks to see if the market order is too risky to be made while running with other instances of the algorithm in the same account and, if so, a trade gets simulated but not actually executed. 
@@ -3582,17 +3582,17 @@ int check_for_entry_errors(string instrument,int cmd,double lots,double _distanc
     int ticket=0;
     for(int i=0;i<_retries;i++)
       {
-        if(IsStopped()) Print("The EA can't enter a trade because the EA was stopped.");
-        else if(!IsConnected()) Print("The EA can't enter a trade because there is no internet connection.");
-        else if(!IsExpertEnabled()) Print("The EA can't enter a trade because EAs are not enabled in trading platform.");
-        else if(IsTradeContextBusy()) Print("The EA can't enter a trade because the trade context is busy.");
-        else if(!IsTradeAllowed()) Print("The EA can't enter a trade because the trade is not allowed in the trading platform.");
+        if(IsStopped()) print_and_email("Error","The EA can't enter a trade because the EA is stopped.");
+        else if(!IsConnected()) print_and_email("Error","The EA can't enter a trade because there is no internet connection.");
+        else if(!IsExpertEnabled()) print_and_email("Error","The EA can't enter a trade because EAs are not enabled in trading platform.");
+        else if(IsTradeContextBusy()) print_and_email("Error","The EA can't enter a trade because the trade context is busy.");
+        else if(!IsTradeAllowed()) print_and_email("Error","The EA can't enter a trade because the trade is not allowed while a thread for trading is occupied.");
         else ticket=send_and_get_order_ticket(instrument,cmd,lots,_distance_pts,periods_pivot_price,sl_pts,tp_pts,max_slippage,spread_points,range_pts,_EA_name,magic,expire,a_clr,market);
         if(ticket>0) break;
         else
-          { 
+          {
             // TODO: setup an email and SMS alert.
-            Print(instrument," , ",WindowExpertName(),": A ",cmd," order was attempted but it did not succeed. If there are no errors here, market factors may not have met the code's requirements within the send_and_get_order_ticket function. Last Error:, (",IntegerToString(GetLastError(),0),"), Retry: "+IntegerToString(i,0),"/"+IntegerToString(retries));
+            print_and_email("Error",instrument+" , "+WindowExpertName()+": A "+IntegerToString(cmd)+" order was attempted but it did not succeed. If there are no errors here, market factors may not have met the code's requirements within the send_and_get_order_ticket function. Last Error:, ("+IntegerToString(GetLastError(),0)+"), Retry: "+IntegerToString(i,0)+"/"+IntegerToString(retries));
             //Alert(instrument," , ",WindowExpertName(),": A ",cmd," order was attempted but it did not succeed. Check the Journal tab of the Navigator window for errors.");
           }
         Sleep(sleep_milisec);
@@ -3612,8 +3612,7 @@ void generate_spread_not_acceptable_message(double spread_pts,string instrument)
                                       " but the current spread (",DoubleToStr(spread_pts,2),") is not acceptable. A max_spread_percent value above ",
                                       DoubleToStr(percent_allows_trading,3),
                                       " would have allowed the EA to make this trade.");
-    Alert(message);
-    Print(message);
+    print_and_email("Warning",message);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -3851,7 +3850,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
       }
     else 
       {
-        Print("send_and_get_ticket: returned 0");
+        print_and_email("Warning","send_and_get_ticket: returned 0");
         return 0;
       } 
   }
@@ -3898,6 +3897,9 @@ double get_lots(ENUM_MM method,bool _reduced_risk,int magic,string instrument,do
           break;
         case EURUSD:
           micro_multiplier=point_multiplier*10000;
+          break;
+        case GBPJPY:
+          micro_multiplier=point_multiplier*100;
           break;
         case GBPUSD:
           micro_multiplier=point_multiplier*10000;
@@ -4369,7 +4371,11 @@ ENUM_DIRECTION_BIAS signal_check_risky_market_trade(string instrument,ENUM_DIREC
                 potential_long_ccy=potential_2nd_ccy;
                 potential_short_ccy=potential_1st_ccy; 
               }
-            else return bias;
+            else 
+              { 
+                print_and_email("Error","signal_check_risky_market_trade: Coding Error: only BUY and SELL biases are allowed.");
+                return DIRECTION_BIAS_NEUTRALIZE;
+              }
             int count=0;
             for(int i=OrdersTotal()-1;i>=0;i--)
               {
@@ -4397,19 +4403,24 @@ ENUM_DIRECTION_BIAS signal_check_risky_market_trade(string instrument,ENUM_DIREC
                         if(trades_long_ccy==potential_long_ccy) 
                           {
                             count++;
-                            //return DIRECTION_BIAS_NEUTRALIZE;
                           }
                         if(trades_short_ccy==potential_short_ccy) 
                           {
                             count++;
-                            //return DIRECTION_BIAS_NEUTRALIZE;
                           }
                       }
                   }
               }
-            if(count<max_risky_trades) bias=DIRECTION_BIAS_IGNORE;
-            else bias=DIRECTION_BIAS_NEUTRALIZE;
-          }      
+            if(count<_max_risk_trades) 
+              {
+                bias=DIRECTION_BIAS_IGNORE;
+              }  
+            else 
+              {
+                bias=DIRECTION_BIAS_NEUTRALIZE;
+                print_and_email("Info","A "+instrument+" trade was prevented from entering to prevent too much risk in a single currency.");
+              }
+          }
       }
     return bias;
   }
@@ -4452,7 +4463,7 @@ bool last_x_trades_were_loss(int x_trades,int magic=-1) // 2 trades max
                   }
               }
           }
-        if(count>1) Print("Warning! There are ",count," market trades or limit orders that have the same time and this situation may result in a single currency in two different currency pairs being traded in the same direction."); // TODO: create an email alert       
+        if(count>1) print_and_email("Warning","There are "+IntegerToString(count)+" market trades or limit orders that have the same time and this situation may result in a single currency in two different currency pairs being traded in the same direction.");
         if(ticket>0)
           {
             int second_ticket=0;
@@ -4544,7 +4555,7 @@ int last_order_ticket(ENUM_ORDER_SET order_set,bool most_recent)
                   }
               }
            }
-         if(count>1) Print("Warning! There are ",count," market trades or limit orders that have the same time and this situation may result in a single currency in two different currency pairs being traded in the same direction."); // TODO: create an email alert       
+         if(count>1) print_and_email("Warning","There are "+IntegerToString(count)+" market trades or limit orders that have the same time and this situation may result in a single currency in two different currency pairs being traded in the same direction."); // TODO: create an email alert       
       }
     else if(order_count==1)
       {
