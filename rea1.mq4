@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Quant FX Capital/Tom Mazurek"
 #property link      "https://www.quantfxcapital.com"
-#property version   "2.01"
+#property version   "2.02"
 #property strict
 /* 
 Remember:
@@ -66,8 +66,6 @@ enum ENUM_DIRECTION_BIAS  // since ENUM_ORDER_TYPE is not enough, this enum was 
     DIRECTION_BIAS_NEUTRALIZE=0, // do not buy, sell or exit any trades
     DIRECTION_BIAS_BUY=1,
     DIRECTION_BIAS_SELL=2
-    
-    // TODO: should you create TRADE_SIGNAL_SIT_ON_HANDS that will override all other buy and sell signals? (but not the void one)
   };
 enum ENUM_ORDER_SET
   {
@@ -97,7 +95,8 @@ enum ENUM_MM // Money Management
 //+------------------------------------------------------------------+
   input bool        option=false;
   input bool        option2=false;
-  input string      version="2.01";
+  input string      version="2.02";
+  input bool        using_oanda_broker=true;
   input bool        use_recommended_settings=true;     // use_recommended_settings:
   int               init_result=INIT_FAILED;
   bool              ready=false, in_time_range=false;
@@ -109,9 +108,11 @@ enum ENUM_MM // Money Management
   
 // general settings
   /*input*/ bool    auto_adjust_broker_digits=true;
-  input bool        display_chart_objects=false;                // display_chart_objects:
+  input bool        display_chart_objects=true;                // display_chart_objects:
   input bool        print_time_info=false;
-  int               point_multiplier;
+  input bool        email_alerts_on=true;
+  static int        point_multiplier;
+  static int        spread_divider;
   input bool        market_exec=false;                 // market_exec: False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
   int               retries=3; // TODO: eventually get rid of this global variable
   static int        EA_1_magic_num; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
@@ -141,19 +142,19 @@ enum ENUM_MM // Money Management
   input bool        automatic_gmt_offset=true;
 	int               gmt_hour_offset=NULL;               // Keep it as NULL                 // gmt_hour_offset: Only tested to be working with values <=0. The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). The code will automatically adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
 	input bool        gmt_offset_visible=true;            // gmt_offset_visible: By looking at it, does the algorithm need a GMT Offset.
-	input int         start_time_hour=0;                  // start_time_hour: 0-23
-	input int         start_time_minute=30;               // start_time_minute: 0-59
+	input int         start_time_hour=1;                  // start_time_hour: 0-23
+	input int         start_time_minute=0;               // start_time_minute: 0-59
 	extern int        end_time_hour=17;                   // end_time_hour: 0-23
 	extern int        end_time_minute=0;                  // end_time_minute: 0-59
 	input bool        exit_trades_EOD=true;               // exit_trades_EOD
   input int         exit_time_hour=23;                  // exit_time_hour: should be before the trading range start_time and after trading range end_time
-  input int         exit_time_minute=50;                // exit_time_minute: 0-59
+  input int         exit_time_minute=45;                // exit_time_minute: 0-59
 	
 	input bool        trade_friday=true;                  // trade_friday:
 	extern int        fri_end_time_hour=17;               // fri_end_time_hour: 0-23
 	extern int        fri_end_time_minute=0;              // fri_end_time_minute: 0-59
   input int         fri_exit_time_hour=22;              // fri_exit_time_hour
-  input int         fri_exit_time_minute=50;            // fri_exit_time_min
+  input int         fri_exit_time_minute=45;            // fri_exit_time_min
   
 // enter_order
   /*input*/ ENUM_SIGNAL_SET SIGNAL_SET=SIGNAL_SET_1; //SIGNAL_SET: Which signal set would you like to test? (the details of each signal set are found in the signal_entry function)
@@ -259,7 +260,7 @@ bool print_broker_info(string instrument)
     string   expert_name=WindowExpertName();
     double   tick_value=MarketInfo(instrument,MODE_TICKVALUE);
     double   point=MarketInfo(instrument,MODE_POINT);
-    double   spread=MarketInfo(instrument,MODE_SPREAD);
+    double   spread=MarketInfo(instrument,MODE_SPREAD)/spread_divider;
     double   bid_price=MarketInfo(instrument,MODE_BID);
     double   min_distance_pips=MarketInfo(instrument,MODE_STOPLEVEL);
     double   min_lot=MarketInfo(instrument,MODE_MINLOT);
@@ -319,6 +320,7 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set,string instrument)
        
     bool ran=false;
     ran=ran(set_point_multiplier(instrument));
+    ran=ran(set_spread_divider());
     Print(ran);
     EA_1_magic_num=set_magic_num(WindowExpertName(),signal_set);
     // assign values to HOP_price, LOP_price, HOP_time, LOP_time
@@ -348,7 +350,7 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set,string instrument)
     set_custom_W1_times(instrument,include_last_week,H1s_to_roll,gmt_hour_offset); // this will get a value for the weeks_open_time global variable
     is_new_custom_W1_bar(instrument,false);
     
-    print_broker_info(instrument);
+    print_broker_info(instrument); // set_point_multiplier and set_spread_divider has to run before this function is called
     
     // TODO: check if the broker has Sunday's as a server time, and, if not, block all the code you wrote to count Sunday's from running
 
@@ -411,19 +413,19 @@ string getUninitReasonText(int reasonCode)
     switch(reasonCode)
       {
         case REASON_ACCOUNT:
-          text="The account was changed";break;
+          text="The account was changed"; break;
         case REASON_CHARTCHANGE:
-          text="The symbol or timeframe was changed";break;
+          text="The symbol or timeframe was changed"; break;
         case REASON_CHARTCLOSE:
-          text="The chart was closed";break;
+          text="The chart was closed"; break;
         case REASON_PARAMETERS:
-          text="The input-parameter was changed";break;
+          text="The input-parameter was changed"; break;
         case REASON_RECOMPILE: 
-          text="The program "+__FILE__+" was recompiled";break;
+          text="The program "+__FILE__+" was recompiled"; break;
         case REASON_REMOVE:
-          text="Program "+__FILE__+" was removed from chart";break;
+          text="Program "+__FILE__+" was removed from chart"; break;
         case REASON_TEMPLATE:
-          text="A new template was applied to chart";break;
+          text="A new template was applied to chart"; break;
         default:
           text="A different reason";
       }
@@ -499,6 +501,7 @@ void OnTick()
                       {
                         int orders_for_week=count_orders(ORDER_SET_ALL,EA_1_magic_num,MODE_HISTORY,OrdersHistoryTotal(),604800,current_time);
                         print_and_email("Info","Total orders for the week: "+IntegerToString(orders_for_week));
+                        print_and_email("Info","Account Balance: "+DoubleToString(AccountBalance()));
                         safe_to_trade=boolean_compare(safe_to_trade,set_gmt_offset(instrument,current_time)); // since it is a new week, it will trigger the gmt_offset_required to re-evaluate (which I want to happen at the beginning of each week
                       }
                     if(trading_paused) 
@@ -556,8 +559,8 @@ bool is_previous_D1_bar_correct_length(string instrument,datetime current_time)
         int previous_day=TimeDayOfWeek(previous_day_time);
         //Print("day of week: ",TimeDayOfWeek(current_day)," current_day: ",TimeToStr(current_day_time));
         //Print("day of week: ",TimeDayOfWeek(previous_day)," previous_day: ",TimeToStr(previous_day_time));
-        double hours_yesterday=(current_day_time-previous_day_time)/3600; // keep it as a double not an int
-        if(MathMod(hours_yesterday,24)!=0 || hours_yesterday>48) Print("WARNING WARNING WARNING hours_yesterday: ",hours_yesterday); // the reason I am using MathMod is because sometimes brokers don't provide data or trading on holiday so, if the calculation is two days (24+24)=48 then that is okay
+        double hours_yesterday=double((current_day_time-previous_day_time)/3600); // keep it as a double not an int
+        if(MathMod(hours_yesterday,24)!=0 || hours_yesterday>48) print_and_email("Warning","hours_yesterday: "+DoubleToString(hours_yesterday)); // the reason I am using MathMod is because sometimes brokers don't provide data or trading on holiday so, if the calculation is two days (24+24)=48 then that is okay
         if(current_day-previous_day==1 && hours_yesterday==24) return true;
       }
     print_and_email("Warning","TRADING WILL NOT HAPPEN TO TODAY BECAUSE THE PREVIOUS D1 BAR WAS NOT 24 HOURS LONG");
@@ -643,7 +646,7 @@ bool a_trade_closed_since_last_checked(int magic)
 void print_and_email(string subject,string body)
   {
      Print(subject,": ",body);
-     SendMail(subject,body);
+     if(email_alerts_on) SendMail(subject,subject+": "+body);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1039,6 +1042,21 @@ bool set_point_multiplier(string instrument)
       }
     else
         point_multiplier=1;
+    return true;    
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool set_spread_divider()
+  {  
+    if(using_oanda_broker)
+      {
+        spread_divider=10;
+      }
+    else
+      {
+        spread_divider=1;
+      }  
     return true;    
   }
 //+------------------------------------------------------------------+
@@ -1834,7 +1852,7 @@ bool set_gmt_offset(string instrument,datetime current_time) // Automatic gmt_of
                             sundays_bar_time=previous_bar_time;
                             int market_start_hour=get_sundays_start_hour(instrument,sundays_bar_time,1);
                             sundays_bar_time+=(market_start_hour*3600);
-                            int temp_gmt_offset=(current_bar_time-sundays_bar_time)/3600;
+                            int temp_gmt_offset=int((current_bar_time-sundays_bar_time)/3600);
                             //Print(i);
                             if(current_bar_time>sundays_bar_time)
                               {
@@ -3297,7 +3315,7 @@ bool is_acceptable_spread(string instrument,double _max_spread_percent,bool _bas
     if(spread_pts_provided==0)
       {
         double point=MarketInfo(instrument,MODE_POINT);
-        _spread_pts=NormalizeDouble(MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier,digits); //  I put this check here because the rates were just refreshed.
+        _spread_pts=NormalizeDouble(MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier/spread_divider,digits); //  I put this check here because the rates were just refreshed.
       }
     else
       {
@@ -3360,12 +3378,12 @@ double calculate_avg_spread_yesterday(string instrument)
         if(in_time_range)
           {
             // TODO: you won't be able to get the average spread from the previous day because it is not possible. Try to code a spread history indicator and get it from there.
-            double spread=NormalizeDouble(MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier,Digits); // divide by 10
+            double spread=NormalizeDouble(MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier/spread_divider,Digits); // divide by 10
             spread_total+=spread;
           }
       }
     return NormalizeDouble(spread_total/(new_server_day_bar-end_server_day_bar),Digits); // return the average spread*/
-    double avg_spread_yesterday=NormalizeDouble(MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier,digits); // this line is temporary until I find a way to get spread history
+    double avg_spread_yesterday=NormalizeDouble(MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier/spread_divider,digits); // this line is temporary until I find a way to get spread history
     //Print("calculate_avg_spread_yesterday() returns: ",avg_spread_yesterday);
     return avg_spread_yesterday;
   }
@@ -3536,7 +3554,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,str
       }
     // If the flow reaches this point, the trade should really be made and not simulated.
     RefreshRates();
-    double spread_pts=NormalizeDouble(MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier,digits);
+    double spread_pts=NormalizeDouble(MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier/spread_divider,digits);
     if(prevent_ultrawide_stoploss) periods_range_pts=MathMin(periods_range_pts,ADR_pts); // Does not allow the stoploss and takeprofit to be more than ADR_pts. This line must go above the lots, takeprofit_pts and stoploss_pts calculations.
     double lots;
     lots=calculate_lots(money_management,periods_range_pts,risk_percent_per_range,spread_pts,instrument,magic,_reduced_risk);
@@ -3911,7 +3929,7 @@ double get_lots(ENUM_MM method,bool _reduced_risk,int magic,string instrument,do
           micro_multiplier=0;
           break;
       }    
-    if(compound_balance) balance=AccountBalance();
+    if(compound_balance || AccountBalance()<5000) balance=AccountBalance();
     else balance=5000;
     switch(method)
       {
@@ -4418,7 +4436,9 @@ ENUM_DIRECTION_BIAS signal_check_risky_market_trade(string instrument,ENUM_DIREC
             else 
               {
                 bias=DIRECTION_BIAS_NEUTRALIZE;
-                print_and_email("Info","A "+instrument+" trade was prevented from entering to prevent too much risk in a single currency.");
+                if(current_bias==DIRECTION_BIAS_BUY) print_and_email("Info","A "+instrument+" long trade was prevented from entering to prevent too much risk in a single currency.");
+                else if(current_bias==DIRECTION_BIAS_SELL) print_and_email("Info","A "+instrument+" short trade was prevented from entering to prevent too much risk in a single currency.");
+                else print_and_email("Info","A "+instrument+" trade that was not a buy or sell signal was prevented from entering to prevent too much risk in a single currency.");
               }
           }
       }
