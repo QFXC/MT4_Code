@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Quant FX Capital/Tom Mazurek"
 #property link      "https://www.quantfxcapital.com"
-#property version   "2.02"
+#property version   "2.04"
 #property strict
 /* 
 Remember:
@@ -17,9 +17,9 @@ Remember:
 */
 enum ENUM_NULL_TRUE_FALSE
   {
-    iNULL=-1,
-    iFALSE=0,
-    iTRUE=1,
+    myNULL=-1,
+    myFALSE=0,
+    myTRUE=1,
   };
 enum ENUM_PIVOT_PEAK
   {
@@ -101,7 +101,7 @@ enum ENUM_MM // Money Management
 //+------------------------------------------------------------------+
   input bool        option=false;
   input bool        option2=false;
-  input string      version="2.02";
+  input string      version="2.04";
   input bool        using_oanda_broker=true;
   input bool        use_recommended_settings=true;     // use_recommended_settings:
   int               init_result=INIT_FAILED;
@@ -1845,205 +1845,152 @@ bool time_to_exit(datetime time,int exit_hour,int exit_min,int gmt_offset=0)
 bool set_gmt_offset(string instrument,datetime current_time,int coming_from) // Automatic gmt_offset_hour detection based on the broker's server times. The offset can vary between 0 and 4 depending on the time of year.
   {
     // keep these static variables in this scope
-    static int      gmt_offset_required=iNULL; // it is static because brokers probably never change their server time policy
-    static datetime last_date_variable_modified=iNULL; // keep as static and iNULL (aka -1)
+    static datetime last_date_variable_modified=myNULL; // keep as static and myNULL (aka -1)
     datetime        date=iTime(instrument,PERIOD_D1,0);
-    int             _gmt_hour_offset;
-    bool            variable_modified=false;
-    bool            other_criteria=gmt_hour_offset_is_NULL || gmt_offset_required==iNULL || is_new_custom_W1_bar;
-    bool new_day=is_new_D1_bar || is_new_custom_D1_bar;
-    if(automatic_gmt_offset==false)
+    int             day=TimeDayOfWeek(current_time);
+    bool            other_criteria=gmt_hour_offset_is_NULL || last_date_variable_modified==myNULL;
+    bool            new_day=is_new_D1_bar || is_new_custom_D1_bar;
+    if((day<=1 && date!=last_date_variable_modified && new_day) || other_criteria)
       {
-        _gmt_hour_offset=0;
-        variable_modified=true;
-      }
-    else
-      {
-        int day=TimeDayOfWeek(current_time);
-        if((day<=1 && date!=last_date_variable_modified && new_day) || other_criteria)
+        int  gmt_offset_required=myNULL; // it is static because brokers probably never change their server time policy
+        int  _gmt_hour_offset;
+        bool variable_modified=false;
+        if(automatic_gmt_offset==false)
           {
-        //if(gmt_hour_offset_is_NULL || gmt_offset_required<=0 || is_new_custom_W1_bar) // run this code the first time or once a week (in case the broker ever changes their server time policy)
-            bool gmt_offset_detected=false;
+            _gmt_hour_offset=0;
+            variable_modified=true;
+          }
+        else
+          {
             if(new_day)
               {
-                if(gmt_hour_offset_is_NULL) Print("set_gmt_offset: is_new_D1_bar or is_new_D1_bar and gmt_hour_offset is NULL");
-                if(gmt_offset_required==iNULL) Print("set_gmt_offset: is_new_D1_bar or is_new_D1_bar and gmt_offset_required is NULL"); 
-                if(is_new_custom_W1_bar) Print("set_gmt_offset: it is a new week so set_gmt_offset will be generated");             
+                if(gmt_hour_offset_is_NULL)     Print("set_gmt_offset: is_new_D1_bar or is_new_D1_bar and gmt_hour_offset is NULL");
+                if(gmt_offset_required==myNULL) Print("set_gmt_offset: is_new_D1_bar or is_new_D1_bar and gmt_offset_required is NULL"); 
+                if(is_new_custom_W1_bar)        Print("set_gmt_offset: it is a new week so set_gmt_offset will be generated");             
               }
             // determine if a gmt offset is required and detected
             if(day==1 && TimeDayOfWeek(iTime(instrument,PERIOD_D1,1))==5) // this is true when the chart goes from having a GMT offset to not having one. The following did not work: if(day==1 && TimeDayOfWeek(iTime(instrument,PERIOD_D1,1))==5)
               {
                 gmt_offset_required=false;
-                gmt_offset_detected=false;
                 Print("A gmt_hour_offset that ==0 is required (1)");
               }
             else if(day==0 && is_new_D1_bar && is_new_custom_D1_bar && TimeHour(current_time)!=0) // this is true when the chart goes from having a GMT offset to not having one. The following did not work: if(day==1 && TimeDayOfWeek(iTime(instrument,PERIOD_D1,1))==5)
               {
                 gmt_offset_required=true;
-                gmt_offset_detected=true;
                 Print("A gmt_hour_offset that !=0 is required (1)");
               }
             else if((day==1 && new_day) || other_criteria)
               {
                 for(int i=0;i<9;i++)
                   {
-                    if(gmt_offset_detected==false)
+                    if(gmt_offset_required<=0)
                       {
                         if(TimeDayOfWeek(iTime(instrument,PERIOD_D1,i))==0) // if the current bar is Sunday
                           {
                             gmt_offset_required=true;
-                            gmt_offset_detected=true;
                             Print("A gmt_hour_offset that !=0 is required (2)");
                           }
                       }
                   }
-                if(gmt_offset_detected==false) // if gmt_offset_detected is still false after the loop
+                if(gmt_offset_required==false) // if gmt_offset_detected is still false after the loop
                   {
-                    gmt_offset_required=false;
                     Print("A gmt_hour_offset that ==0 is required (2)");                   
                   }
               }
-            /*else 
-              {
-                gmt_offset_required=false;
-                gmt_offset_detected=false;
-                Print("A gmt_hour_offset that ==0 is required (2)");    
-              }*/
             // determine if there is an issue with what the user sees on the chart and what is actually on the chart
-            if(gmt_offset_detected==false && gmt_offset_required==false && gmt_offset_visible==true) 
+            if(gmt_offset_required) // if it is Sunday or Monday (but only running the code one time per day) or if it is the first time the gmt offset was attempted to be generated
               {
-                int current_gmt_offset=gmt_hour_offset;
-                //print_and_email("Info","set_gmt_offset: gmt_hour_offset will continue to be: "+IntegerToString(gmt_hour_offset));
-                if(gmt_hour_offset_is_NULL==false && day==1 && new_day) print_and_email("Error","set_gmt_offset: A GMT offset was not detected on the broker's chart but the user indicates that there is supposed to be one. Coming from: "+IntegerToString(coming_from));
-                else if(gmt_hour_offset_is_NULL) print_and_email("Important Info","set_gmt_offset: gmt_hour_offset is NULL and is about to be changed to 0 because a gmt offset was not detected recently but the user indicates there is supposed to be one"); // this should run before gmt_hour_offset_is_NULL assigned to false
-                _gmt_hour_offset=0;
-                variable_modified=true;
-
-                //return true; // continue using the previous gmt_hour_offset_value
-
-                /*else // there are broker charts that don't have Sundays for months at a time and then do have Sundays for months at a time (dependant on daylight savings time)
+                if(gmt_offset_visible==false) 
                   {
-                    Print("set_gmt_offset: returned false -1");
-                    print_and_email("Error","set_gmt_offset: gmt_hour_offset was not previously set so the EA has to terminate");
-                    return false; // something is wrong if these to boolean variables do not equal to each other and it is recommended to abort the algorithm
-                  }*/
-              }
-            else if(gmt_offset_detected && gmt_offset_required && gmt_offset_visible==false) 
-              {
-                print_and_email("Error","set_gmt_offset: A GMT offset was detected on the broker's chart but the user indicates that there isn't supposed to be one. Coming from: "+IntegerToString(coming_from));
-                return false;
-                /*if(gmt_hour_offset<0) 
-                  {
-                    print_and_email("Info","set_gmt_offset: gmt_hour_offset will continue to be: "+IntegerToString(gmt_hour_offset));
-                    return true; // continue using the previous gmt_hour_offset_value
+                    print_and_email("Error","set_gmt_offset: A GMT offset was detected on the broker's chart but the user indicates that there isn't supposed to be one. Coming from: "+IntegerToString(coming_from));
+                    return false;
                   }
-                else
+                datetime sundays_bar_time=0;
+                for(int i=0;i<9;i++)
                   {
-                    //Print("set_gmt_offset: returned false 0");
-                    print_and_email("Error","set_gmt_offset: gmt_hour_offset was not set previously so the EA has to terminate");
-                    return false; // something is wrong if these to boolean variables do not equal to each other and it is recommended to abort the algorithm
-                  }*/
-              }
-            if(gmt_offset_required || last_date_variable_modified==iNULL || gmt_hour_offset_is_NULL) // if it is Sunday or Monday (but only running the code one time per day) or if it is the first time the gmt offset was attempted to be generated
-              {
-                if(gmt_offset_required==true || gmt_hour_offset<0) // If it is Sunday or Monday (on Monday, you have to regenerate it because it might be different for the week than last week). Or, the gmt_hour_offset hasn't been generated yet.
-                  {
-                    datetime sundays_bar_time=0;
-                    for(int i=0;i<9;i++)
+                    if(variable_modified==false)
                       {
-                        if(variable_modified==false)
+                        datetime current_bar_time=iTime(instrument,PERIOD_D1,i);
+                        int      day_of_week=TimeDayOfWeek(current_bar_time);   
+                        int      absolute_gmt_offset=0;                      
+                        if(day_of_week==0)
                           {
-                            datetime current_bar_time=iTime(instrument,PERIOD_D1,i);
-                            int      day_of_week=TimeDayOfWeek(current_bar_time);   
-                            int      absolute_gmt_offset=0;                      
-                            if(day_of_week==0)
+                            sundays_bar_time=current_bar_time;
+                            int market_start_hour=get_sundays_start_hour(instrument,sundays_bar_time,1);
+                            //Print("current_bar_time=",TimeToString(current_bar_time));
+                            //Print("sundays_bar_time=",TimeToString(sundays_bar_time));
+                            absolute_gmt_offset=24-market_start_hour;
+                            //Print("temp_gmt_offset=",temp_gmt_offset);                
+                          }
+                        else 
+                          {
+                            datetime previous_bar_time=iTime(instrument,PERIOD_D1,i+1);
+                            if(day_of_week==1 && TimeDayOfWeek(previous_bar_time)==0) // if the current bar is Monday and the previous bar is Sunday
                               {
-                                sundays_bar_time=current_bar_time;
-                                int market_start_hour=get_sundays_start_hour(instrument,sundays_bar_time,1);
-                                //Print("current_bar_time=",TimeToString(current_bar_time));
-                                //Print("sundays_bar_time=",TimeToString(sundays_bar_time));
-                                absolute_gmt_offset=24-market_start_hour;
-                                //Print("temp_gmt_offset=",temp_gmt_offset);                
-                              }
-                            else 
-                              {
-                                datetime previous_bar_time=iTime(instrument,PERIOD_D1,i+1);
-                                if(day_of_week==1 && TimeDayOfWeek(previous_bar_time)==0) // if the current bar is Monday and the previous bar is Sunday
+                                sundays_bar_time=previous_bar_time;
+                                if(current_bar_time>sundays_bar_time) // this is so absolute_gmt_offset returns a positive only and current_bar_time really is > sundays_bar_time
                                   {
-                                    sundays_bar_time=previous_bar_time;
-                                    if(current_bar_time>sundays_bar_time) // this is so absolute_gmt_offset returns a positive only and current_bar_time really is > sundays_bar_time
-                                      {
-                                        int market_start_hour=get_sundays_start_hour(instrument,sundays_bar_time,1);
-                                        sundays_bar_time+=(market_start_hour*3600);
-                                        //Print("current_bar_time=",TimeToString(current_bar_time));
-                                        //Print("sundays_bar_time=",TimeToString(sundays_bar_time));
-                                        absolute_gmt_offset=int((current_bar_time-sundays_bar_time)/3600);
-                                        //Print("temp_gmt_offset=",temp_gmt_offset);                                         
-                                      }
+                                    int market_start_hour=get_sundays_start_hour(instrument,sundays_bar_time,1);
+                                    sundays_bar_time+=(market_start_hour*3600);
+                                    //Print("current_bar_time=",TimeToString(current_bar_time));
+                                    //Print("sundays_bar_time=",TimeToString(sundays_bar_time));
+                                    absolute_gmt_offset=int((current_bar_time-sundays_bar_time)/3600);
+                                    //Print("temp_gmt_offset=",temp_gmt_offset);                                         
                                   }
                               }
-                            if(absolute_gmt_offset>0)
+                          }
+                        if(absolute_gmt_offset>0)
+                          {
+                            _gmt_hour_offset=-absolute_gmt_offset;
+                            variable_modified=true;
+                            if(_gmt_hour_offset!=0 && MathMod(_gmt_hour_offset,.5)!=0) 
                               {
-                                _gmt_hour_offset=-absolute_gmt_offset;
-                                variable_modified=true;
-                                if(_gmt_hour_offset!=0 && MathMod(_gmt_hour_offset,.5)!=0) 
-                                  {
-                                    //Print("set_gmt_offset: returned false 1");
-                                    print_and_email("Error","set_gmt_offset: gmt_hour_offset is not divisible by .5 so that is strange");
-                                    return false; // stop the algorithm if the gmt_hour_offset is not completely divisible by .5
-                                  }
-                                if(_gmt_hour_offset<-5) 
-                                  {
-                                    //Print("set_gmt_offset: returned false 2");
-                                    print_and_email("Error","set_gmt_offset: gmt_hour_offset was attempted to be set to less than -5 so that is strange");
-                                    return false; // something is wrong if these to boolean variables do not equal to each other and it is recommended to abort the algorithm
-                                  }                      
+                                //Print("set_gmt_offset: returned false 1");
+                                print_and_email("Error","set_gmt_offset: gmt_hour_offset is not divisible by .5 so that is strange");
+                                return false; // stop the algorithm if the gmt_hour_offset is not completely divisible by .5
                               }
+                            if(_gmt_hour_offset<-5) 
+                              {
+                                //Print("set_gmt_offset: returned false 2");
+                                print_and_email("Error","set_gmt_offset: gmt_hour_offset was attempted to be set to less than -5 so that is strange");
+                                return false; // something is wrong if these to boolean variables do not equal to each other and it is recommended to abort the algorithm
+                              }                      
                           }
                       }
                   }
-                else if(gmt_offset_required==false || (gmt_hour_offset==0 && gmt_hour_offset_is_NULL==false))
+              }     
+            else
+              {
+                if(gmt_offset_visible==true) 
                   {
-                    _gmt_hour_offset=0;
-                    variable_modified=true;
+                    int current_gmt_offset=gmt_hour_offset;
+                    //print_and_email("Info","set_gmt_offset: gmt_hour_offset will continue to be: "+IntegerToString(gmt_hour_offset));
+                    if(gmt_hour_offset_is_NULL==false && day==1 && new_day) print_and_email("Warning","set_gmt_offset: A GMT offset was not detected on the broker's chart but the user indicates that there is supposed to be one. Coming from: "+IntegerToString(coming_from));
+                    else if(gmt_hour_offset_is_NULL) print_and_email("Important Info","set_gmt_offset: gmt_hour_offset is NULL and is about to be changed to 0 because a gmt offset was not detected recently but the user indicates there is supposed to be one"); // this should run before gmt_hour_offset_is_NULL assigned to false
                   }
+                _gmt_hour_offset=0;
+                variable_modified=true;
               }
           }
-        else return true;
-      }
-    if(variable_modified) 
-      {
-        int current_gmt_offset=gmt_hour_offset;
-        gmt_hour_offset=_gmt_hour_offset;
-        gmt_hour_offset_is_NULL=false;
-        last_date_variable_modified=date;
-
-        // TODO: rarely it is set to the wrong value off by one because, for some reason, it doesn't detect that a bar has ticks until later
-        /*if(MathAbs(_gmt_hour_offset-last_gmt_hour_offset)>1 && last_gmt_hour_offset!=NULL) // if the gmt offset gets moves more than 1 (plus or negative), this is not possible
+        if(variable_modified) 
           {
-            gmt_hour_offset=last_gmt_hour_offset;
-            gmt_hour_offset_is_NULL=false;
-            Print("_gmt_hour_offset: ",_gmt_hour_offset);
-            Print("last_gmt_hour_offset: ",last_gmt_hour_offset);
-            Print("WARNING: gmt_offset_hours was set to the previous weeks. If not, it would have been a 2 hour difference.");
-            last_gmt_hour_offset=NULL;
-          }  
-        else 
-          {
-            Print("else ran");
+            int current_gmt_offset=gmt_hour_offset;
             gmt_hour_offset=_gmt_hour_offset;
             gmt_hour_offset_is_NULL=false;
-            last_gmt_hour_offset=gmt_hour_offset;
-          }*/
-        if(current_gmt_offset!=gmt_hour_offset) print_and_email("Important Info","set_gmt_offset: gmt_hour_offset was "+IntegerToString(current_gmt_offset)+" but has now been changed to: "+IntegerToString(_gmt_hour_offset)); 
-        //if(sundays_bar_time!=NULL || sundays_bar_time!=0) Print("sundays_bar_time: ",TimeToStr(sundays_bar_time));
-        //Print("Day of Week: ",day);
-      }
-    else
-      { 
-        gmt_offset_required=iNULL;
-        last_date_variable_modified=iNULL; // set this variable to NULL so that, on days that are not Sunday or Monday, the code in ths function can try to assign a value to gmt_hour_offset
-        print_and_email("Error","set_gmt_offset: gmt_hour_offset was not modified");
+            last_date_variable_modified=date;
+            if(current_gmt_offset!=gmt_hour_offset) 
+              { 
+                is_new_custom_D1_bar=is_new_custom_D1_bar(instrument,current_time); // immediately get the is_new_custom_D1_bar boolean variable since the gmt_hour_offset was confirmed to have been changed. This way is_new_custom_week will run soon and return true ASAP
+                print_and_email("Important Info","set_gmt_offset: gmt_hour_offset was "+IntegerToString(current_gmt_offset)+" but has now been changed to: "+IntegerToString(_gmt_hour_offset)); 
+              }
+            //if(sundays_bar_time!=NULL || sundays_bar_time!=0) Print("sundays_bar_time: ",TimeToStr(sundays_bar_time));
+            //Print("Day of Week: ",day);
+          }
+        else
+          { 
+            last_date_variable_modified=myNULL; // set this variable to NULL so that, on days that are not Sunday or Monday, the code in ths function can try to assign a value to gmt_hour_offset
+            print_and_email("Error","set_gmt_offset: gmt_hour_offset was not modified");
+          }
       }
     return true;
   }
@@ -2073,36 +2020,28 @@ bool is_new_custom_D1_bar(string instrument,datetime current_time) // this funct
         D1_bar_time=D1_current_bar_open_time;
         D1_open_price=D1_current_bar_open_price;
         if(days_open_time<=0) set_custom_D1_open_time(instrument,0); // get the D1 bar's open time (based on the current time) // this will get a value for the weeks_open_time global variable
-        if(gmt_hour_offset<0) D1_current_bar_close_time=days_open_time+86400;
-        Print("hours_open_time: ",TimeToStr(hours_open_time)," days_open_time: ",TimeToStr(days_open_time));
+        if(gmt_hour_offset<0) D1_current_bar_close_time=round_down_to_hours(days_open_time)+86400;
+        //Print("hours_open_time: ",TimeToStr(hours_open_time)," days_open_time: ",TimeToStr(days_open_time));
         if(TimeHour(hours_open_time)==TimeHour(days_open_time)) // using the TimeHour function to ensure that the hours are only compared (because, sometimes, the minutes might be slightly off)
           {
-            if(print_time_info) 
-              {
-                if(DayOfWeek()==5) print_and_email("Warning","new custom day (1) on a FRIDAY");
-                else Print("new custom day (1) (when gmt_hour_offset<0)");
-              }
+            if(DayOfWeek()==5 && TimeHour(current_time)!=0) print_and_email("Warning","new custom day (1) on a FRIDAY",!print_time_info);
+            else if(print_time_info) Print("new custom day (1)");
             return true;
           }
-        /*else if(DayOfWeek()==0 && TimeHour(hours_open_time)==0)
+        else 
           {
-            //Print("new day 2");
-            return true;
-          }*/
-        else return false;
+            return false; 
+          }
       }
-    if(gmt_hour_offset<0 && current_time>=D1_current_bar_close_time && (TimeHour(current_time)>=24+gmt_hour_offset)) // if the opening time and price of this bar is different than the opening time and price of the previous one
+    if(gmt_hour_offset<0 && current_time>=D1_current_bar_close_time && TimeHour(current_time)==24+gmt_hour_offset)
       {
         set_custom_D1_open_time(instrument,0); // get the D1 bar's open time global variable (based on the current time\hour)  
         D1_bar_time=D1_current_bar_open_time;
         D1_open_price=D1_current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
-        D1_current_bar_close_time=days_open_time+86400;
+        D1_current_bar_close_time=round_down_to_hours(days_open_time)+86400;
         //Print("D1_current_bar_close_time set to: ",D1_current_bar_close_time);
-        if(print_time_info) 
-          {
-            if(DayOfWeek()==5) print_and_email("Warning","new custom day (3) on a FRIDAY (when gmt_hour_offset<0)");
-            else Print("new custom day (3) (when gmt_hour_offset<0)");
-          }
+        if(DayOfWeek()==5 && TimeHour(current_time)!=0) print_and_email("Warning","new custom day (2) on a FRIDAY (when gmt_hour_offset<0)",!print_time_info);
+        else if(print_time_info) Print("new custom day (2) (when gmt_hour_offset<0)");
         return true;
       }
     else if(gmt_hour_offset==0 && D1_current_bar_open_time>D1_bar_time && compare_doubles(D1_open_price,D1_current_bar_open_price,digits)!=0) // if the opening time and price of this bar is different than the opening time and price of the previous one
@@ -2110,14 +2049,21 @@ bool is_new_custom_D1_bar(string instrument,datetime current_time) // this funct
         D1_bar_time=D1_current_bar_open_time; // assuring the true value only gets returned for 1 tick and not the very next ones
         D1_open_price=D1_current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
         set_custom_D1_open_time(instrument,0); // get the D1 bar's open time global variable (based on the current time\hour)
-        if(print_time_info) 
-          {
-            if(DayOfWeek()==5) print_and_email("Warning","new custom day (4) on a FRIDAY (when gmt_hour_offset==0)");
-            else Print("new custom day (4) (when gmt_hour_offset==0)");
-          }
+        if(DayOfWeek()==5 && TimeHour(current_time)!=0) print_and_email("Warning","new custom day (3) on a FRIDAY (when gmt_hour_offset==0)",!print_time_info);
+        else if(print_time_info) Print("new custom day (3) (when gmt_hour_offset==0)");
         return true;
       }
     else return false;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+datetime round_down_to_hours(datetime time)
+  {
+    return StringToTime(StringConcatenate(IntegerToString(TimeYear(time)),".",
+                                          IntegerToString(TimeMonth(time),2,0),".",
+                                          IntegerToString(TimeDay(time),2,0)," ",
+                                          IntegerToString(TimeHour(time),2,0)+":00"));
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
