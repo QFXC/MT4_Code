@@ -291,6 +291,9 @@ bool print_broker_info(string instrument)
     Print("Free margin required to open 1 lot for buying=",MarketInfo(Symbol(),MODE_MARGINREQUIRED)); 
     Print("Order freeze level in points=",MarketInfo(Symbol(),MODE_FREEZELEVEL)); 
     */
+    datetime current_bar_open_time=iTime(instrument,PERIOD_M5,0);        
+    datetime current_time=(datetime)MarketInfo(instrument,MODE_TIME);
+    bool     market_open_today=is_market_open_today(instrument,current_time);
     int      instrument_int=get_string_integer(StringSubstr(instrument,0,6));
     string   expert_name=WindowExpertName();
     double   tick_value=MarketInfo(instrument,MODE_TICKVALUE);
@@ -303,8 +306,6 @@ bool print_broker_info(string instrument)
     int      lot_digits=(int) -MathLog10(MarketInfo(instrument,MODE_LOTSTEP));
     int      lot_step=(int)(MarketInfo(instrument,MODE_LOTSTEP));
     int      digits=(int)MarketInfo(instrument,MODE_DIGITS);
-    datetime current_bar_open_time=iTime(instrument,PERIOD_M5,0);        
-    datetime current_time=(datetime)MarketInfo(instrument,MODE_TIME);
     int      trade_allowed=(int)MarketInfo(instrument,MODE_TRADEALLOWED);
     double   one_lot_initial_margin=MarketInfo(instrument,MODE_MARGININIT);
     double   margin_to_maintain_open_orders=MarketInfo(instrument,MODE_MARGINMAINTENANCE);
@@ -312,6 +313,10 @@ bool print_broker_info(string instrument)
     double   free_margin_required=MarketInfo(instrument,MODE_MARGINREQUIRED);
     double   freeze_level_pts=MarketInfo(instrument,MODE_FREEZELEVEL);
     string   current_chart=Symbol();
+
+    Print("current time: ",TimeToString(current_time));
+    Print("current bar open time: ",TimeToString(current_bar_open_time));
+    Print("is_market_open_today: ",market_open_today);
     Print(StringSubstr(instrument,0,6),"'s string integer: ",IntegerToString(instrument_int));
     Print("expert_name: ",expert_name);
     Print("trade_allowed: ",trade_allowed);
@@ -337,8 +342,6 @@ bool print_broker_info(string instrument)
     Print("lot_digits: ",IntegerToString(lot_digits)," after the decimal point.");
     Print("lot_step: ",lot_step);    
     Print("broker digits: ",IntegerToString(digits)," after the decimal point.");
-    Print("current time: ",TimeToString(current_time));
-    Print("current bar open time: ",TimeToString(current_bar_open_time));
     Print("current_chart: ",current_chart);
     return true;
   }
@@ -519,8 +522,7 @@ void OnTick()
             if(is_new_H1_bar) 
               {
                 //Print("hourly gmt: ",gmt_hour_offset);
-                set_custom_D1_open_time(instrument,0); // Since the gmt_hour_offset was just set, that means that the custom D1 open time can also be different and, also, the next line (is_new_custom_D1_bar) uses the days_open_time variable. So this function needs to be here to assign the updated value to the variable.
-                
+                set_custom_D1_open_time(instrument,0); // Since the gmt_hour_offset was just set, that means that the custom D1 open time can also be different and, also, the next line (is_new_custom_D1_bar) uses the days_open_time variable. So this function needs to be here to assign the updated value to the variable.             
                 is_new_custom_D1_bar=is_new_custom_D1_bar(instrument,current_time); // set_gmt_offset needs to be run before is_new_custom_D1_bar because is_new_custom_D1_bar uses the gmt_offset_hour variable
                 // set_gmt_offset has to run here because the broker's server time can change very frequently, so this function needs to get called frequently
                 // also because set_gmt_offset can only be run after is_new_D1_bar and is_new_custom_D1_bar is run
@@ -561,7 +563,7 @@ void OnTick()
           }
         if(safe_to_trade && trading_paused==false) 
             ea_ran=relativity_ea_ran(instrument,digits,EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage); // TODO: test by typing "USDJPYpro" as a replacement to instrument
-        else if(is_new_H1_bar) 
+        else if(is_new_D1_bar || is_new_custom_D1_bar) 
           {
             trading_paused=true;
             //gmt_hour_offset=NULL; // setting gmt_hour_offset to NULL will allow the set_gmt_offset function to try to set it the next time it is called
@@ -701,11 +703,11 @@ void print_and_email_margin_info(string instrument,string subject)
     double hedged_margin=MarketInfo(instrument,MODE_MARGINHEDGED);
     double free_margin_required=MarketInfo(instrument,MODE_MARGINREQUIRED);
     double freeze_level_pts=MarketInfo(instrument,MODE_FREEZELEVEL);
-    /*Print(subject," one_lot_initial_margin: ",DoubleToStr(one_lot_initial_margin));
-    Print(subject," margin_to_maintain_open_orders for 1 lot: ",DoubleToStr(margin_to_maintain_open_orders));
-    Print(subject," hedged_margin: ",DoubleToStr(hedged_margin));
-    Print(subject," free_margin_required to open 1 lot: ",DoubleToStr(free_margin_required));
-    Print(subject," freeze_level_pts: ",DoubleToStr(freeze_level_pts));*/               
+    Print(subject,": one_lot_initial_margin: ",DoubleToStr(one_lot_initial_margin));
+    Print(subject,": margin_to_maintain_open_orders for 1 lot: ",DoubleToStr(margin_to_maintain_open_orders));
+    Print(subject,": hedged_margin: ",DoubleToStr(hedged_margin));
+    Print(subject,": free_margin_required to open 1 lot: ",DoubleToStr(free_margin_required));
+    Print(subject,": freeze_level_pts: ",DoubleToStr(freeze_level_pts));
     if(email_alerts_on) 
       {
         string email_body=StringConcatenate("one_lot_initial_margin: ",DoubleToStr(one_lot_initial_margin),
@@ -816,31 +818,37 @@ bool relativity_ea_ran(string instrument,int digits,int magic,datetime current_t
               }
             else 
               {
-                print_and_email("Warning","THE EA IS NOT READY FOR TRADING");
-                ready=false; // never assign average_spread_yesterday to anything in this scope
-                if(ADR_pts==0 || ADR_pts==NULL)
-                    print_and_email("","... because ADR_pts was not generated");
-                if(magic<=0 || magic==NULL)
-                    print_and_email("","... because the magic number was not generated"); 
-                if(days_open_time<=0 || days_open_time==NULL)
-                    print_and_email("","... because days_open_time was not generated");
-                if(gmt_hour_offset_is_NULL)
-                    print_and_email("","... because gmt_hour_offset was not generated");   
-                if(is_acceptable_spread==false)
+                static datetime last_sent=-1;
+                datetime today=round_down_to_days(current_time);
+                if(last_sent==-1 || (last_sent!=today && (is_new_D1_bar || is_new_custom_D1_bar))) 
                   {
-                    /*Steps that were used to calculate percent_allows_trading:
-                    double max_spread=((ADR_pts)*max_spread_percent);
-                    double spread_diff=average_spread_yesterday-max_spread;
-                    double spread_diff_percent=spread_diff/(ADR_pts);
-                    double percent_allows_trading=spread_diff_percent+max_spread_percent;*/
-                    double percent_allows_trading=NormalizeDouble(((average_spread_yesterday-(ADR_pts*max_spread_percent))/ADR_pts)+max_spread_percent,3);
-                    Alert(instrument," can't be traded today because the average spread yesterday does not meet your max_spread_percent (",
-                    DoubleToStr(max_spread_percent,3),") of ADR criteria. The average spread yesterday was ",
-                    DoubleToStr(average_spread_yesterday,3),
-                    ". A max_spread_percent value above ",
-                    DoubleToStr(percent_allows_trading,3),
-                    " would have allowed the EA make trades in this currency pair today.");
-                    average_spread_yesterday=-1; // keep this at -1 because an if statement depends on it
+                    string not_ready="THE EA FOR "+instrument+" IS NOT READY FOR TRADING";
+                    ready=false; // never assign average_spread_yesterday to anything in this scope
+                    if(ADR_pts==0 || ADR_pts==NULL)
+                        print_and_email("Error",not_ready+" because ADR_pts was not generated");
+                    if(magic<=0 || magic==NULL)
+                        print_and_email("Error",not_ready+" because the magic number was not generated"); 
+                    if(days_open_time<=0 || days_open_time==NULL)
+                        print_and_email("Error",not_ready+" because days_open_time was not generated");
+                    if(gmt_hour_offset_is_NULL)
+                        print_and_email("Error",not_ready+" because gmt_hour_offset was not generated");   
+                    if(is_acceptable_spread==false)
+                      {
+                        /*Steps that were used to calculate percent_allows_trading:
+                        double max_spread=((ADR_pts)*max_spread_percent);
+                        double spread_diff=average_spread_yesterday-max_spread;
+                        double spread_diff_percent=spread_diff/(ADR_pts);
+                        double percent_allows_trading=spread_diff_percent+max_spread_percent;*/
+                        double percent_allows_trading=NormalizeDouble(((average_spread_yesterday-(ADR_pts*max_spread_percent))/ADR_pts)+max_spread_percent,3);
+                        Alert(instrument," can't be traded today because the average spread yesterday does not meet your max_spread_percent (",
+                        DoubleToStr(max_spread_percent,3),") of ADR criteria. The average spread yesterday was ",
+                        DoubleToStr(average_spread_yesterday,3),
+                        ". A max_spread_percent value above ",
+                        DoubleToStr(percent_allows_trading,3),
+                        " would have allowed the EA make trades in this currency pair today.");
+                        average_spread_yesterday=-1; // keep this at -1 because an if statement depends on it
+                      }
+                    last_sent=round_down_to_days(current_time);
                   }
               }  
           }
@@ -1222,7 +1230,6 @@ ENUM_DIRECTION_BIAS _signal_MA_better_test(string instrument,double current_bid)
       }
     return bias;
   }
-  
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -1247,58 +1254,6 @@ ENUM_DIRECTION_BIAS signal_MA_worse(string instrument)
       }
     return bias;  
   }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-/*ENUM_DIRECTION_BIAS signal_MA_testing(string instrument) // 
-  {
-    ENUM_DIRECTION_BIAS bias;
-    if(moving_avg_period<=0 || ma_multiplier<=0)
-        bias=DIRECTION_BIAS_IGNORE;
-    else
-      {
-        double current_bid=MarketInfo(instrument,MODE_BID);
-        int ma_shift=0;
-        int ma_index=0;
-        double distance_pts=0;
-        double ma1_price=iMA(instrument,PERIOD_M5,300,ma_shift,MODE_SMA,PRICE_MEDIAN,ma_index);
-        double ma2_price=iMA(instrument,PERIOD_M5,500,ma_shift,MODE_SMA,PRICE_MEDIAN,ma_index);
-        double point=MarketInfo(instrument,MODE_POINT);
-        double what_to_use=current_bid;
-        
-        if(LOP_price<ma1_price && HOP_price>ma1_price) // current_bid>ma_price && uptrend && LOP_price>ma_price
-          {
-            bias=DIRECTION_BIAS_NEUTRALIZE;
-          }  
-        else 
-          {
-            if(uptrend && HOP_price<ma2_price) // current_bid>ma_price && uptrend && LOP_price>ma_price
-              {
-                distance_pts=MathAbs(ma2_price-HOP_price);
-                if(distance_pts<ma_range_pts*point*point_multiplier*1) 
-                  { 
-                    bias=DIRECTION_BIAS_NEUTRALIZE;
-                  }  
-                else bias=DIRECTION_BIAS_IGNORE;
-              }
-            else if(downtrend && LOP_price>ma2_price)
-              {
-                distance_pts=MathAbs(LOP_price-ma2_price);
-                if(distance_pts<ma_range_pts*point*point_multiplier*1) 
-                  {
-                    bias=DIRECTION_BIAS_NEUTRALIZE;
-                  }  
-                else bias=DIRECTION_BIAS_IGNORE;
-              }
-            else bias=DIRECTION_BIAS_NEUTRALIZE;
-            return bias;  
-          }
-        //if(bias==DIRECTION_BIAS_NEUTRALIZE) Print("THE MA SETTINGS PREVENTED A TRADE. ",DoubleToStr(distance_pts));
-        //if(is_new_M5_bar) Print(DoubleToStr(distance_pts));
-        
-      }
-    return bias;  
-  }*/
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -1500,9 +1455,9 @@ ENUM_DIRECTION_BIAS signal_ADR_triggered(string instrument)
       }
     return signal;
    }
-   
-   
-   
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+  
 ENUM_DIRECTION_BIAS _signal_ADR_triggered_test(string instrument)
   {
     ENUM_DIRECTION_BIAS signal=DIRECTION_BIAS_NEUTRALIZE;
@@ -1651,61 +1606,20 @@ int get_string_integer(string string1)
 //+------------------------------------------------------------------+
 int set_magic_num(string instrument, ENUM_SIGNAL_SET)
   {
-     /*int total_variable_count=10;
-     string symbols_string=symbol;
-     string unique_string="";
-     int magic_int=0; // This has to be initialized to 0. Do not change this unless you analyze and make changes to all the code that depends on this function because if -1 ever gets returned that means to close all orders from all EAs!
-     double input_variables[10]; // only allowed to put constants in the array
-     
-     // add all the double and int global input variables to the input_variables array which will allow the magic_int to be unique based upon how the user sets them
-     
-    // int max and min values https://docs.mql4.com/basis/types/integer
-    
-     int symbols_int=StrToInteger(symbols_string);
-     string symbol_num_string=IntegerToString(symbols_int);
-  
-     for(int i=0;i<total_variable_count;i++)
-       {
-       // get the "i"th global input variables from the input_variable
-  
-        double another_variable=input_variables[i];
-        
-        if(MathIsValidNumber(another_variable))
-          {
-           if(MathMod(another_variable,1)!=0) // if it is NOT a whole number
-             {
-              another_variable=NormalizeDouble(another_variable,2);
-             }
-             
-           // now any number that gets to this point can be converted into an int without any loss of data
-           int another_variable_int=(int)another_variable;
-           string num_string=IntegerToString(another_variable_int);
-           
-           if(another_variable_int>0) unique_string=StringConcatenate("1",num_string); // create a unique string for this specific positive number
-           else if(another_variable_int!=NULL) unique_string=StringConcatenate("0",num_string); // create a unique string for this specific negative number 
-          }
-        else // it must be a string or some other unknown type
-          {
-           Alert("A non-valid number was used to try to make the magic number. Only numbers are allowed. The EA cannot go forward until the Expert Advisor MQL4 programmer fixes the code.");
-          }
-       }
-     string magic_string=StringConcatenate(symbol_num_string,unique_string);
-     magic_int=StrToInteger(magic_string);
-     return magic_int;
-
-started work on a different option if the one above does not work out.
-     MathSrand(1);
-     int large_random_num=MathRand()*MathRand();
-     
-     while(magic_num_in_use(large_random_num))
-     {
-       large_random_num=MathRand()*MathRand(); // from 1 through 1,073,676,289
-     }
-     return large_random_num;
-   */
-   
    int instrument_int=get_string_integer(instrument);
    return(instrument_int);
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool is_market_open_today(string instrument,datetime current_time)
+  {
+    //int digits=(int)MarketInfo(instrument,MODE_DIGITS);
+    bool market_open_today;
+    market_open_today=iOpen(instrument,PERIOD_D1,0)>0 && iOpen(instrument,PERIOD_D1,0)!=NULL;
+    market_open_today=boolean_compare(market_open_today,MarketInfo(instrument,MODE_TRADEALLOWED));
+    Print("market_open_today: ",market_open_today);
+    return market_open_today;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1853,7 +1767,7 @@ bool set_gmt_offset(string instrument,datetime current_time,int coming_from) // 
     if((day<=1 && date!=last_date_variable_modified && new_day) || other_criteria)
       {
         int  gmt_offset_required=myNULL; // it is static because brokers probably never change their server time policy
-        int  _gmt_hour_offset;
+        int  _gmt_hour_offset=100; // keep at 100 because that is a value that gmt_hour_offset will never be
         bool variable_modified=false;
         if(automatic_gmt_offset==false)
           {
@@ -1862,26 +1776,26 @@ bool set_gmt_offset(string instrument,datetime current_time,int coming_from) // 
           }
         else
           {
-            if(new_day)
+            if(new_day || other_criteria)
               {
                 if(gmt_hour_offset_is_NULL)     Print("set_gmt_offset: is_new_D1_bar or is_new_D1_bar and gmt_hour_offset is NULL");
                 if(gmt_offset_required==myNULL) Print("set_gmt_offset: is_new_D1_bar or is_new_D1_bar and gmt_offset_required is NULL"); 
                 if(is_new_custom_W1_bar)        Print("set_gmt_offset: it is a new week so set_gmt_offset will be generated");             
               }
-            // determine if a gmt offset is required and detected
-            if(day==1 && TimeDayOfWeek(iTime(instrument,PERIOD_D1,1))==5) // this is true when the chart goes from having a GMT offset to not having one. The following did not work: if(day==1 && TimeDayOfWeek(iTime(instrument,PERIOD_D1,1))==5)
+            // determine if a gmt offset is required
+            if(day==1 && TimeDayOfWeek(iTime(instrument,PERIOD_D1,1))==5) // This condition is true when the chart goes from having a GMT offset to not having one.
               {
                 gmt_offset_required=false;
                 Print("A gmt_hour_offset that ==0 is required (1)");
               }
-            else if(day==0 && is_new_D1_bar && is_new_custom_D1_bar && TimeHour(current_time)!=0) // this is true when the chart goes from having a GMT offset to not having one. The following did not work: if(day==1 && TimeDayOfWeek(iTime(instrument,PERIOD_D1,1))==5)
+            else if(day==0 && is_new_D1_bar && is_new_custom_D1_bar && TimeHour(current_time)!=0) // This condition is true when the chart goes from not having a GMT offset to having one.
               {
                 gmt_offset_required=true;
                 Print("A gmt_hour_offset that !=0 is required (1)");
               }
             else if((day==1 && new_day) || other_criteria)
               {
-                for(int i=0;i<9;i++)
+                for(int i=0;i<16;i++)
                   {
                     if(gmt_offset_required<=0)
                       {
@@ -1892,21 +1806,24 @@ bool set_gmt_offset(string instrument,datetime current_time,int coming_from) // 
                           }
                       }
                   }
-                if(gmt_offset_required==false) // if gmt_offset_detected is still false after the loop
+                if(gmt_offset_required<=0) // if gmt_offset_required is still false after the loop
                   {
-                    Print("A gmt_hour_offset that ==0 is required (2)");                   
+                    Print("A gmt_hour_offset that ==0 is required (2)");    
+                    gmt_offset_required=false;               
                   }
               }
+            else print_and_email("Error","The code failed to determine if gmt_offset_required is true or false.");
             // determine if there is an issue with what the user sees on the chart and what is actually on the chart
-            if(gmt_offset_required) // if it is Sunday or Monday (but only running the code one time per day) or if it is the first time the gmt offset was attempted to be generated
+            if(gmt_offset_required==true) // if it is Sunday or Monday (but only running the code one time per day) or if it is the first time the gmt offset was attempted to be generated
               {
+                Print("gmt_offset_required: ",gmt_offset_required);
                 if(gmt_offset_visible==false) 
                   {
                     print_and_email("Error","set_gmt_offset: A GMT offset was detected on the broker's chart but the user indicates that there isn't supposed to be one. Coming from: "+IntegerToString(coming_from));
                     return false;
                   }
                 datetime sundays_bar_time=0;
-                for(int i=0;i<9;i++)
+                for(int i=0;i<16;i++)
                   {
                     if(variable_modified==false)
                       {
@@ -1943,24 +1860,13 @@ bool set_gmt_offset(string instrument,datetime current_time,int coming_from) // 
                           {
                             _gmt_hour_offset=-absolute_gmt_offset;
                             variable_modified=true;
-                            if(_gmt_hour_offset!=0 && MathMod(_gmt_hour_offset,.5)!=0) 
-                              {
-                                //Print("set_gmt_offset: returned false 1");
-                                print_and_email("Error","set_gmt_offset: gmt_hour_offset is not divisible by .5 so that is strange");
-                                return false; // stop the algorithm if the gmt_hour_offset is not completely divisible by .5
-                              }
-                            if(_gmt_hour_offset<-5) 
-                              {
-                                //Print("set_gmt_offset: returned false 2");
-                                print_and_email("Error","set_gmt_offset: gmt_hour_offset was attempted to be set to less than -5 so that is strange");
-                                return false; // something is wrong if these to boolean variables do not equal to each other and it is recommended to abort the algorithm
-                              }                      
                           }
                       }
                   }
-              }     
-            else
+              }
+            else if(gmt_offset_required==false)
               {
+                Print("gmt_offset_required: ",gmt_offset_required);
                 if(gmt_offset_visible==true) 
                   {
                     int current_gmt_offset=gmt_hour_offset;
@@ -1971,9 +1877,25 @@ bool set_gmt_offset(string instrument,datetime current_time,int coming_from) // 
                 _gmt_hour_offset=0;
                 variable_modified=true;
               }
+            else if(gmt_offset_required==myNULL)
+              {
+                Print("gmt_offset_required: ",gmt_offset_required);
+                
+              }
           }
-        if(variable_modified) 
+        if(variable_modified && _gmt_hour_offset!=100) 
           {
+            if(_gmt_hour_offset!=0 && MathMod(_gmt_hour_offset,1)!=0) 
+              {
+                //Print("set_gmt_offset: returned false 1");
+                print_and_email("Error","set_gmt_offset: gmt_hour_offset is not divisible by 1 so that is strange");
+                return false; // stop the algorithm if the gmt_hour_offset is not completely divisible by .5
+              }
+            if(MathAbs(_gmt_hour_offset)>5) 
+              {
+                print_and_email("Error","set_gmt_offset: gmt_hour_offset was attempted to be set to "+IntegerToString(_gmt_hour_offset)+" so that is strange");
+                return false; // something is wrong if these to boolean variables do not equal to each other and it is recommended to abort the algorithm
+              }
             int current_gmt_offset=gmt_hour_offset;
             gmt_hour_offset=_gmt_hour_offset;
             gmt_hour_offset_is_NULL=false;
@@ -1983,77 +1905,18 @@ bool set_gmt_offset(string instrument,datetime current_time,int coming_from) // 
                 is_new_custom_D1_bar=is_new_custom_D1_bar(instrument,current_time); // immediately get the is_new_custom_D1_bar boolean variable since the gmt_hour_offset was confirmed to have been changed. This way is_new_custom_week will run soon and return true ASAP
                 print_and_email("Important Info","set_gmt_offset: gmt_hour_offset was "+IntegerToString(current_gmt_offset)+" but has now been changed to: "+IntegerToString(_gmt_hour_offset)); 
               }
-            //if(sundays_bar_time!=NULL || sundays_bar_time!=0) Print("sundays_bar_time: ",TimeToStr(sundays_bar_time));
-            //Print("Day of Week: ",day);
           }
         else
           { 
+            string market_open="";
+            if(is_market_open_today(instrument,current_time)==false) market_open=" The market was not open today.";
             last_date_variable_modified=myNULL; // set this variable to NULL so that, on days that are not Sunday or Monday, the code in ths function can try to assign a value to gmt_hour_offset
-            print_and_email("Error","set_gmt_offset: gmt_hour_offset was not modified");
+            if(!gmt_hour_offset_is_NULL) print_and_email("Error","set_gmt_offset: gmt_hour_offset was not modified. Instead, it was kept the same value as before while the algorithm continues to run.");
+            else print_and_email("Error","set_gmt_offset: gmt_hour_offset was not modified. gmt_hour_offset_is_NULL was true when attempting to modify."+market_open);
+            
           }
       }
     return true;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-bool is_new_custom_D1_bar(string instrument,datetime current_time) // this function gets called once an hour (on the hour)
-  {  
-    static datetime D1_bar_time=0;
-    static double   D1_open_price=0;
-    static datetime D1_current_bar_close_time=0;
-    datetime        D1_current_bar_open_time;
-    is_new_D1_bar=is_new_D1_bar(instrument,false);
-    if(is_new_D1_bar && TimeDayOfWeek(current_time)==0) D1_current_bar_close_time=current_time;
-    if(TimeDayOfWeek(current_time)==0 && gmt_hour_offset<0) 
-      {
-        datetime day_start=iTime(NULL,PERIOD_D1,0);
-        int market_start_hour=get_sundays_start_hour(instrument,day_start,4);
-        D1_current_bar_open_time=day_start+(market_start_hour*3600);
-      }
-    else
-        D1_current_bar_open_time=iTime(NULL,PERIOD_D1,0)+(gmt_hour_offset*3600);
-    double D1_current_bar_open_price=iOpen(NULL,PERIOD_M5,iBarShift(NULL,PERIOD_M5,D1_current_bar_open_time,false));
-    int    digits=(int)MarketInfo(instrument,MODE_DIGITS);
-    if(D1_bar_time<=0) // If it is the first time the function is called or it is the start of a new bar. This could be after the open time (aka in the middle) of a bar.
-      {
-        D1_bar_time=D1_current_bar_open_time;
-        D1_open_price=D1_current_bar_open_price;
-        if(days_open_time<=0) set_custom_D1_open_time(instrument,0); // get the D1 bar's open time (based on the current time) // this will get a value for the weeks_open_time global variable
-        if(gmt_hour_offset<0) D1_current_bar_close_time=round_down_to_hours(days_open_time)+86400;
-        //Print("hours_open_time: ",TimeToStr(hours_open_time)," days_open_time: ",TimeToStr(days_open_time));
-        if(TimeHour(hours_open_time)==TimeHour(days_open_time)) // using the TimeHour function to ensure that the hours are only compared (because, sometimes, the minutes might be slightly off)
-          {
-            if(DayOfWeek()==5 && TimeHour(current_time)!=0) print_and_email("Warning","new custom day (1) on a FRIDAY",!print_time_info);
-            else if(print_time_info) Print("new custom day (1)");
-            return true;
-          }
-        else 
-          {
-            return false; 
-          }
-      }
-    if(gmt_hour_offset<0 && current_time>=D1_current_bar_close_time && TimeHour(current_time)==24+gmt_hour_offset)
-      {
-        set_custom_D1_open_time(instrument,0); // get the D1 bar's open time global variable (based on the current time\hour)  
-        D1_bar_time=D1_current_bar_open_time;
-        D1_open_price=D1_current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
-        D1_current_bar_close_time=round_down_to_hours(days_open_time)+86400;
-        //Print("D1_current_bar_close_time set to: ",D1_current_bar_close_time);
-        if(DayOfWeek()==5 && TimeHour(current_time)!=0) print_and_email("Warning","new custom day (2) on a FRIDAY (when gmt_hour_offset<0)",!print_time_info);
-        else if(print_time_info) Print("new custom day (2) (when gmt_hour_offset<0)");
-        return true;
-      }
-    else if(gmt_hour_offset==0 && D1_current_bar_open_time>D1_bar_time && compare_doubles(D1_open_price,D1_current_bar_open_price,digits)!=0) // if the opening time and price of this bar is different than the opening time and price of the previous one
-      {
-        D1_bar_time=D1_current_bar_open_time; // assuring the true value only gets returned for 1 tick and not the very next ones
-        D1_open_price=D1_current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
-        set_custom_D1_open_time(instrument,0); // get the D1 bar's open time global variable (based on the current time\hour)
-        if(DayOfWeek()==5 && TimeHour(current_time)!=0) print_and_email("Warning","new custom day (3) on a FRIDAY (when gmt_hour_offset==0)",!print_time_info);
-        else if(print_time_info) Print("new custom day (3) (when gmt_hour_offset==0)");
-        return true;
-      }
-    else return false;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2064,6 +1927,16 @@ datetime round_down_to_hours(datetime time)
                                           IntegerToString(TimeMonth(time),2,0),".",
                                           IntegerToString(TimeDay(time),2,0)," ",
                                           IntegerToString(TimeHour(time),2,0)+":00"));
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+datetime round_down_to_days(datetime time)
+  {
+    return StringToTime(StringConcatenate(IntegerToString(TimeYear(time)),".",
+                                          IntegerToString(TimeMonth(time),2,0),".",
+                                          IntegerToString(TimeDay(time),2,0)," ",
+                                          "00:00"));
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2176,6 +2049,67 @@ bool is_new_D1_bar(string instrument,bool wait_for_next_bar)
         Print("new day 3");
         return true; 
       }  
+    else return false;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool is_new_custom_D1_bar(string instrument,datetime current_time) // this function gets called once an hour (on the hour)
+  {  
+    static datetime D1_bar_time=0;
+    static double   D1_open_price=0;
+    static datetime D1_current_bar_close_time=0;
+    datetime        D1_current_bar_open_time;
+    is_new_D1_bar=is_new_D1_bar(instrument,false);
+    if(is_new_D1_bar && TimeDayOfWeek(current_time)==0) D1_current_bar_close_time=current_time;
+    if(TimeDayOfWeek(current_time)==0 && gmt_hour_offset<0) 
+      {
+        datetime day_start=iTime(NULL,PERIOD_D1,0);
+        int market_start_hour=get_sundays_start_hour(instrument,day_start,4);
+        D1_current_bar_open_time=day_start+(market_start_hour*3600);
+      }
+    else
+        D1_current_bar_open_time=iTime(NULL,PERIOD_D1,0)+(gmt_hour_offset*3600);
+    double D1_current_bar_open_price=iOpen(NULL,PERIOD_M5,iBarShift(NULL,PERIOD_M5,D1_current_bar_open_time,false));
+    int    digits=(int)MarketInfo(instrument,MODE_DIGITS);
+    if(D1_bar_time<=0) // If it is the first time the function is called or it is the start of a new bar. This could be after the open time (aka in the middle) of a bar.
+      {
+        D1_bar_time=D1_current_bar_open_time;
+        D1_open_price=D1_current_bar_open_price;
+        if(days_open_time<=0) set_custom_D1_open_time(instrument,0); // get the D1 bar's open time (based on the current time) // this will get a value for the weeks_open_time global variable
+        if(gmt_hour_offset<0) D1_current_bar_close_time=round_down_to_hours(days_open_time)+86400;
+        //Print("hours_open_time: ",TimeToStr(hours_open_time)," days_open_time: ",TimeToStr(days_open_time));
+        if(TimeHour(hours_open_time)==TimeHour(days_open_time)) // using the TimeHour function to ensure that the hours are only compared (because, sometimes, the minutes might be slightly off)
+          {
+            if(DayOfWeek()==5 && TimeHour(current_time)!=0) print_and_email("Warning","new custom day (1) on a FRIDAY",!print_time_info);
+            else if(print_time_info) Print("new custom day (1)");
+            return true;
+          }
+        else 
+          {
+            return false; 
+          }
+      }
+    if(gmt_hour_offset<0 && current_time>=D1_current_bar_close_time && TimeHour(current_time)==24+gmt_hour_offset)
+      {
+        set_custom_D1_open_time(instrument,0); // get the D1 bar's open time global variable (based on the current time\hour)  
+        D1_bar_time=D1_current_bar_open_time;
+        D1_open_price=D1_current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
+        D1_current_bar_close_time=round_down_to_hours(days_open_time)+86400;
+        //Print("D1_current_bar_close_time set to: ",D1_current_bar_close_time);
+        if(DayOfWeek()==5 && TimeHour(current_time)!=0) print_and_email("Warning","new custom day (2) on a FRIDAY (when gmt_hour_offset<0)",!print_time_info);
+        else if(print_time_info) Print("new custom day (2) (when gmt_hour_offset<0)");
+        return true;
+      }
+    else if(gmt_hour_offset==0 && D1_current_bar_open_time>D1_bar_time && compare_doubles(D1_open_price,D1_current_bar_open_price,digits)!=0) // if the opening time and price of this bar is different than the opening time and price of the previous one
+      {
+        D1_bar_time=D1_current_bar_open_time; // assuring the true value only gets returned for 1 tick and not the very next ones
+        D1_open_price=D1_current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
+        set_custom_D1_open_time(instrument,0); // get the D1 bar's open time global variable (based on the current time\hour)
+        if(DayOfWeek()==5 && TimeHour(current_time)!=0) print_and_email("Warning","new custom day (3) on a FRIDAY (when gmt_hour_offset==0)",!print_time_info);
+        else if(print_time_info) Print("new custom day (3) (when gmt_hour_offset==0)");
+        return true;
+      }
     else return false;
   }
 //+------------------------------------------------------------------+
@@ -2818,7 +2752,7 @@ bool uptrend_retracement_met_price(string instrument)
           {
             //Print("HOP_price had to be generated");
             //Print("last_instrument: ",last_instrument," instrument: ",instrument);
-            range_pts=range_pts_calculation(OP_BUY,instrument,2849);
+            range_pts=range_pts_calculation(OP_BUY,instrument,2950);
             last_instrument=instrument;
             if(compare_doubles(range_pts,ADR_pts,digits)==-1 || HOP_price==-1 /*|| LOP_price==-1*/)
               {
@@ -2908,15 +2842,6 @@ bool uptrend_retracement_met_price(string instrument)
                       }                
                   }
                 return true;  
-                /*if(get_current_bid_instead) 
-                  {
-                    return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
-                  }
-                else 
-                  {
-                    double met_price=HOP_price-retracement_pts;
-                    return met_price;
-                  }*/
               }
             else return false;
           }         
@@ -2955,7 +2880,7 @@ bool downtrend_retracement_met_price(string instrument)
           {
             //Print("LOP_price had to be generated");
             //Print("last_instrument: ",last_instrument," instrument: ",instrument);
-            range_pts=range_pts_calculation(OP_SELL,instrument,2986);
+            range_pts=range_pts_calculation(OP_SELL,instrument,3080);
             last_instrument=instrument;
             if(compare_doubles(range_pts,ADR_pts,digits)==-1 || LOP_price==-1 /*|| HOP_price==-1*/)
               {
@@ -3051,15 +2976,6 @@ bool downtrend_retracement_met_price(string instrument)
                       }                
                   }
                 return true;  
-                /*if(get_current_bid_instead) 
-                  {
-                    return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
-                  }
-                else 
-                  {
-                    double met_price=LOP_price+retracement_pts;
-                    return met_price;
-                  }*/
               }
             else return false;
           }
@@ -3103,7 +3019,7 @@ bool uptrend_ADR_threshold_met_price(string instrument,bool get_current_bid_inst
     if(current_bid<LOP_price) // if the low of the range was surpassed // TODO: use compare_doubles()?
       {
         // since the bottom of the range was surpassed, you have to reset the LOP. You might as well take this opportunity to take the period into account.
-        range_pts_calculation(OP_SELL,instrument,3132); // evaluates the LOP_price and LOP_time
+        range_pts_calculation(OP_SELL,instrument,3200); // evaluates the LOP_price and LOP_time
         uptrend=false;
         ObjectSet(HOP_text,OBJPROP_WIDTH,1);
         if(current_chart_matches)
@@ -3117,7 +3033,7 @@ bool uptrend_ADR_threshold_met_price(string instrument,bool get_current_bid_inst
       {
         bool retracement_mode_on=retracement_percent>0;
         // since the top of the range was surpassed, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
-        range_pts_calculation(OP_SELL,instrument,3146); // evaluates the LOP_price and LOP_time
+        range_pts_calculation(OP_SELL,instrument,3225); // evaluates the LOP_price and LOP_time
         if(/*HOP_time>LOP_time &&*/ current_bid-LOP_price>=ADR_pts) // TODO: use compare_doubles()?
           {
             if(uptrend==false) // if it is the first time the uptrend ADR is triggered when the user wants to enter trades with a retracement_percent
@@ -3135,7 +3051,7 @@ bool uptrend_ADR_threshold_met_price(string instrument,bool get_current_bid_inst
               }
             else
               {
-                range_pts_calculation(OP_BUY,instrument,3164); // evaluates the HOP_price and HOP_time
+                range_pts_calculation(OP_BUY,instrument,3250); // evaluates the HOP_price and HOP_time
               }
             if(current_chart_matches)
               {
@@ -3144,15 +3060,6 @@ bool uptrend_ADR_threshold_met_price(string instrument,bool get_current_bid_inst
               } 
             if(retracement_mode_on==false && uptrend_order_was_last) return false; // to prevent orders from entering immediately after one closes
             if(HOP_time>LOP_time) return true;
-            /*if(get_current_bid_instead) 
-              {
-                return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
-              }
-            else 
-              {
-                double met_price=LOP_price+ADR_pts;
-                return met_price;
-              }*/
           }
         else return false;
       }
@@ -3189,7 +3096,7 @@ bool downtrend_ADR_threshold_met_price(string instrument,bool get_current_bid_in
     if(current_bid>HOP_price) // if the low of the range was surpassed // TODO: use compare_doubles()?
       {
         // since the top of the range was surpassed, you have to reset the LOP. You might as well take this opportunity to take the period into account.
-        range_pts_calculation(OP_BUY,instrument,3218); // evaluates the HOP_price and HOP_time
+        range_pts_calculation(OP_BUY,instrument,3300); // evaluates the HOP_price and HOP_time
         downtrend=false;
         ObjectSet(LOP_text,OBJPROP_WIDTH,1);
         if(current_chart_matches)
@@ -3203,7 +3110,7 @@ bool downtrend_ADR_threshold_met_price(string instrument,bool get_current_bid_in
       {
         bool retracement_mode_on=retracement_percent>0;   
         // since the top of the range was surpassed, this is a good opportunity to update the LOP since you can't just leave it as the static value constantly
-        range_pts_calculation(OP_BUY,instrument,3232); // evaluates the HOP_price and HOP_time
+        range_pts_calculation(OP_BUY,instrument,3310); // evaluates the HOP_price and HOP_time
         if(/*LOP_time>HOP_time &&*/ HOP_price-current_bid>=ADR_pts) // TODO: use compare_doubles()?
           {
             if(downtrend==false) // if it is the first time the downtrend ADR is triggered when the user wants to enter trades with a retracement_percent
@@ -3221,7 +3128,7 @@ bool downtrend_ADR_threshold_met_price(string instrument,bool get_current_bid_in
               }
             else
               {
-                range_pts_calculation(OP_SELL,instrument,3250); // evaluates the LOP_price and LOP_time
+                range_pts_calculation(OP_SELL,instrument,3325); // evaluates the LOP_price and LOP_time
               }        
             if(current_chart_matches)
               {
@@ -3230,15 +3137,6 @@ bool downtrend_ADR_threshold_met_price(string instrument,bool get_current_bid_in
               }  
             if(retracement_percent==0 && downtrend_order_was_last) return false; // to prevent orders from entering immediately after one closes
             if(LOP_time>HOP_time) return true;
-            /*if(get_current_bid_instead) 
-              {
-                return current_bid; // check if it is actually true by taking the new calculation of Low Of Period into account
-              }
-            else 
-              {
-                double met_price=HOP_price-ADR_pts;
-                return met_price;
-              }*/
           }
         else return false;
       }
