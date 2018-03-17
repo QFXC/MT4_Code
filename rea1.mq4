@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Quant FX Capital/Tom Mazurek"
 #property link      "https://www.quantfxcapital.com"
-#property version   "2.04"
+#property version   "2.05"
 #property strict
 /* 
 Remember:
@@ -101,7 +101,7 @@ enum ENUM_MM // Money Management
 //+------------------------------------------------------------------+
   input bool        option=false;
   input bool        option2=false;
-  input string      version="2.04";
+  input string      version="2.05";
   input bool        using_oanda_broker=true;
   input bool        use_recommended_settings=true;     // use_recommended_settings:
   int               init_result=INIT_FAILED;
@@ -110,7 +110,7 @@ enum ENUM_MM // Money Management
              
 // timeframe changes
   bool              is_new_M5_bar, is_new_H1_bar, is_new_custom_D1_bar,is_new_D1_bar,is_new_custom_W1_bar;
-  /*input*/ bool    wait_next_M5_on_load=false; //wait_next_M5_on_load: This setting currently affects all bars (including D1) so do not set it to true unless code changes are made. // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade or calculate ADR?
+  ///*input*/ bool    wait_next_M5_on_load=true; //wait_next_M5_on_load: This setting currently affects all bars (including D1) so do not set it to true unless code changes are made. // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade or calculate ADR?
   
 // general settings
   /*input*/ bool    auto_adjust_broker_digits=true;
@@ -121,7 +121,7 @@ enum ENUM_MM // Money Management
   static int        spread_divider;
   input bool        market_exec=false;                 // market_exec: False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
   int               retries=3; // TODO: eventually get rid of this global variable
-  static int        EA_1_magic_num; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
+  static int        magic_num; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
   static bool       uptrend=false, downtrend=false;
   static datetime   uptrend_time=-1, downtrend_time=-1;
   static bool       uptrend_order_was_last=false, downtrend_order_was_last=false;
@@ -248,7 +248,7 @@ enum ENUM_MM // Money Management
 int OnInit()
   {
     init_result=INIT_FAILED;
-    init_result=OnInit_Relativity_EA_1(SIGNAL_SET,Symbol());
+    init_result=on_initialization(SIGNAL_SET,Symbol());
     //print_info(Symbol());
     if(init_result==INIT_FAILED) 
       {
@@ -314,8 +314,8 @@ bool print_broker_info(string instrument)
     double   free_margin_required=MarketInfo(instrument,MODE_MARGINREQUIRED);
     double   freeze_level_pts=MarketInfo(instrument,MODE_FREEZELEVEL);
     string   current_chart=Symbol();
-
-    Print("Account company: ", AccountCompany());
+    
+    Print("Account company: ",AccountCompany());
     Print("Account name: ", AccountName());
     Print("Account number: ", IntegerToString(AccountNumber()));
     Print("Account Server Name: ", AccountServer());
@@ -353,7 +353,62 @@ bool print_broker_info(string instrument)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set,string instrument)
+void print_and_email(string subject,string body,bool exclude_print=false)
+  {
+    if(exclude_print==false) Print(subject,": ",body);
+    if(email_alerts_on) SendMail(subject,subject+": "+body);
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void print_and_email_margin_info(string instrument,string subject)
+  {
+
+    string  stopout_level=IntegerToString(AccountStopoutLevel()),
+            account_stopout_level=IntegerToString(AccountStopoutLevel()),
+            account_stopout_mode=IntegerToString(AccountStopoutMode()),
+            account_leverage=IntegerToString(AccountLeverage()),
+            account_margin=DoubleToStr(AccountMargin()),
+            account_equity=DoubleToStr(AccountEquity()),
+            one_lot_initial_margin=DoubleToStr(MarketInfo(instrument,MODE_MARGININIT)),
+            margin_to_maintain_open_orders=DoubleToStr(MarketInfo(instrument,MODE_MARGINMAINTENANCE)),
+            hedged_margin=DoubleToStr(MarketInfo(instrument,MODE_MARGINHEDGED)),
+            free_margin_required=DoubleToStr(MarketInfo(instrument,MODE_MARGINREQUIRED)),
+            freeze_level_pts=DoubleToStr(MarketInfo(instrument,MODE_FREEZELEVEL));
+    Print(subject,": stopout_level: ",stopout_level);
+    Print(subject,": one_lot_initial_margin: ",one_lot_initial_margin);
+    Print(subject,": margin_to_maintain_open_orders for 1 lot: ",margin_to_maintain_open_orders);
+    Print(subject,": hedged_margin: ",hedged_margin);
+    Print(subject,": free_margin_required to open 1 lot: ",free_margin_required);
+    Print(subject,": freeze_level_pts: ",freeze_level_pts);
+    if(email_alerts_on) 
+      {
+        string email_body=StringConcatenate("stopout_level: ",stopout_level,
+                                            ", account_stopout_level: ",account_stopout_level,
+                                            ", account_stopout_mode: ",account_stopout_mode,
+                                            ", account_leverage: ",account_leverage,
+                                            ", account_margin: ",account_margin,
+                                            ", account_equity: ",account_equity,
+                                            ", one_lot_initial_margin: ",one_lot_initial_margin,
+                                            ", margin_to_maintain_open_orders for 1 lot: ",margin_to_maintain_open_orders,
+                                            ", hedged_margin for 1 lot: ",hedged_margin,
+                                            ", free_margin_required to open 1 lot: ",free_margin_required,
+                                            ", freeze_level_pts: ",freeze_level_pts
+                                           );
+        SendMail(subject,subject+": "+email_body);
+      }  
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void platform_alert(string subject,string body)
+  {
+    Alert(subject,": ",body);
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int on_initialization(ENUM_SIGNAL_SET signal_set,string instrument)
   {
     /*string foldername="C:\\Users\\xmacb\\AppData\\Roaming\\MetaQuotes\\Terminal\\F2262CFAFF47C27887389DAB2852351A\\tester\\logs";
     PrintFormat("Trying to delete all files from folder %s",foldername);
@@ -367,7 +422,7 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set,string instrument)
     Print(ran," 1");
     ran=ran(set_spread_divider());
     Print(ran," 2");
-    EA_1_magic_num=set_magic_num(WindowExpertName(),signal_set);
+    magic_num=set_magic_num(WindowExpertName(),signal_set);
     // assign values to HOP_price, LOP_price, HOP_time, LOP_time
 
     /*int eurjpy=get_string_integer("EURJPY");
@@ -391,37 +446,29 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set,string instrument)
     ran=ran(ran,set_moves_start_bar(instrument,H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week));
     Print(ran," 5");
     reset_pivot_peak(instrument); // the set_moves_start_bar function should run before this function (only on initialization)
+    is_new_M5_bar(instrument,true);
     set_changed_ADR_pts(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent,instrument); // this should be after the recommended settings are set because, if requested, a change should be done after
     is_new_H1_bar(instrument,false);
     set_custom_D1_open_time(instrument,0);
     is_new_custom_D1_bar(instrument,TimeCurrent()); // This is here so I do not have to rely on the is_new_H1_bar function to return true, in order to populate the variables which are populated within the function. This has to be run after the get_custom_D1_open_time function
     set_custom_W1_times(instrument,include_last_week,H1s_to_roll,gmt_hour_offset); // this will get a value for the weeks_open_time global variable
     is_new_custom_W1_bar(instrument,false);
-    
-    print_broker_info(instrument); // set_point_multiplier and set_spread_divider has to run before this function is called
-    
-    // TODO: check if the broker has Sunday's as a server time, and, if not, block all the code you wrote to count Sunday's from running
 
-    int range_start_time=(start_time_hour*3600)+(start_time_minute*60);
-    int range_end_time=(end_time_hour*3600)+(end_time_minute*60);
-    int exit_time=(exit_time_hour*3600)+(exit_time_minute*60);
-     // Print("The EA will not work properly. The input variables max_trades_in_direction, max_num_EAs_at_once, and max_trades_within_x_hours can't be 0 or negative.");  
-    Print(instrument,"'s Magic Number: ",IntegerToString(EA_1_magic_num));
+    print_broker_info(instrument); // set_point_multiplier and set_spread_divider has to run before this function is called
+    Print(instrument,"'s Magic Number: ",IntegerToString(magic_num));
+
+    // TODO: consider a check of if the broker has Sunday's as a server time, and, if not, block all the code you wrote to count Sunday's from running
+
     string result_message;
     int result;
-    if(exit_time>range_start_time && exit_time<range_end_time)
+    if(input_parameters_valid()==false)
       {
         result_message="The initialization of the EA failed. Make sure that the trade exit_time_hour and exit_time_minute combination does not fall within the trading range start and end times or else there will be trouble!";
         result=INIT_FAILED;
       }
-    else if(EA_1_magic_num<=0)
+    else if(magic_num<=0)
       {
-        result_message="The initialization of the EA failed. The magic number ("+IntegerToString(EA_1_magic_num)+") is not a valid magic number for the Expert Advisor (EA). Without one, the EA will not run correctly. Get a MQL4 programmer check the code to find out why.";
-        result=INIT_FAILED;
-      }
-    else if(!all_user_input_variables_valid())
-      {
-        result_message="The initialization of the EA failed. One or more of the user input variables are not valid. The EA will not run correctly.";
+        result_message="The initialization of the EA failed. The magic number ("+IntegerToString(magic_num)+") is not a valid magic number for the Expert Advisor (EA). Without one, the EA will not run correctly. Get a MQL4 programmer check the code to find out why.";
         result=INIT_FAILED;
       }
     else if(ran==false)
@@ -444,9 +491,15 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set,string instrument)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool all_user_input_variables_valid() // TODO: Work on this
+bool input_parameters_valid() // TODO: add more
   {
-    return true;
+    int range_start_time=(start_time_hour*3600)+(start_time_minute*60);
+    int range_end_time=(end_time_hour*3600)+(end_time_minute*60);
+    int exit_time=(exit_time_hour*3600)+(exit_time_minute*60);
+    if(exit_time>range_start_time && exit_time<range_end_time) 
+      return true;
+    else 
+      return false;
   }
 //+------------------------------------------------------------------+
 //| Expert deinitialization function                                 |
@@ -517,12 +570,12 @@ void OnTick()
         static bool safe_to_trade=true;
         static bool trading_paused=false;
         safe_to_trade=risk_percent_per_range>0;
-        is_new_M5_bar=is_new_M5_bar(instrument,wait_next_M5_on_load);
+        is_new_M5_bar=is_new_M5_bar(instrument,true);
         if(pullback_percent>0) 
           {
             // do maintenance of pending orders
             cleanup_risky_pending_orders(instrument);
-            pending_orders_open=count_orders(ORDER_SET_PENDING,EA_1_magic_num,MODE_TRADES,OrdersTotal()-1); // count all open order (but only for the specific magic number)
+            pending_orders_open=count_orders(ORDER_SET_PENDING,magic_num,MODE_TRADES,OrdersTotal()-1); // count all open order (but only for the specific magic number)
             if(pending_orders_open>max_pending_orders_at_once) 
               {
                 int ticket=last_order_ticket(ORDER_SET_PENDING,false);
@@ -558,7 +611,7 @@ void OnTick()
                     //Print("new day");
                     if(is_new_custom_W1_bar)
                       {
-                        int orders_for_week=count_orders(ORDER_SET_ALL,EA_1_magic_num,MODE_HISTORY,OrdersHistoryTotal(),604800,current_time);
+                        int orders_for_week=count_orders(ORDER_SET_ALL,magic_num,MODE_HISTORY,OrdersHistoryTotal(),604800,current_time);
                         print_and_email("Info","Total "+instrument+" orders for the week: "+IntegerToString(orders_for_week));
                         print_and_email("Info","Account Balance: "+DoubleToString(AccountBalance()),true);
                         safe_to_trade=boolean_compare(safe_to_trade,set_gmt_offset(instrument,current_time,775)); // since it is a new week, it will trigger the gmt_offset_required to re-evaluate (which I want to happen at the beginning of each week
@@ -576,7 +629,7 @@ void OnTick()
               }
           }
         if(safe_to_trade && trading_paused==false) 
-            ea_ran=relativity_ea_ran(instrument,digits,EA_1_magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage); // TODO: test by typing "USDJPYpro" as a replacement to instrument
+            ea_ran=main_script_ran(instrument,digits,magic_num,current_time,exit_signal,exit_signal_2,_exiting_max_slippage); // TODO: test by typing "USDJPYpro" as a replacement to instrument
         else if(is_new_D1_bar || is_new_custom_D1_bar) 
           {
             trading_paused=true;
@@ -703,62 +756,7 @@ bool a_trade_closed_since_last_checked(int magic)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void print_and_email(string subject,string body,bool exclude_print=false)
-  {
-    if(exclude_print==false) Print(subject,": ",body);
-    if(email_alerts_on) SendMail(subject,subject+": "+body);
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-void platform_alert(string subject,string body)
-  {
-    Alert(subject,": ",body);
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-void print_and_email_margin_info(string instrument,string subject)
-  {
-
-    string stopout_level=IntegerToString(AccountStopoutLevel());
-    string account_stopout_level=IntegerToString(AccountStopoutLevel());
-    string account_stopout_mode=IntegerToString(AccountStopoutMode());
-    string account_leverage=IntegerToString(AccountLeverage());
-    string account_margin=DoubleToStr(AccountMargin());
-    string account_equity=DoubleToStr(AccountEquity());
-    string one_lot_initial_margin=DoubleToStr(MarketInfo(instrument,MODE_MARGININIT));
-    string margin_to_maintain_open_orders=DoubleToStr(MarketInfo(instrument,MODE_MARGINMAINTENANCE));
-    string hedged_margin=DoubleToStr(MarketInfo(instrument,MODE_MARGINHEDGED));
-    string free_margin_required=DoubleToStr(MarketInfo(instrument,MODE_MARGINREQUIRED));
-    string freeze_level_pts=DoubleToStr(MarketInfo(instrument,MODE_FREEZELEVEL));
-    Print(subject,": stopout_level: ",stopout_level);
-    Print(subject,": one_lot_initial_margin: ",one_lot_initial_margin);
-    Print(subject,": margin_to_maintain_open_orders for 1 lot: ",margin_to_maintain_open_orders);
-    Print(subject,": hedged_margin: ",hedged_margin);
-    Print(subject,": free_margin_required to open 1 lot: ",free_margin_required);
-    Print(subject,": freeze_level_pts: ",freeze_level_pts);
-    if(email_alerts_on) 
-      {
-        string email_body=StringConcatenate("stopout_level: ",stopout_level,
-                                            " account_stopout_level: ",account_stopout_level,
-                                            " account_stopout_mode: ",account_stopout_mode,
-                                            " account_leverage: ",account_leverage,
-                                            " account_margin: ",account_margin,
-                                            " account_equity: ",account_equity,
-                                            " one_lot_initial_margin: ",one_lot_initial_margin,
-                                            " margin_to_maintain_open_orders for 1 lot: ",margin_to_maintain_open_orders,
-                                            " hedged_margin for 1 lot: ",hedged_margin,
-                                            " free_margin_required to open 1 lot: ",free_margin_required,
-                                            " freeze_level_pts: ",freeze_level_pts
-                                           );
-        SendMail(subject,subject+": "+email_body);
-      }  
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-bool relativity_ea_ran(string instrument,int digits,int magic,datetime current_time,int exit_signal,int exit_signal_2,int _exiting_max_slippage)
+bool main_script_ran(string instrument,int digits,int magic,datetime current_time,int exit_signal,int exit_signal_2,int _exiting_max_slippage)
   {
     string  current_chart=Symbol();
     bool    current_chart_matches=(current_chart==instrument);
@@ -792,7 +790,7 @@ bool relativity_ea_ran(string instrument,int digits,int magic,datetime current_t
         ObjectSet(current_chart+"_HOP_price",OBJPROP_TIME1,HOP_time);    
       }
     /*exit_signal=signal_exit(instrument,SIGNAL_SET); // The exit signal should be made the priority and doesn't require in_time_range or adr_generated to be true
-    if(exit_signal==DIRECTION_BIAS_VOID)       exit_all_trades_set(_exiting_max_slippage,ORDER_SET_ALL,magic); // close all pending and orders for the specific EA's orders. Don't do validation to see if there is an EA_magic_num because the EA should try to exit even if for some reason there is none.
+    if(exit_signal==DIRECTION_BIAS_VOID)       exit_all_trades_set(_exiting_max_slippage,ORDER_SET_ALL,magic); // close all pending and orders for the specific EA's orders. Don't do validation to see if there is an magic_num because the EA should try to exit even if for some reason there is none.
     else if(exit_signal==DIRECTION_BIAS_BUY)   exit_all_trades_set(_exiting_max_slippage,ORDER_SET_SHORT,magic);
     else if(exit_signal==DIRECTION_BIAS_SELL)  exit_all_trades_set(_exiting_max_slippage,ORDER_SET_LONG,magic);*/
     if(breakeven_threshold_percent>0) breakeven_check_all_orders(breakeven_threshold_percent,breakeven_plus_percent,magic);
@@ -1295,16 +1293,18 @@ ENUM_DIRECTION_BIAS signal_MA_worse(string instrument)
 //+------------------------------------------------------------------+
 bool over_extended_trend(string instrument,int days_to_check,ENUM_TREND trend,ENUM_RANGE range,double points_threshold,int num_to_be_true,bool dont_analyze_today)
   {
-    static int  new_days_to_check=0;
-    int         digits=(int)MarketInfo(instrument,MODE_DIGITS);
-    double      bid_price=MarketInfo(instrument,MODE_BID);
-    bool        over_extended=true;
-    int         uptrend_count=0, downtrend_count=0;
-    int         sat_sun_count=0;
-    int         lower_index=(int)dont_analyze_today;
-    if(is_new_custom_D1_bar || new_days_to_check==0) // get the new value of the static sunday_count the first time it is run or if it is a new day
+    static int      new_days_to_check=0;
+    static datetime last_date_checked=-1;
+    datetime        date=round_down_to_days(iTime(instrument,PERIOD_D1,0));
+    int             digits=(int)MarketInfo(instrument,MODE_DIGITS);
+    double          bid_price=MarketInfo(instrument,MODE_BID);
+    bool            over_extended=false; // keep as false
+    int             uptrend_count=0, downtrend_count=0;
+    int             sat_sun_count=0;
+    int             lower_index=(int)dont_analyze_today;
+    if(date!=last_date_checked) // get the new value of the static sunday_count the first time it is run or if it is a new day
       {
-        new_days_to_check=0; // do not delete this line
+        new_days_to_check=0;
         for(int i=lower_index;i<=days_to_check-1+lower_index;i++)
           {
             int day=TimeDayOfWeek(iTime(instrument,PERIOD_D1,i));          
@@ -1312,9 +1312,10 @@ bool over_extended_trend(string instrument,int days_to_check,ENUM_TREND trend,EN
               {
                 sat_sun_count++;
               }
-          }    
+          }
+        last_date_checked=date;
+        new_days_to_check=sat_sun_count+days_to_check;
       }
-    new_days_to_check=sat_sun_count+days_to_check;
     if(trend==UPTREND)
       {
         int upper_index=new_days_to_check-1+lower_index;
@@ -1353,8 +1354,7 @@ bool over_extended_trend(string instrument,int days_to_check,ENUM_TREND trend,EN
                   }
               }
           }
-        if(uptrend_count>=num_to_be_true) return over_extended;
-        else return !over_extended;
+        if(uptrend_count>=num_to_be_true) over_extended=true;
       }
     else if(trend==DOWNTREND)
       {
@@ -1394,8 +1394,7 @@ bool over_extended_trend(string instrument,int days_to_check,ENUM_TREND trend,EN
                   }  
               }
           }
-        if(downtrend_count>=num_to_be_true) return over_extended;
-        else return !over_extended;
+        if(downtrend_count>=num_to_be_true) over_extended=true;
       }
     return over_extended;
   }
@@ -3684,7 +3683,7 @@ int check_for_entry_errors(string instrument,int cmd,double lots,double _distanc
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void generate_spread_not_acceptable_message(double spread_pts,string instrument)
+void unacceptable_spread_message(double spread_pts,string instrument)
   {
     double percent_allows_trading=NormalizeDouble(((average_spread_yesterday-(ADR_pts*max_spread_percent))/ADR_pts)+max_spread_percent,3);
     string message=StringConcatenate (instrument,": The signal to enter can't be sent because the current spread does not meet your max_spread_percent (",
@@ -3738,7 +3737,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
     if(is_acceptable_spread==false) 
       {
         // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
-        generate_spread_not_acceptable_message(spread_pts,instrument);
+        unacceptable_spread_message(spread_pts,instrument);
         // TODO: create an alert informing the user that the trade was not executed because the spread was too wide
         return 0;
       }
