@@ -253,6 +253,7 @@ int OnInit()
     if(init_result==INIT_FAILED) 
       {
         print_and_email("Error","INIT_FAILED="+IntegerToString(INIT_FAILED)+" and the OnInit() result is: "+IntegerToString(init_result)+" (anything other than 0 means it failed)");
+        platform_alert("Error","INIT_FAILED="+IntegerToString(INIT_FAILED)+" and the OnInit() result is: "+IntegerToString(init_result)+" (anything other than 0 means it failed)");
         Sleep(1000);
         ExpertRemove();
       }
@@ -314,9 +315,13 @@ bool print_broker_info(string instrument)
     double   freeze_level_pts=MarketInfo(instrument,MODE_FREEZELEVEL);
     string   current_chart=Symbol();
 
+    Print("Account company: ", AccountCompany());
+    Print("Account name: ", AccountName());
+    Print("Account number: ", IntegerToString(AccountNumber()));
+    Print("Account Server Name: ", AccountServer());
     Print("current time: ",TimeToString(current_time));
     Print("current bar open time: ",TimeToString(current_bar_open_time));
-    Print("is_market_open_today: ",market_open_today);
+    Print("market_open_today: ",market_open_today);
     Print(StringSubstr(instrument,0,6),"'s string integer: ",IntegerToString(instrument_int));
     Print("expert_name: ",expert_name);
     Print("trade_allowed: ",trade_allowed);
@@ -378,7 +383,7 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set,string instrument)
     pivot_peak[1][0]=EURUSD; pivot_peak[0][1]=HOP_price; pivot_peak[0][2]=HOP_time; pivot_peak[0][3]=LOP_price; pivot_peak[0][4]=LOP_time;
     pivot_peak[2][0]=USDJPY; pivot_peak[0][1]=HOP_price; pivot_peak[0][2]=HOP_time; pivot_peak[0][3]=LOP_price; pivot_peak[0][4]=LOP_time;
       
-    ran=ran(ran,set_recommended_settings(instrument,use_recommended_settings));
+    ran=ran(ran,set_recommended_input_parameters(instrument,use_recommended_settings));
     Print(ran," 3");
     //EventSetTimer(60);
     ran=ran(ran,set_gmt_offset(instrument,TimeCurrent(),610)); // this should run before set_moves_start_bar (which takes gmt_hour_offset as a parameter) as well all the other "new bar" functions
@@ -402,31 +407,39 @@ int OnInit_Relativity_EA_1(ENUM_SIGNAL_SET signal_set,string instrument)
     int exit_time=(exit_time_hour*3600)+(exit_time_minute*60);
      // Print("The EA will not work properly. The input variables max_trades_in_direction, max_num_EAs_at_once, and max_trades_within_x_hours can't be 0 or negative.");  
     Print(instrument,"'s Magic Number: ",IntegerToString(EA_1_magic_num));
+    string result_message;
+    int result;
     if(exit_time>range_start_time && exit_time<range_end_time)
       {
-        print_and_email("Error","The initialization of the EA failed. Make sure that the trade exit_time_hour and exit_time_minute combination does not fall within the trading range start and end times or else there will be trouble!");
-        return(INIT_FAILED);
+        result_message="The initialization of the EA failed. Make sure that the trade exit_time_hour and exit_time_minute combination does not fall within the trading range start and end times or else there will be trouble!";
+        result=INIT_FAILED;
       }
     else if(EA_1_magic_num<=0)
       {
-        print_and_email("Error","The initialization of the EA failed. The magic number ("+IntegerToString(EA_1_magic_num)+") is not a valid magic number for the Expert Advisor (EA). Without one, the EA will not run correctly. Get a MQL4 programmer check the code to find out why.");
-        return(INIT_FAILED);
+        result_message="The initialization of the EA failed. The magic number ("+IntegerToString(EA_1_magic_num)+") is not a valid magic number for the Expert Advisor (EA). Without one, the EA will not run correctly. Get a MQL4 programmer check the code to find out why.";
+        result=INIT_FAILED;
       }
     else if(!all_user_input_variables_valid())
       {
-        print_and_email("Error","The initialization of the EA failed. One or more of the user input variables are not valid. The EA will not run correctly.");
-        return(INIT_FAILED);
+        result_message="The initialization of the EA failed. One or more of the user input variables are not valid. The EA will not run correctly.";
+        result=INIT_FAILED;
       }
     else if(ran==false)
       {
-        print_and_email("Error","The initialization of the EA failed. Not every function ran.");
-        return(INIT_FAILED);
+        result_message="The initialization of the EA failed. Not every function ran successfully.";
+        result=INIT_FAILED;
       }
     else
       {
-        Print("The initialization of the EA finished successfully.");
-        return(INIT_SUCCEEDED);
+        Print("The initialization of the algorithm finished successfully.");
+        result=INIT_SUCCEEDED;
       }
+    if(result==INIT_FAILED) 
+      {
+        print_and_email("Error",result_message);
+        platform_alert("Error",result_message);
+      }
+    return result;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -530,10 +543,11 @@ void OnTick()
                 if(gmt_offset_visible==false && (gmt_hour_offset!=0 /*|| gmt_hour_offset_is_NULL*/)) 
                   {
                     print_and_email("Error","THE EA WILL FOR "+instrument+" WILL BE TERMINATED BECAUSE THE gmt_hour_offset IS 0 OR NULL");
+                    platform_alert("Error","THE EA WILL FOR "+instrument+" WILL BE TERMINATED BECAUSE THE gmt_hour_offset IS 0 OR NULL");
                     Sleep(1000);
                     ExpertRemove();
                   }
-                if(trading_paused) print_and_email("Warning","Trading is still paused.");
+                //if(trading_paused) Print("Trading is still paused.");
                 if(is_new_custom_D1_bar)  // this must run before relativity_ea_ran function is run
                   {
                     is_new_custom_W1_bar=is_new_custom_W1_bar(instrument,false);
@@ -552,7 +566,7 @@ void OnTick()
                     if(trading_paused) 
                       {
                         trading_paused=false;
-                        Print("Trading for "+instrument+" should have unpaused and resumed.");
+                        print_and_email("Important Info","Trading for "+instrument+" should have unpaused and resumed.");
                       }
                   }
                 /*if(is_new_D1_bar)
@@ -567,9 +581,9 @@ void OnTick()
           {
             trading_paused=true;
             //gmt_hour_offset=NULL; // setting gmt_hour_offset to NULL will allow the set_gmt_offset function to try to set it the next time it is called
-            print_and_email("Warning","IT IS NOT SAFE TO TRADE TODAY. TRADING WILL BE PAUSED AND RE-EVALUATED THE NEXT TIME GMT IS 0:00.");
+            print_and_email("Warning & Important Info","IT IS NOT SAFE TO TRADE TODAY. TRADING WILL BE PAUSED AND RE-EVALUATED THE NEXT TIME GMT IS 0:00.");
           }  
-        if(is_new_D1_bar || is_new_custom_D1_bar) safe_to_trade=true; // by setting safe_to_trade=true, you are letting it be re-evaluated on the first tick for each D1 broker and custom bar
+        if(is_new_D1_bar || is_new_custom_D1_bar) safe_to_trade=true; // by setting safe_to_trade=true, you are letting it be re-evaluated on the first tick for each day's broker and custom bar
         // Since the functions that return the true/false of whether it is a new bar do not run on every tick, the global variables need to be set to false after all the previous code gets run. Otherwise, many of them will stay true much too frequently.
         if(is_new_M5_bar==true)
           {
@@ -577,12 +591,13 @@ void OnTick()
             is_new_H1_bar=false;
             is_new_D1_bar=false;
             is_new_custom_D1_bar=false;
-            is_new_custom_W1_bar=false;    
+            is_new_custom_W1_bar=false;
           }
       }
     else 
       {
         print_and_email("Error","The OnInit function failed to complete and, therefore, the algorithm cannot proceed running.");
+        platform_alert("Error","The OnInit function failed to complete and, therefore, the algorithm cannot proceed running.");
         Sleep(1000);
         ExpertRemove();
       }
@@ -696,25 +711,46 @@ void print_and_email(string subject,string body,bool exclude_print=false)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+void platform_alert(string subject,string body)
+  {
+    Alert(subject,": ",body);
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void print_and_email_margin_info(string instrument,string subject)
   {
-    double one_lot_initial_margin=MarketInfo(instrument,MODE_MARGININIT);
-    double margin_to_maintain_open_orders=MarketInfo(instrument,MODE_MARGINMAINTENANCE);
-    double hedged_margin=MarketInfo(instrument,MODE_MARGINHEDGED);
-    double free_margin_required=MarketInfo(instrument,MODE_MARGINREQUIRED);
-    double freeze_level_pts=MarketInfo(instrument,MODE_FREEZELEVEL);
-    Print(subject,": one_lot_initial_margin: ",DoubleToStr(one_lot_initial_margin));
-    Print(subject,": margin_to_maintain_open_orders for 1 lot: ",DoubleToStr(margin_to_maintain_open_orders));
-    Print(subject,": hedged_margin: ",DoubleToStr(hedged_margin));
-    Print(subject,": free_margin_required to open 1 lot: ",DoubleToStr(free_margin_required));
-    Print(subject,": freeze_level_pts: ",DoubleToStr(freeze_level_pts));
+
+    string stopout_level=IntegerToString(AccountStopoutLevel());
+    string account_stopout_level=IntegerToString(AccountStopoutLevel());
+    string account_stopout_mode=IntegerToString(AccountStopoutMode());
+    string account_leverage=IntegerToString(AccountLeverage());
+    string account_margin=DoubleToStr(AccountMargin());
+    string account_equity=DoubleToStr(AccountEquity());
+    string one_lot_initial_margin=DoubleToStr(MarketInfo(instrument,MODE_MARGININIT));
+    string margin_to_maintain_open_orders=DoubleToStr(MarketInfo(instrument,MODE_MARGINMAINTENANCE));
+    string hedged_margin=DoubleToStr(MarketInfo(instrument,MODE_MARGINHEDGED));
+    string free_margin_required=DoubleToStr(MarketInfo(instrument,MODE_MARGINREQUIRED));
+    string freeze_level_pts=DoubleToStr(MarketInfo(instrument,MODE_FREEZELEVEL));
+    Print(subject,": stopout_level: ",stopout_level);
+    Print(subject,": one_lot_initial_margin: ",one_lot_initial_margin);
+    Print(subject,": margin_to_maintain_open_orders for 1 lot: ",margin_to_maintain_open_orders);
+    Print(subject,": hedged_margin: ",hedged_margin);
+    Print(subject,": free_margin_required to open 1 lot: ",free_margin_required);
+    Print(subject,": freeze_level_pts: ",freeze_level_pts);
     if(email_alerts_on) 
       {
-        string email_body=StringConcatenate("one_lot_initial_margin: ",DoubleToStr(one_lot_initial_margin),
-                                            " margin_to_maintain_open_orders for 1 lot: ",DoubleToStr(margin_to_maintain_open_orders),
-                                            " hedged_margin for 1 lot: ",DoubleToStr(hedged_margin),
-                                            " free_margin_required to open 1 lot: ",DoubleToStr(free_margin_required),
-                                            " freeze_level_pts: ",DoubleToStr(freeze_level_pts)
+        string email_body=StringConcatenate("stopout_level: ",stopout_level,
+                                            " account_stopout_level: ",account_stopout_level,
+                                            " account_stopout_mode: ",account_stopout_mode,
+                                            " account_leverage: ",account_leverage,
+                                            " account_margin: ",account_margin,
+                                            " account_equity: ",account_equity,
+                                            " one_lot_initial_margin: ",one_lot_initial_margin,
+                                            " margin_to_maintain_open_orders for 1 lot: ",margin_to_maintain_open_orders,
+                                            " hedged_margin for 1 lot: ",hedged_margin,
+                                            " free_margin_required to open 1 lot: ",free_margin_required,
+                                            " freeze_level_pts: ",freeze_level_pts
                                            );
         SendMail(subject,subject+": "+email_body);
       }  
@@ -1618,7 +1654,7 @@ bool is_market_open_today(string instrument,datetime current_time)
     bool market_open_today;
     market_open_today=iOpen(instrument,PERIOD_D1,0)>0 && iOpen(instrument,PERIOD_D1,0)!=NULL;
     market_open_today=boolean_compare(market_open_today,MarketInfo(instrument,MODE_TRADEALLOWED));
-    Print("market_open_today: ",market_open_today);
+    //Print("market_open_today: ",market_open_today);
     return market_open_today;
   }
 //+------------------------------------------------------------------+
@@ -1812,11 +1848,11 @@ bool set_gmt_offset(string instrument,datetime current_time,int coming_from) // 
                     gmt_offset_required=false;               
                   }
               }
-            else print_and_email("Error","The code failed to determine if gmt_offset_required is true or false.");
+            else print_and_email("Error","set_gmt_offset: The code failed to determine if gmt_offset_required is true or false.");
             // determine if there is an issue with what the user sees on the chart and what is actually on the chart
             if(gmt_offset_required==true) // if it is Sunday or Monday (but only running the code one time per day) or if it is the first time the gmt offset was attempted to be generated
               {
-                Print("gmt_offset_required: ",gmt_offset_required);
+                //Print("gmt_offset_required: ",gmt_offset_required);
                 if(gmt_offset_visible==false) 
                   {
                     print_and_email("Error","set_gmt_offset: A GMT offset was detected on the broker's chart but the user indicates that there isn't supposed to be one. Coming from: "+IntegerToString(coming_from));
@@ -1866,12 +1902,12 @@ bool set_gmt_offset(string instrument,datetime current_time,int coming_from) // 
               }
             else if(gmt_offset_required==false)
               {
-                Print("gmt_offset_required: ",gmt_offset_required);
+                //Print("gmt_offset_required: ",gmt_offset_required);
                 if(gmt_offset_visible==true) 
                   {
                     int current_gmt_offset=gmt_hour_offset;
                     //print_and_email("Info","set_gmt_offset: gmt_hour_offset will continue to be: "+IntegerToString(gmt_hour_offset));
-                    if(gmt_hour_offset_is_NULL==false && day==1 && new_day) print_and_email("Warning","set_gmt_offset: A GMT offset was not detected on the broker's chart but the user indicates that there is supposed to be one. Coming from: "+IntegerToString(coming_from));
+                    if(gmt_hour_offset_is_NULL==false && day==1 && new_day) print_and_email("Warning","set_gmt_offset: A GMT offset was not detected on the broker's chart but the user indicates that there is supposed to be one. Either this could be normal (due to a recent Daylight Savings Time event and the charts being in a period of time that does not require a gmt offset) or it could be an Error. Coming from: "+IntegerToString(coming_from));
                     else if(gmt_hour_offset_is_NULL) print_and_email("Important Info","set_gmt_offset: gmt_hour_offset is NULL and is about to be changed to 0 because a gmt offset was not detected recently but the user indicates there is supposed to be one"); // this should run before gmt_hour_offset_is_NULL assigned to false
                   }
                 _gmt_hour_offset=0;
@@ -1879,8 +1915,7 @@ bool set_gmt_offset(string instrument,datetime current_time,int coming_from) // 
               }
             else if(gmt_offset_required==myNULL)
               {
-                Print("gmt_offset_required: ",gmt_offset_required);
-                
+                print_and_email("Error","set_gmt_offset: gmt_offset_required=",gmt_offset_required);
               }
           }
         if(variable_modified && _gmt_hour_offset!=100) 
@@ -3366,7 +3401,7 @@ bool is_acceptable_spread(string instrument,double _max_spread_percent,bool _bas
             return true; // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
           }
       }
-    print_and_email("Warning","is_acceptable_spread: returned false so a trade should not occur");
+    print_and_email("Warning"," is_acceptable_spread returned false so a trade should not occur");
     return false;
   }
 //+------------------------------------------------------------------+
@@ -3497,6 +3532,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,str
     else if(_pullback_percent<0) 
       {
         print_and_email("Error","pullback_percent cannot be less than 0");
+        platform_alert("Error","pullback_percent cannot be less than 0");
         return;
       }
     if(_retracement_percent>0)
@@ -3651,12 +3687,12 @@ int check_for_entry_errors(string instrument,int cmd,double lots,double _distanc
 void generate_spread_not_acceptable_message(double spread_pts,string instrument)
   {
     double percent_allows_trading=NormalizeDouble(((average_spread_yesterday-(ADR_pts*max_spread_percent))/ADR_pts)+max_spread_percent,3);
-    string message=StringConcatenate (instrument," this signal to enter can't be sent because the current spread does not meet your max_spread_percent (",
+    string message=StringConcatenate (instrument,": The signal to enter can't be sent because the current spread does not meet your max_spread_percent (",
                                       DoubleToStr(max_spread_percent,3),") of ADR criteria. The average spread yesterday was ",
                                       DoubleToStr(average_spread_yesterday,3),
                                       " but the current spread (",DoubleToStr(spread_pts,2),") is not acceptable. A max_spread_percent value above ",
                                       DoubleToStr(percent_allows_trading,3),
-                                      " would have allowed the EA to make this trade.");
+                                      " would have allowed the algorithm to make this trade.");
     print_and_email("Warning",message);
   }
 //+------------------------------------------------------------------+
@@ -3896,12 +3932,12 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
       }
     else 
       {
-        print_and_email("Warning","send_and_get_ticket: returned 0 because the execution was neither market execution nor instant execution");
+        print_and_email("Warning","send_and_get_ticket returned 0 because the execution was neither market execution nor instant execution");
         return 0;
       }
     if(ticket>0) 
       {
-        string subject="A "+instrument+" trade was entered";
+        string subject="Info: A "+instrument+" trade was entered";
         string email_body=StringConcatenate(subject,
                                             ". Details: entry_price: ",DoubleToString(entry_price,digits),
                                             ", target_points: ",DoubleToString(MathAbs(price_sl-price_tp)),
