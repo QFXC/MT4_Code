@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Quant FX Capital/Tom Mazurek"
 #property link      "https://www.quantfxcapital.com"
-#property version   "2.07"
+#property version   "2.08"
 #property strict
 /* 
 Remember:
@@ -46,6 +46,7 @@ enum ENUM_INSTRUMENTS
     EURUSD=-1490779688,
     GBPJPY=-1435125332,
     GBPUSD=-1435113275,
+    USDCHF=-867508323,
     USDJPY=-867500417
   };
 enum ENUM_SIGNAL_SET
@@ -54,12 +55,6 @@ enum ENUM_SIGNAL_SET
     SIGNAL_SET_1=1,
     SIGNAL_SET_2=2
   };
-/*enum ENUM_TIME_FRAMES // TODO: these are not being used yet
-  {
-    M5=0,
-    D1=1,
-    W1=2
-  };*/
 enum ENUM_DIRECTIONAL_MODE
   {
     BUYING_MODE=0,
@@ -113,7 +108,7 @@ enum ENUM_MM // Money Management
 //+------------------------------------------------------------------+
   input bool        option=false;
   input bool        option2=false;
-  input string      version="2.07";
+  input string      version="2.08";
   input bool        broker_is_oanda=true;              // broker_is_oanda:
   input bool        use_recommended_settings=true;     // use_recommended_settings:
   int               init_result=INIT_FAILED;
@@ -743,7 +738,7 @@ double get_pivot_peak_info(ENUM_PIVOT_PEAK en,string instrument) // TODO: this f
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool is_HOP_HOD(string instrument)
+/*bool is_HOP_HOD(string instrument)
   {
     if(HOP_price==iHigh(instrument,PERIOD_D1,0)) return true;
     else return false;
@@ -755,7 +750,7 @@ bool is_LOP_LOD(string instrument)
   {
     if(HOP_price==iLow(instrument,PERIOD_D1,0)) return true;
     else return false;
-  }
+  }*/
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -1040,7 +1035,7 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
                         //uptrend_order_was_last=true;
                         //downtrend_order_was_last=false;
                       }
-                    else print_and_email("Info","A potential "+instrument+" trade was stopped because it was overbought.");
+                    else print_and_email("Info","A potential "+instrument+" trade was prevented because the market was overbought.");
                   }
               }
             else if(enter_signal==DIRECTION_BIAS_SELL && short_allowed)
@@ -1075,7 +1070,7 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
                         //downtrend_order_was_last=true;
                         //uptrend_order_was_last=false;
                       }
-                    else print_and_email("Info","A potential "+instrument+" trade was stopped because it was oversold.");
+                    else print_and_email("Info","A potential "+instrument+" trade was prevented because the market was oversold.");
                   }
               }
           }
@@ -1498,7 +1493,7 @@ bool is_over_extended_trend(string instrument,int days_to_check,ENUM_TREND trend
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool past_x_D1_bars_down_2(string instrument,int x_bars)
+/*bool past_x_D1_bars_down_2(string instrument,int x_bars)
   {
     int count=0;
     bool two_day_weekend=false;
@@ -1555,7 +1550,7 @@ bool past_x_D1_bars_up(string instrument,int x_bars)
       }
     if(count==x_bars) return true;
     return false;
-  }
+  }*/
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -2302,7 +2297,6 @@ bool is_new_custom_W1_bar(string instrument,bool wait_for_next_bar) // this func
           }  
       }
     // TODO: work on the commented out code below
-    
     /*else if(gmt_hour_offset<0 && DayOfWeek()==0) // if the opening time and price of this bar is different than the opening time and price of the previous one
       {
         //Print("second part");
@@ -2388,8 +2382,6 @@ int get_sundays_start_hour(string instrument,datetime sundays_bar_time,int comin
     static datetime last_date;
     if(last_hour==NULL || sundays_bar_time!=last_date)
       {
-        //if(sundays_bar_time!=last_date) Print(TimeToStr(sundays_bar_time),"!=",TimeToStr(last_date)," so the loop ran. Coming from: ",coming_from);
-        //if(last_hour==NULL) Print("last_hour==NULL so the loop ran. Coming from: ",coming_from);
         int bar=-1;
         bool found_hour=false;
         for(int hr=0;hr<24;hr++) // 24 iterations (it must be 24 or else the loop will never pick up the 23rd hour of the day)
@@ -2406,34 +2398,7 @@ int get_sundays_start_hour(string instrument,datetime sundays_bar_time,int comin
                   }
               }
           }
-        /*if(found_hour==false)
-          {
-            bool sundays_detected=false;
-            for(int i=0;i<16;i++) // 16 iterations that go backward in time. 16 because there have been long stretches of time in at least 1 broker where a Sunday was not within 7 days.
-              {
-                if(sundays_detected==false)
-                  {
-                    if(TimeDayOfWeek(iTime(instrument,PERIOD_D1,i))==0) // if the current bar is Sunday
-                      {
-                        sundays_detected=true;
-                        Print("A gmt_hour_offset that !=0 is required");
-                      }
-                  }
-              }
-            if(sundays_detected) // for some reason it does not detect when the hour is 23 so you have to assign it to 23 whenever sundays are detected
-              {
-                found_hour=true;
-                last_hour=23;
-                last_date=sundays_bar_time;        
-              }
-          }*/
       }
-    /*else
-      {
-        if(sundays_bar_time==last_date) Print(TimeToStr(sundays_bar_time),"==",TimeToStr(last_date)," so the loop DIDNT need to run. Coming from: ",coming_from);
-        if(last_hour!=NULL) Print("last_hour!=NULL so the loop DIDNT need to run. Coming from: ",coming_from);
-      }*/
-    //Print("get_sundays_start_hour: last_hour=",last_hour);
     return last_hour;
   }
 //+------------------------------------------------------------------+
@@ -2616,7 +2581,7 @@ double ADR_calculation(string instrument,double low_outlier,double high_outlier,
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double get_raw_ADR_pts(string instrument,double hours_to_roll,double low_outlier,double high_outlier,int _num_ADR_months/*,double change_by*/) // get the Average Daily Range
+double get_raw_ADR_pts(string instrument,double hours_to_roll,double low_outlier,double high_outlier,int _num_ADR_months) // get the Average Daily Range
   {
     static double   _adr_pts=0;
     static datetime date_last_modified=-1;
@@ -2696,76 +2661,76 @@ bool set_moves_start_bar(string instrument,double _H1s_to_roll,int gmt_offset,do
       }
     else
       {
-        /*if(uptrend || downtrend)
-          {
-            datetime pivot_time=-1;
-            if(uptrend) pivot_time=LOP_time;
-            else if(downtrend) pivot_time=HOP_time;
-            moves_start_bar=iBarShift(instrument,PERIOD_M5,pivot_time,false);
-          }*/
-        //else
-          //{
-            // Remember that the weeks_open_time is a global variable that is reset to -1 when is_new_custom_W1_bar function returns true.
-            if(include_previous_day && (weeks_open_time==-1 /*|| (day==1 && is_new_custom_W1_bar)*/))
-              {
-                set_custom_W1_times(instrument,_include_last_week,_H1s_to_roll,gmt_offset);
-                //alert_flag=false;
-              } 
-            // Remember that the days_open_time is a global variable that should be set to -1 every end of day.
-            else if(!include_previous_day && (days_open_time==-1))
-              {
-                set_custom_D1_open_time(instrument,0); // get the D1 bar's open time (based on the current time)
-                if(display_chart_objects && ObjectFind(move_start_text)<0) 
-                  {
-                    int days_start_bar=iBarShift(instrument,PERIOD_M5,days_open_time,false);
-                    double days_open_price=iOpen(instrument,PERIOD_M5,days_start_bar);
-                    ObjectCreate(move_start_text,OBJ_VLINE,0,days_open_time,days_open_price); // it only gets set to these anchors for 1 M5 bar, so it is okay if it is wrong the first bar.
-                    ObjectSet(move_start_text,OBJPROP_COLOR,clrWhite);
-                  }
-              }
-            if(include_previous_day)
-              {
-                int weeks_start_bar=iBarShift(instrument,PERIOD_M5,weeks_open_time,false);
-                
-                if(display_chart_objects && ObjectFind(move_start_text)<0) 
-                  {
-                    double weeks_open_price=iOpen(instrument,PERIOD_M5,weeks_start_bar);
-                    ObjectCreate(move_start_text,OBJ_VLINE,0,weeks_open_time,weeks_open_price); // it only gets set to these anchors for 1 M5 bar, so it is okay if it is wrong the first bar.
-                    ObjectSet(move_start_text,OBJPROP_COLOR,clrWhite);
-                  }
-                if(_moves_start_bar<=weeks_start_bar) moves_start_bar=_moves_start_bar; 
-                else if(_include_last_week)
-                  {
-                    double weeks_open_price=iOpen(instrument,PERIOD_M5,weeks_start_bar);
-                    double last_weeks_close_price=iClose(instrument,PERIOD_M5,iBarShift(instrument,PERIOD_M5,last_weeks_end_time,false));
-                    double weekend_gap_points=MathAbs(last_weeks_close_price-weeks_open_price);
-                    double max_weekend_gap_points=NormalizeDouble(((ADR_pts*change_ADR_percent)+ADR_pts)*_max_weekend_gap_percent,digits); // calculated based off of raw ADR (not the user's modified ADR)
-                    if(weekend_gap_points>max_weekend_gap_points) // TODO: use compare_doubles()?
-                      {
-                        moves_start_bar=weeks_start_bar;
-                        if(alert_flag==false)
-                          {
-                            Print("This weekend's weekend_gap_points based on the raw ADR (",DoubleToString(weekend_gap_points),") is > the user's max_weekend_gap_points (",DoubleToString(max_weekend_gap_points),") setting.");
-                            alert_flag=true;
-                          }
-                      }
-                    else moves_start_bar=_moves_start_bar;
-                  }
-                else moves_start_bar=weeks_start_bar;   
-              }
-            else if(!include_previous_day)
-              {
-                int days_start_bar=iBarShift(instrument,PERIOD_M5,days_open_time,false);
-                if(display_chart_objects && ObjectFind(move_start_text)<0) 
-                  {
-                    double days_open_price=iOpen(instrument,PERIOD_M5,days_start_bar);
-                    ObjectCreate(move_start_text,OBJ_VLINE,0,days_open_time,days_open_price); // it only gets set to these anchors for 1 M5 bar, so it is okay if it is wrong the first bar.
-                    ObjectSet(move_start_text,OBJPROP_COLOR,clrWhite);
-                  }
-                if(_moves_start_bar<=days_start_bar) moves_start_bar=_moves_start_bar;
-                else moves_start_bar=days_start_bar;  
-              }
-          //}
+      /*if(uptrend || downtrend)
+        {
+          datetime pivot_time=-1;
+          if(uptrend) pivot_time=LOP_time;
+          else if(downtrend) pivot_time=HOP_time;
+          moves_start_bar=iBarShift(instrument,PERIOD_M5,pivot_time,false);
+        }*/
+      //else
+        //{
+          // Remember that the weeks_open_time is a global variable that is reset to -1 when is_new_custom_W1_bar function returns true.
+          if(include_previous_day && (weeks_open_time==-1 /*|| (day==1 && is_new_custom_W1_bar)*/))
+            {
+              set_custom_W1_times(instrument,_include_last_week,_H1s_to_roll,gmt_offset);
+              //alert_flag=false;
+            } 
+          // Remember that the days_open_time is a global variable that should be set to -1 every end of day.
+          else if(!include_previous_day && (days_open_time==-1))
+            {
+              set_custom_D1_open_time(instrument,0); // get the D1 bar's open time (based on the current time)
+              if(display_chart_objects && ObjectFind(move_start_text)<0) 
+                {
+                  int days_start_bar=iBarShift(instrument,PERIOD_M5,days_open_time,false);
+                  double days_open_price=iOpen(instrument,PERIOD_M5,days_start_bar);
+                  ObjectCreate(move_start_text,OBJ_VLINE,0,days_open_time,days_open_price); // it only gets set to these anchors for 1 M5 bar, so it is okay if it is wrong the first bar.
+                  ObjectSet(move_start_text,OBJPROP_COLOR,clrWhite);
+                }
+            }
+          if(include_previous_day)
+            {
+              int weeks_start_bar=iBarShift(instrument,PERIOD_M5,weeks_open_time,false);
+              
+              if(display_chart_objects && ObjectFind(move_start_text)<0) 
+                {
+                  double weeks_open_price=iOpen(instrument,PERIOD_M5,weeks_start_bar);
+                  ObjectCreate(move_start_text,OBJ_VLINE,0,weeks_open_time,weeks_open_price); // it only gets set to these anchors for 1 M5 bar, so it is okay if it is wrong the first bar.
+                  ObjectSet(move_start_text,OBJPROP_COLOR,clrWhite);
+                }
+              if(_moves_start_bar<=weeks_start_bar) moves_start_bar=_moves_start_bar; 
+              else if(_include_last_week)
+                {
+                  double weeks_open_price=iOpen(instrument,PERIOD_M5,weeks_start_bar);
+                  double last_weeks_close_price=iClose(instrument,PERIOD_M5,iBarShift(instrument,PERIOD_M5,last_weeks_end_time,false));
+                  double weekend_gap_points=MathAbs(last_weeks_close_price-weeks_open_price);
+                  double max_weekend_gap_points=NormalizeDouble(((ADR_pts*change_ADR_percent)+ADR_pts)*_max_weekend_gap_percent,digits); // calculated based off of raw ADR (not the user's modified ADR)
+                  if(weekend_gap_points>max_weekend_gap_points) // TODO: use compare_doubles()?
+                    {
+                      moves_start_bar=weeks_start_bar;
+                      if(alert_flag==false)
+                        {
+                          Print("This weekend's weekend_gap_points based on the raw ADR (",DoubleToString(weekend_gap_points),") is > the user's max_weekend_gap_points (",DoubleToString(max_weekend_gap_points),") setting.");
+                          alert_flag=true;
+                        }
+                    }
+                  else moves_start_bar=_moves_start_bar;
+                }
+              else moves_start_bar=weeks_start_bar;   
+            }
+          else if(!include_previous_day)
+            {
+              int days_start_bar=iBarShift(instrument,PERIOD_M5,days_open_time,false);
+              if(display_chart_objects && ObjectFind(move_start_text)<0) 
+                {
+                  double days_open_price=iOpen(instrument,PERIOD_M5,days_start_bar);
+                  ObjectCreate(move_start_text,OBJ_VLINE,0,days_open_time,days_open_price); // it only gets set to these anchors for 1 M5 bar, so it is okay if it is wrong the first bar.
+                  ObjectSet(move_start_text,OBJPROP_COLOR,clrWhite);
+                }
+              if(_moves_start_bar<=days_start_bar) moves_start_bar=_moves_start_bar;
+              else moves_start_bar=days_start_bar;  
+            }
+        //}
         ObjectSet(move_start_text,OBJPROP_TIME1,iTime(current_chart,PERIOD_M5,moves_start_bar));
         ObjectSet(move_start_text,OBJPROP_PRICE1,iOpen(current_chart,PERIOD_M5,moves_start_bar));      
       }
@@ -4091,6 +4056,8 @@ double get_lots(ENUM_MM method,bool _reduced_risk,int magic,string instrument,do
         case GBPJPY:
           micro_multiplier=point_multiplier*100; break;
         case GBPUSD:
+          micro_multiplier=point_multiplier*10000; break;
+        case USDCHF:
           micro_multiplier=point_multiplier*10000; break;
         case USDJPY:
           micro_multiplier=point_multiplier*100; break;
