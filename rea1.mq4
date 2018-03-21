@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Quant FX Capital/Tom Mazurek"
 #property link      "https://www.quantfxcapital.com"
-#property version   "2.08"
+#property version   "2.09"
 #property strict
 /* 
 Remember:
@@ -108,12 +108,12 @@ enum ENUM_MM // Money Management
 //+------------------------------------------------------------------+
   input bool        option=false;
   input bool        option2=false;
-  input string      version="2.08";
+  input string      version="2.09";
   input bool        broker_is_oanda=true;              // broker_is_oanda:
   input bool        use_recommended_settings=true;     // use_recommended_settings:
   int               init_result=INIT_FAILED;
   bool              ready=false, in_time_range=false;
-  bool              price_below_ma=false, price_above_ma=false;
+  //bool              price_below_ma=false, price_above_ma=false;
              
 // timeframe changes
   bool              is_new_M5_bar, is_new_H1_bar, is_new_custom_D1_bar,is_new_D1_bar,is_new_custom_W1_bar;
@@ -150,6 +150,8 @@ enum ENUM_MM // Money Management
   extern int        moving_avg_period=500;              // moving_avg_period:
   input double      ma_multiplier=1;                    // ma_multiplier:
   input bool        include_weaker_ma_setup=false;      // include_weaker_ma_setup:
+  extern bool       lot_size_is_ma_distance_based;      // lot_size_is_ma_distance_based: so far, this variable set to true has not increased the profit factor
+  input double      plus=.0;
   
 // time filters - only allow EA to enter trades between a range of time in a day
   input bool        automatic_gmt_offset=true;
@@ -241,6 +243,7 @@ enum ENUM_MM // Money Management
 
 // Average Daily Range
   static double     ADR_pts;
+  static double     ADR_pts_raw;
   input int         num_ADR_months=1;                   // num_ADR_months: How many months to use to calculate the average ADR?
   input double      change_ADR_percent=0;               // change_ADR_percent: this can be a 0, negative, or positive decimal or whole number. 
 // TODO: make sure you have coded for the scenerios when each of these is set to 0
@@ -454,7 +457,8 @@ int on_initialization(ENUM_SIGNAL_SET signal_set,string instrument)
     Print(ran," 5");
     reset_pivot_peak(instrument); // the set_moves_start_bar function should run before this function (only on initialization)
     is_new_M5_bar(instrument,true);
-    set_changed_ADR_pts(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent,instrument); // this should be after the recommended settings are set because, if requested, a change should be done after
+    ADR_pts_raw=get_ADR_pts_raw(instrument,H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,num_ADR_months);
+    set_changed_ADR_pts(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent,instrument,ADR_pts_raw); // this should be after the recommended settings are set because, if requested, a change should be done after
     is_new_H1_bar(instrument,false);
     set_custom_D1_open_time(instrument,0);
     is_new_custom_D1_bar(instrument,TimeCurrent()); // This is here so I do not have to rely on the is_new_H1_bar function to return true, in order to populate the variables which are populated within the function. This has to be run after the get_custom_D1_open_time function
@@ -827,11 +831,12 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
         in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,fri_end_time_hour,fri_end_time_minute,gmt_hour_offset); // only check if it is in the time range once the EA is loaded and, then, afterward at the beginning of every M5 bar  
         if(in_time_range==true && ready==false && average_spread_yesterday!=-1) 
           {
-            set_gmt_offset(instrument,current_time,1070);
-            set_changed_ADR_pts(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent,instrument);
+            set_gmt_offset(instrument,current_time,1140);
+            ADR_pts_raw=get_ADR_pts_raw(instrument,H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,num_ADR_months);
+            set_changed_ADR_pts(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent,instrument,ADR_pts_raw);
             average_spread_yesterday=calculate_avg_spread_yesterday(instrument);
             bool is_acceptable_spread=true; // TODO: delete this line after finishing the average_spread_yesterday function
-            if(ADR_pts>0 && magic>0 && is_acceptable_spread==true && days_open_time>0 && gmt_hour_offset_is_NULL==false) // days_open_time is required to have been generated in order to prevent duplicate trades or allow trades to happen
+            if(ADR_pts>0 && ADR_pts_raw>0 && magic>0 && is_acceptable_spread==true && days_open_time>0 && gmt_hour_offset_is_NULL==false) // days_open_time is required to have been generated in order to prevent duplicate trades or allow trades to happen
               {
                 // reset all trend analysis and uptrend/downtrend alternating to start fresh for the day
                 uptrend_order_was_last=false;
@@ -842,7 +847,7 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
                 ready=true; // the ADR and average spread yesterday that has just been calculated won't generate again until after the cycle of not being in the time range completes
                 //Print("INFO: THE ALGORITHM IS READY");
               }
-            else 
+            else
               {
                 static datetime last_sent=-1;
                 datetime today=round_down_to_days(current_time);
@@ -852,6 +857,8 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
                     ready=false; // never assign average_spread_yesterday to anything in this scope
                     if(ADR_pts==0 || ADR_pts==NULL)
                         print_and_email("Error",not_ready+" because ADR_pts was not generated");
+                    if(ADR_pts_raw==0 || ADR_pts==NULL)
+                        print_and_email("Error",not_ready+" because ADR_pts_raw was not generated");
                     if(magic<=0 || magic==NULL)
                         print_and_email("Error",not_ready+" because the magic number was not generated"); 
                     if(days_open_time<=0 || days_open_time==NULL)
@@ -918,14 +925,14 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
           }
         if(option)
           {
-            enter_signal=_signal_MA_better_test(instrument,Bid);
+            /*enter_signal=_signal_MA_better_test(instrument,Bid);
             if(retracement_percent>0)
               {
                 _signal_ADR_triggered_test(instrument);
                 enter_signal=signal_bias_compare(enter_signal,signal_retracement_after_ADR_triggered(instrument));
               }
             else 
-                enter_signal=signal_ADR_triggered(instrument);
+                enter_signal=signal_ADR_triggered(instrument);*/
           }
         else
           {
@@ -939,7 +946,7 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
             if(enter_signal>0 || enter_signal==DIRECTION_BIAS_IGNORE) 
               {
                 ENUM_DIRECTION_BIAS ma_bias;
-                ma_bias=signal_MA_better(instrument);
+                ma_bias=signal_MA_better(instrument,Bid);
                 if(ma_bias==DIRECTION_BIAS_NEUTRALIZE && include_weaker_ma_setup) 
                   {
                     enter_signal=signal_bias_compare(enter_signal,signal_MA_worse(instrument));
@@ -1157,7 +1164,7 @@ bool set_point_multiplier(string instrument)
       }
     else
         point_multiplier=1;
-    return true;    
+    return true;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1177,7 +1184,7 @@ bool set_spread_divider()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-ENUM_DIRECTION_BIAS signal_MA_better(string instrument) 
+ENUM_DIRECTION_BIAS signal_MA_better(string instrument,double current_bid) 
   {
     ENUM_DIRECTION_BIAS bias=DIRECTION_BIAS_NEUTRALIZE;
     if(moving_avg_period<=0)
@@ -1187,46 +1194,48 @@ ENUM_DIRECTION_BIAS signal_MA_better(string instrument)
         int ma_shift=0;
         int ma_index=0;
         double ma_price=iMA(instrument,PERIOD_M5,moving_avg_period,ma_shift,MODE_SMA,PRICE_MEDIAN,ma_index);
-        if(LOP_price<ma_price && HOP_price>ma_price) 
+        /*if(LOP_price<ma_price && HOP_price>ma_price) 
           {
             bias=DIRECTION_BIAS_NEUTRALIZE;
           }
         else 
-          {
+          {*/
             // _UJ_19pf_6dd_343t    control points, ADR_pts=65, moving_avg_period=500
             // _UJ_16pf_8dd_348t    tick data,      ADR_pts=65, moving_avg_period=500
             // _EU_16pf_7dd_345t    control points, ADR_pts=50, moving_avg_period=500
             // _EU_133pf_10dd_341t  tick data,      ADR_pts=50, moving_avg_period=500
             // _EJ_188pf_7dd_342t   control points, ADR_pts=65, moving_avg_period=500
             // _EJ_16pf_8dd_347t    tick data,      ADR_pts=65, moving_avg_period=500
-            if(uptrend && HOP_price<ma_price) // current_bid>ma_price && uptrend && LOP_price>ma_price
+            if(uptrend && LOP_price<ma_price /*&& HOP_price<ma_price*/) // current_bid>ma_price && uptrend && LOP_price>ma_price
               { 
-                price_below_ma=true;
-                price_above_ma=false;
-                double point=MarketInfo(instrument,MODE_POINT);
-                double distance_pts=ma_price-HOP_price;
-                if(distance_pts>ma_range_pts*point*point_multiplier) bias=DIRECTION_BIAS_IGNORE;
-                else bias=DIRECTION_BIAS_NEUTRALIZE;
+                //price_below_ma=true;
+                //price_above_ma=false;
+                //double point=MarketInfo(instrument,MODE_POINT);
+                //double distance_pts=ma_price-HOP_price;
+                //if(distance_pts>ma_range_pts*point*point_multiplier) bias=DIRECTION_BIAS_IGNORE;
+                //else bias=DIRECTION_BIAS_NEUTRALIZE;
+
+                bias=DIRECTION_BIAS_IGNORE;
               }
-            else if(downtrend && LOP_price>ma_price)
+            else if(downtrend && HOP_price>ma_price /*&& LOP_price>ma_price*/)
               {
-                price_below_ma=false;
-                price_above_ma=true;
-                double point=MarketInfo(instrument,MODE_POINT);
-                double distance_pts=LOP_price-ma_price;
-                if(distance_pts>ma_range_pts*point*point_multiplier) bias=DIRECTION_BIAS_IGNORE;
-                else bias=DIRECTION_BIAS_NEUTRALIZE;             
+                //price_below_ma=false;
+                //price_above_ma=true;
+                //double point=MarketInfo(instrument,MODE_POINT);
+                //double distance_pts=LOP_price-ma_price;
+                //if(distance_pts>ma_range_pts*point*point_multiplier) bias=DIRECTION_BIAS_IGNORE;
+                //else bias=DIRECTION_BIAS_NEUTRALIZE;
+
+                bias=DIRECTION_BIAS_IGNORE;          
               }
             else bias=DIRECTION_BIAS_NEUTRALIZE;
-          }
+
+          //}
       }
     return bias;
   }
-  
-  
-  
-  
-  
+
+
 ENUM_DIRECTION_BIAS _signal_MA_better_test(string instrument,double current_bid) 
   {
     ENUM_DIRECTION_BIAS bias=DIRECTION_BIAS_NEUTRALIZE;
@@ -1245,8 +1254,8 @@ ENUM_DIRECTION_BIAS _signal_MA_better_test(string instrument,double current_bid)
           {
             if(current_bid<ma_price) // current_bid>ma_price && uptrend && LOP_price>ma_price
               { 
-                price_below_ma=true;
-                price_above_ma=false;
+                //price_below_ma=true;
+                //price_above_ma=false;
                 double point=MarketInfo(instrument,MODE_POINT);
                 double distance_pts=ma_price-current_bid;
                 if(distance_pts>ma_range_pts*point*point_multiplier) bias=DIRECTION_BIAS_BUY;
@@ -1255,8 +1264,8 @@ ENUM_DIRECTION_BIAS _signal_MA_better_test(string instrument,double current_bid)
              }
             else if(current_bid>ma_price)
               {
-                price_below_ma=false;
-                price_above_ma=true;
+                //price_below_ma=false;
+                //price_above_ma=true;
                 double point=MarketInfo(instrument,MODE_POINT);
                 double distance_pts=current_bid-ma_price;
                 if(distance_pts>ma_range_pts*point*point_multiplier) bias=DIRECTION_BIAS_SELL;
@@ -1584,7 +1593,7 @@ ENUM_DIRECTION_BIAS signal_ADR_triggered(string instrument)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+  
-ENUM_DIRECTION_BIAS _signal_ADR_triggered_test(string instrument)
+/*ENUM_DIRECTION_BIAS _signal_ADR_triggered_test(string instrument)
   {
     ENUM_DIRECTION_BIAS signal=DIRECTION_BIAS_NEUTRALIZE;
     if((price_below_ma && uptrend_order_was_last==false) || retracement_percent==0)
@@ -1605,7 +1614,7 @@ ENUM_DIRECTION_BIAS _signal_ADR_triggered_test(string instrument)
           }
       }
     return signal;
-   }
+   }*/
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -2485,103 +2494,92 @@ bool days_move_too_big(string instrument)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double ADR_calculation(string instrument,double low_outlier,double high_outlier,int _num_ADR_months/*,double change_by*/)
+double ADR_pts_raw_calculation(string instrument,double low_outlier,double high_outlier,int _num_ADR_months)
   {
     double adr_pts;
-    if(use_fixed_ADR && fixed_ADR_pips>0)
+    // determine how many saturday and sundays occured in the last 3 months
+    int three_mnth_sat_sun_count=0;
+    int three_mnth_num_days=3*22; // There are about 22 business days a month.
+    for(int i=three_mnth_num_days;i>0;i--) // count the number of Sundays in the past 6 months
       {
-        double point=MarketInfo(instrument,MODE_POINT);
-        adr_pts=fixed_ADR_pips*point*point_multiplier;
-        //Print("ADR_calculation point: ",DoubleToStr(point));
-        //Print("ADR_calculation point_multiplier: ",point_multiplier);
+        int day=TimeDayOfWeek(iTime(instrument,PERIOD_D1,i));
+        if(day==0 || day==6) // count Saturdays and Sundays
+          {
+           three_mnth_sat_sun_count++;
+          }
       }
-    else
+    // determine the average number of saturdays and sundays per day
+    double avg_sat_sun_per_day=three_mnth_sat_sun_count/three_mnth_num_days;
+    int six_mnth_adjusted_num_days=(int)(((avg_sat_sun_per_day*three_mnth_num_days)+three_mnth_num_days)*2); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
+    if(six_mnth_adjusted_num_days+1>iBars(instrument,PERIOD_D1)) 
       {
-        // determine how many saturday and sundays occured in the last 3 months
-        int three_mnth_sat_sun_count=0;
-        int three_mnth_num_days=3*22; // There are about 22 business days a month.
-        for(int i=three_mnth_num_days;i>0;i--) // count the number of Sundays in the past 6 months
-          {
-            int day=TimeDayOfWeek(iTime(instrument,PERIOD_D1,i));
-            if(day==0 || day==6) // count Saturdays and Sundays
-              {
-               three_mnth_sat_sun_count++;
-              }
-          }
-        // determine the average number of saturdays and sundays per day
-        double avg_sat_sun_per_day=three_mnth_sat_sun_count/three_mnth_num_days;
-        int six_mnth_adjusted_num_days=(int)(((avg_sat_sun_per_day*three_mnth_num_days)+three_mnth_num_days)*2); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
-        if(six_mnth_adjusted_num_days+1>iBars(instrument,PERIOD_D1)) 
-          {
-            print_and_email("Error","ADR_calculation: There are not enough D1 bars on the "+instrument+" chart to calculate ADR.");
-            Sleep(1000);
-            ExpertRemove();
-          }
-        int six_mnth_non_sunday_count=0;
-        double six_mnth_non_sunday_ADR_sum=0;
-        for(int i=six_mnth_adjusted_num_days;i>0;i--) // get the raw ADR (outliers are included but not Sunday's outliers) for the approximate past 6 months
-          {
-            int day=TimeDayOfWeek(iTime(instrument,PERIOD_D1,i));
-            if(day!=0 && day!=6) // if the day of week is not Saturday or Sunday
-              {
-               double HOD=iHigh(instrument,PERIOD_D1,i);
-               double LOD=iLow(instrument,PERIOD_D1,i);
-               six_mnth_non_sunday_ADR_sum+=HOD-LOD;
-               six_mnth_non_sunday_count++;
-              }
-          }
-        int digits=(int)MarketInfo(instrument,MODE_DIGITS);
-        double six_mnth_ADR_avg=NormalizeDouble(six_mnth_non_sunday_ADR_sum/six_mnth_non_sunday_count,digits); // the first time getting the ADR average
-        six_mnth_non_sunday_ADR_sum=0;
-        six_mnth_non_sunday_count=0;
-        for(int i=six_mnth_adjusted_num_days;i>0;i--) // refine the ADR (outliers and Sundays are NOT included) for the approximate past 6 months
-          {
-            int day=TimeDayOfWeek(iTime(instrument,PERIOD_D1,i));
-            if(day!=0 && day!=6) // if the day of week is not Sunday
-              {
-                double HOD=iHigh(instrument,PERIOD_D1,i);
-                double LOD=iLow(instrument,PERIOD_D1,i);
-                double days_range=HOD-LOD;
-                double ADR_ratio=NormalizeDouble(days_range/six_mnth_ADR_avg,2); // ratio for comparing the current iteration with the 6 month average
-                if(compare_doubles(ADR_ratio,low_outlier,2)==1 && compare_doubles(ADR_ratio,high_outlier,2)==-1) // filtering out outliers // TODO: you may not have to use compare_doubles()
-                  {
-                    six_mnth_non_sunday_ADR_sum+=days_range;
-                    six_mnth_non_sunday_count++;
-                  }
-              }
-          }
-        six_mnth_ADR_avg=NormalizeDouble(six_mnth_non_sunday_ADR_sum/six_mnth_non_sunday_count,digits); // the second time getting an ADR average but this time it is MORE REFINED
-        double x_mnth_non_sunday_ADR_sum=0;
-        int x_mnth_non_sunday_count=0;
-        int x_mnth_num_days=_num_ADR_months*22; // There are about 22 business days a month.
-        int x_mnth_adjusted_num_days=(int)((avg_sat_sun_per_day*x_mnth_num_days)+x_mnth_num_days); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
-        for(int i=x_mnth_adjusted_num_days;i>0;i--) // find the counts of all days that are significantly below or above ADR
-          {
-            int day=TimeDayOfWeek(iTime(instrument,PERIOD_D1,i));
-            if(day!=0 && day!=6) // if the day of week is not Sunday
-              {
-                double HOD=iHigh(instrument,PERIOD_D1,i);
-                double LOD=iLow(instrument,PERIOD_D1,i);
-                double days_range=HOD-LOD;
-                double ADR_ratio=NormalizeDouble(days_range/six_mnth_ADR_avg,2); // ratio for comparing the current iteration with the 6 month average
-                
-                if(compare_doubles(ADR_ratio,low_outlier,2)==1 && compare_doubles(ADR_ratio,high_outlier,2)==-1) // filtering out outliers // you may not have to use compare_doubles()
-                  {
-                    x_mnth_non_sunday_ADR_sum+=days_range;
-                    x_mnth_non_sunday_count++;
-                  }
-              }
-          }
-        adr_pts=NormalizeDouble(x_mnth_non_sunday_ADR_sum/x_mnth_non_sunday_count,digits);
-        //Print("ADR_calculation returned: ",DoubleToStr(adr_pts,digits));
+        print_and_email("Error","ADR_calculation: There are not enough D1 bars on the "+instrument+" chart to calculate ADR.");
+        Sleep(1000);
+        ExpertRemove();
       }
+    int six_mnth_non_sunday_count=0;
+    double six_mnth_non_sunday_ADR_sum=0;
+    for(int i=six_mnth_adjusted_num_days;i>0;i--) // get the raw ADR (outliers are included but not Sunday's outliers) for the approximate past 6 months
+      {
+        int day=TimeDayOfWeek(iTime(instrument,PERIOD_D1,i));
+        if(day!=0 && day!=6) // if the day of week is not Saturday or Sunday
+          {
+           double HOD=iHigh(instrument,PERIOD_D1,i);
+           double LOD=iLow(instrument,PERIOD_D1,i);
+           six_mnth_non_sunday_ADR_sum+=HOD-LOD;
+           six_mnth_non_sunday_count++;
+          }
+      }
+    int digits=(int)MarketInfo(instrument,MODE_DIGITS);
+    double six_mnth_ADR_avg=NormalizeDouble(six_mnth_non_sunday_ADR_sum/six_mnth_non_sunday_count,digits); // the first time getting the ADR average
+    six_mnth_non_sunday_ADR_sum=0;
+    six_mnth_non_sunday_count=0;
+    for(int i=six_mnth_adjusted_num_days;i>0;i--) // refine the ADR (outliers and Sundays are NOT included) for the approximate past 6 months
+      {
+        int day=TimeDayOfWeek(iTime(instrument,PERIOD_D1,i));
+        if(day!=0 && day!=6) // if the day of week is not Sunday
+          {
+            double HOD=iHigh(instrument,PERIOD_D1,i);
+            double LOD=iLow(instrument,PERIOD_D1,i);
+            double days_range=HOD-LOD;
+            double ADR_ratio=NormalizeDouble(days_range/six_mnth_ADR_avg,2); // ratio for comparing the current iteration with the 6 month average
+            if(compare_doubles(ADR_ratio,low_outlier,2)==1 && compare_doubles(ADR_ratio,high_outlier,2)==-1) // filtering out outliers // TODO: you may not have to use compare_doubles()
+              {
+                six_mnth_non_sunday_ADR_sum+=days_range;
+                six_mnth_non_sunday_count++;
+              }
+          }
+      }
+    six_mnth_ADR_avg=NormalizeDouble(six_mnth_non_sunday_ADR_sum/six_mnth_non_sunday_count,digits); // the second time getting an ADR average but this time it is MORE REFINED
+    double x_mnth_non_sunday_ADR_sum=0;
+    int x_mnth_non_sunday_count=0;
+    int x_mnth_num_days=_num_ADR_months*22; // There are about 22 business days a month.
+    int x_mnth_adjusted_num_days=(int)((avg_sat_sun_per_day*x_mnth_num_days)+x_mnth_num_days); // accurately estimate how many D1 bars you would have to go back to get the desired number of days to look back
+    for(int i=x_mnth_adjusted_num_days;i>0;i--) // find the counts of all days that are significantly below or above ADR
+      {
+        int day=TimeDayOfWeek(iTime(instrument,PERIOD_D1,i));
+        if(day!=0 && day!=6) // if the day of week is not Sunday
+          {
+            double HOD=iHigh(instrument,PERIOD_D1,i);
+            double LOD=iLow(instrument,PERIOD_D1,i);
+            double days_range=HOD-LOD;
+            double ADR_ratio=NormalizeDouble(days_range/six_mnth_ADR_avg,2); // ratio for comparing the current iteration with the 6 month average
+            if(compare_doubles(ADR_ratio,low_outlier,2)==1 && compare_doubles(ADR_ratio,high_outlier,2)==-1) // filtering out outliers // you may not have to use compare_doubles()
+              {
+                x_mnth_non_sunday_ADR_sum+=days_range;
+                x_mnth_non_sunday_count++;
+              }
+          }
+      }
+    adr_pts=NormalizeDouble(x_mnth_non_sunday_ADR_sum/x_mnth_non_sunday_count,digits);
+    //Print("ADR_calculation returned: ",DoubleToStr(adr_pts,digits));
     //Print("ADR_calculation adr_pts: ",DoubleToStr(adr_pts));
-    return adr_pts;  
+    return adr_pts;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double get_raw_ADR_pts(string instrument,double hours_to_roll,double low_outlier,double high_outlier,int _num_ADR_months) // get the Average Daily Range
+double get_ADR_pts_raw(string instrument,double hours_to_roll,double low_outlier,double high_outlier,int _num_ADR_months) // get the Average Daily Range
   {
     static double   _adr_pts=0;
     static datetime date_last_modified=-1;
@@ -2591,12 +2589,12 @@ double get_raw_ADR_pts(string instrument,double hours_to_roll,double low_outlier
         if(low_outlier>high_outlier || _num_ADR_months<=0 || _num_ADR_months==NULL || MathMod(hours_to_roll,.25)!=0)
           {
             print_and_email("Error","get_raw_ADR_pts: The user inputed the wrong outlier variables or a H1s_to_roll number that is not divisible by .25. It is not possible to calculate ADR.");
-            return -1; // 
-          }  
+            return -1;
+          }
         else
           {
             //Print("get_raw_ADR_pts: ADR_calculation will be run");
-            double calculated_adr_pts=ADR_calculation(instrument,low_outlier,high_outlier,_num_ADR_months);
+            double calculated_adr_pts=ADR_pts_raw_calculation(instrument,low_outlier,high_outlier,_num_ADR_months);
             _adr_pts=calculated_adr_pts; // make the function remember the calculation the next time it is called
             //Print("get_raw_ADR_pts 1 returns:",DoubleToStr(_adr_pts));
             date_last_modified=date;
@@ -2609,9 +2607,8 @@ double get_raw_ADR_pts(string instrument,double hours_to_roll,double low_outlier
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void set_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_outlier,double change_by_percent,string instrument)
+void set_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_outlier,double change_by_percent,string instrument,double _ADR_pts_raw)
   {
-    double   raw_ADR_pts=get_raw_ADR_pts(instrument,hours_to_roll,low_outlier,high_outlier,num_ADR_months);
     string   current_chart=Symbol();
     double   bid_price=MarketInfo(current_chart,MODE_BID);
     string   ADR_pts_object=current_chart+"_ADR_pts";
@@ -2619,20 +2616,28 @@ void set_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_out
       {
         ObjectCreate(ADR_pts_object,OBJ_TEXT,0,TimeCurrent(),bid_price);
         ObjectSetText(ADR_pts_object,"0",15,NULL,clrWhite);
-      } 
-    if(raw_ADR_pts>0)
+      }
+    if(_ADR_pts_raw>0)
       {
-        double current_ADR_pts=ADR_pts;
-        int    digits=(int)MarketInfo(instrument,MODE_DIGITS);
-        if(change_by_percent==0 || change_by_percent==NULL)
+        if(use_fixed_ADR && fixed_ADR_pips>0)
           {
-            ADR_pts=NormalizeDouble(raw_ADR_pts,digits);
-            if(ADR_pts!=current_ADR_pts) print_and_email("Info","set_changed_ADR_pts: A raw ADR of "+DoubleToString(raw_ADR_pts,digits)+" for "+instrument+" was generated.");
+            double point=MarketInfo(instrument,MODE_POINT);
+            ADR_pts=fixed_ADR_pips*point*point_multiplier;
           }
         else
           {
-            ADR_pts=NormalizeDouble(((raw_ADR_pts*change_by_percent)+raw_ADR_pts),digits); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
-            if(ADR_pts!=current_ADR_pts) print_and_email("Info","set_changed_ADR_pts: A raw ADR of "+DoubleToString(raw_ADR_pts,digits)+" for "+instrument+" was generated. As requested by the user, it has been changed to "+DoubleToString(ADR_pts,digits));
+            double current_ADR_pts=ADR_pts;
+            int digits=(int)MarketInfo(instrument,MODE_DIGITS);
+            if(change_by_percent==0 || change_by_percent==NULL)
+              {
+                ADR_pts=NormalizeDouble(_ADR_pts_raw,digits);
+                if(ADR_pts!=current_ADR_pts) print_and_email("Info","set_changed_ADR_pts: A raw ADR of "+DoubleToString(_ADR_pts_raw,digits)+" for "+instrument+" was generated.");
+              }
+            else
+              {
+                ADR_pts=NormalizeDouble(((_ADR_pts_raw*change_by_percent)+_ADR_pts_raw),digits); // include the ability to increase\decrease the ADR by a certain percentage where the input is a global variable
+                if(ADR_pts!=current_ADR_pts) print_and_email("Info","set_changed_ADR_pts: A raw ADR of "+DoubleToString(_ADR_pts_raw,digits)+" for "+instrument+" was generated. As requested by the user, it has been changed to "+DoubleToString(ADR_pts,digits));
+              }
           }
         if(instrument==current_chart)
           {
@@ -2640,7 +2645,7 @@ void set_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_out
             ObjectMove(ADR_pts_object,0,TimeCurrent(),bid_price+ADR_pts/4);        
           }
       }
-    else print_and_email("Error","set_changed_ADR_pts: An ADR of 0 or less was generated for "+instrument+".");
+    else print_and_email("Error","set_changed_ADR_pts: An ADR_pts_raw of 0 or was passed into this function for "+instrument+".");
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -4077,8 +4082,7 @@ double get_lots(ENUM_MM method,bool _reduced_risk,int magic,string instrument,do
         case MM_FIXED_RISK:
           if(pips>0) lots=(risk_mm3/tick_value)/pts; break;
         case MM_FIXED_RISK_PER_POINT:
-          lots=risk_mm4/tick_value; break;
-            */
+          lots=risk_mm4/tick_value; break;*/
       }
     if(increase_lots_by_percent>0 && increase_lots_after_x_losses>0)
       if(last_x_trades_were_loss(increase_lots_after_x_losses,magic))
@@ -4087,19 +4091,33 @@ double get_lots(ENUM_MM method,bool _reduced_risk,int magic,string instrument,do
           //if(lot_multiplier>1) Print("THE LOT_MULTIPLIER WAS INCREASED");
         }
     // get information from the broker and then Normalize the lots double
-    double min_lot=MarketInfo(instrument,MODE_MINLOT);
-    double max_lot=MarketInfo(instrument,MODE_MAXLOT);
+    double min_lots=MarketInfo(instrument,MODE_MINLOT);
+    double max_lots=MarketInfo(instrument,MODE_MAXLOT);
     int lot_digits=int(-MathLog10(MarketInfo(instrument,MODE_LOTSTEP))); // MathLog10 returns the logarithm of a number (in this case, the MODE_LOTSTEP) base 10. So, this finds out how many digits in the lot the broker accepts.
     if(_reduced_risk==true) 
       {
         //Print("lots before changing: ",DoubleToStr(NormalizeDouble(lots*lot_multiplier,lot_digits)));
         lot_multiplier=lot_multiplier*.5;
         //Print("lots after changing: ",DoubleToStr(NormalizeDouble(lots*lot_multiplier,lot_digits)));
-      }  
+      }
+    else if(lot_size_is_ma_distance_based && moving_avg_period>0) // note: setting lot_size_is_ma_distance_based==true doesn't increase the profit factor
+      {
+          double ma_price=iMA(instrument,PERIOD_M5,moving_avg_period,0,MODE_SMA,PRICE_MEDIAN,0);
+          double ma_distance_pts=MathAbs(Bid-ma_price); // this variable corresponds to the get_lots function
+          double distance_percent=NormalizeDouble(ma_distance_pts/ADR_pts_raw,2);
+          Print("trade's distance_percent: ",DoubleToString(distance_percent,2));
+          /*if(distance_percent>=1.50)    lot_multiplier=lot_multiplier*1.50;
+          else if(distance_percent>=1.25) lot_multiplier=lot_multiplier*1.25;
+          else if(distance_percent>=1.00) lot_multiplier=lot_multiplier*1.00;
+          else if(distance_percent>=0.75) lot_multiplier=lot_multiplier*0.75;
+          else if(distance_percent>=0.50) lot_multiplier=lot_multiplier*0.50;
+          else                            lot_multiplier=lot_multiplier*0.25;*/
+          lot_multiplier=MathMin(distance_percent+plus,1)*lot_multiplier;
+      }
     lots=NormalizeDouble(lots*lot_multiplier,lot_digits);
     // If the lots value is below or above the broker's MODE_MINLOT or MODE_MAXLOT, the lots will be change to one of those lot sizes. This is in order to prevent Error 131 - invalid trade volume
-    if(lots<min_lot) lots=min_lot;
-    if(lots>max_lot) lots=max_lot;
+    if(lots<min_lots) lots=min_lots;
+    if(lots>max_lots) lots=max_lots;
     return lots;
   }
 //+------------------------------------------------------------------+
