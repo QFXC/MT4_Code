@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Quant FX Capital/Tom Mazurek"
 #property link      "https://www.quantfxcapital.com"
-#property version   "2.09"
+#property version   "2.10"
 #property strict
 /* 
 Remember:
@@ -108,12 +108,12 @@ enum ENUM_MM // Money Management
 //+------------------------------------------------------------------+
   input bool        option=false;
   input bool        option2=false;
-  input string      version="2.09";
+  input string      version="2.10";
   input bool        broker_is_oanda=true;              // broker_is_oanda:
   input bool        use_recommended_settings=true;     // use_recommended_settings:
   int               init_result=INIT_FAILED;
   bool              ready=false, in_time_range=false;
-  //bool              price_below_ma=false, price_above_ma=false;
+  //bool            price_below_ma=false, price_above_ma=false;
              
 // timeframe changes
   bool              is_new_M5_bar, is_new_H1_bar, is_new_custom_D1_bar,is_new_D1_bar,is_new_custom_W1_bar;
@@ -151,7 +151,8 @@ enum ENUM_MM // Money Management
   input double      ma_multiplier=1;                    // ma_multiplier:
   input bool        include_weaker_ma_setup=false;      // include_weaker_ma_setup:
   /*extern*/ bool   lot_size_is_ma_distance_based=false;      // lot_size_is_ma_distance_based: so far, this variable set to true has not increased the profit factor
-  extern bool       takeprofit_pts_is_ma_distance_based=false;
+  extern bool       takeprofit_pts_is_ma_distance_based=true;
+  extern bool       active_trade_expire_is_tp_based=false;
   
 // time filters - only allow EA to enter trades between a range of time in a day
   input bool        automatic_gmt_offset=true;
@@ -184,8 +185,8 @@ enum ENUM_MM // Money Management
 	//input bool      based_on_raw_ADR=true;              // true based_on_raw_ADR:true Should the max_spread_percent be calculated from the raw ADR?
 
 // virtual stoploss variables
-	int               virtual_sl=0; //0 TODO: Change to a percent of ADR
-	int               virtual_tp=0; //0 TODO: Change to a percent of ADR
+	int               virtual_sl=0; // 0 TODO: Change to a percent of ADR
+	int               virtual_tp=0; // 0 TODO: Change to a percent of ADR
 	
 // breakeven variables
 	input double      breakeven_threshold_percent=0;      // breakeven_threshold_percent: % of takeprofit before setting the stop to breakeven.
@@ -201,9 +202,8 @@ enum ENUM_MM // Money Management
 
 // exit or do not take orders based on time
 	/*input*/ int     exiting_max_slippage_pips=50;       // exiting_max_slippage_pips: Must be in whole number. // TODO: For 3 and 5 digit brokers, is 50 equivalent to 5 pips?
-	extern double     active_trade_expire=.75;            // active_trade_expire: Any hours or fractions of hour(s). How many hours can a trade be on that hasn't hit stoploss or takeprofit?
+	extern double     active_trade_expire=1;            // active_trade_expire: Any hours or fractions of hour(s). How many hours can a trade be on that hasn't hit stoploss or takeprofit?
   static double     active_trade_expire_stored=active_trade_expire;
-  extern bool       active_trade_expire_is_target_based=false;
 	input double      pending_order_expire=0;             // pending_order_expire: Any hours or fractions of hour(s). In how many hours do you want your pending orders to expire?
 	extern double     retracement_virtual_expire=.5;      // retracement_virtual_expire: Any hours or fractions of hour(s). In how many hours after the high/low do you want the potential retracement trades to expire?
 	extern double     trigger_to_peak_max=0;              // trigger_to_peak_max:
@@ -227,6 +227,7 @@ enum ENUM_MM // Money Management
   extern double     H1s_to_roll=.5;                     // H1s_to_roll: Only divisible by .5 // How many hours should you roll to determine a short term market trend?
   input double      max_weekend_gap_percent=.15;        // max_weekend_gap_percent: What is the maximum weekend gap (as a percent of raw ADR) for H1s_to_roll to not take the previous week into account?
   extern double     too_big_move_percent=2.5;           // too_big_move_percent: 1.7
+  extern double     range_overblown_multiplier=2;       // range_overblown_multiplier:
   input int         over_extended_x_days=0;             // over_extended_x_days: 
   extern int        past_x_days_same_trend=1;           // past_x_days_same_trend: 
   input double      move_too_big_multiplier=6;          // move_too_big_multiplier:
@@ -246,7 +247,7 @@ enum ENUM_MM // Money Management
 // Average Daily Range
   static double     ADR_pts;
   static double     ADR_pts_raw;
-  input int         num_ADR_months=1;                   // num_ADR_months: How many months to use to calculate the average ADR?
+  extern int        num_ADR_months=1;                   // num_ADR_months: How many months to use to calculate the average ADR?
   input double      change_ADR_percent=0;               // change_ADR_percent: this can be a 0, negative, or positive decimal or whole number. 
 // TODO: make sure you have coded for the scenerios when each of these is set to 0
   input double      above_ADR_outlier_percent=1.5;      // above_ADR_outlier_percent: 1.5 Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be surpassed in a day for it to be neglected from the average calculation?
@@ -825,26 +826,16 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
     //   virtualstop_check(virtual_sl,virtual_tp); 
     if(is_new_M5_bar) 
       {
-        bool a_trade_closed_since_last_checked=a_trade_closed_since_last_checked(magic);
-
-
-
-
-
-
-        if(a_trade_closed_since_last_checked && active_trade_expire_is_target_based) 
+        bool a_trade_closed=a_trade_closed_since_last_checked(magic);
+        if(a_trade_closed && active_trade_expire_is_tp_based) 
           {
             Print("active_trade_expire was ",DoubleToString(active_trade_expire,2)," but has now been changed to ",DoubleToString(active_trade_expire_stored,2)," of an hour.");
             active_trade_expire=active_trade_expire_stored;
           }
-
-
-
-
-
-
-
-        if(expired_pivot_level(current_time)==true || a_trade_closed_since_last_checked || range_overblown()) 
+        if(expired_pivot_level(current_time) || 
+           expired_peak_level(current_time) || 
+           a_trade_closed || 
+           is_range_overblown(range_overblown_multiplier))
           {
             // reset the LOP_price, HOP_price, and trends because the signal is no longer valid
             reset_pivot_peak(instrument);
@@ -986,13 +977,6 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
           {
             if(pending_orders_open>=max_pending_orders_at_once) enter_signal=DIRECTION_BIAS_NEUTRALIZE;
           }
-        if(enter_signal>0 && retracement_percent>0) 
-          if(expired_peak_level(current_time)==true)
-            {
-              enter_signal=DIRECTION_BIAS_NEUTRALIZE; //two if statements to reduce the calling of a function
-              //reset the LOP_price, HOP_price, and trends because the any the setup is no longer valid
-              reset_pivot_peak(instrument);
-            }
         if(enter_signal>0 && move_too_big_multiplier>0)
           {
             if(days_move_too_big(instrument)) enter_signal=DIRECTION_BIAS_NEUTRALIZE;
@@ -2424,12 +2408,10 @@ void set_custom_D1_open_time(string instrument,int shift) // call this function 
               {
                 int market_open_hour=get_sundays_start_hour(instrument,server_days_open_time,6);
                 days_open_time=server_days_open_time+(market_open_hour*3600);
-                //Print(1);
                 if(print_time_info) Print("server days open time: ",TimeToStr(server_days_open_time));
               }
             else
               {
-                //Print(2);
                 days_open_time=server_days_open_time+gmt_seconds_offset;  
               }
           }  
@@ -2439,12 +2421,10 @@ void set_custom_D1_open_time(string instrument,int shift) // call this function 
         datetime temp_days_open_time=server_days_open_time+gmt_seconds_offset;
         if(TimeCurrent()>=temp_days_open_time) days_open_time=(temp_days_open_time);
         else days_open_time=temp_days_open_time-86400; // return the time of the D1 bar 24 hours prior
-        //Print(3);
         // TODO: if you every have a positive gmt_offset_hour, you may want to have similar code here as you have when it is negative
       }
     else 
       {
-        //Print(4);
         days_open_time=server_days_open_time; // when gmt_seconds_offset==0
       }  
     //Print("days_open_time set to: ",TimeToString(days_open_time));
@@ -3574,41 +3554,47 @@ double calculate_avg_spread_yesterday(string instrument)
           }
       }
     return NormalizeDouble(spread_total/(new_server_day_bar-end_server_day_bar),Digits); // return the average spread*/
-    double avg_spread_yesterday=NormalizeDouble(MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier/spread_divider,digits); // this line is temporary until I find a way to get spread history
+    double avg_spread_yesterday=NormalizeDouble((MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier)/spread_divider,digits); // this line is temporary until I find a way to get spread history
     //Print("calculate_avg_spread_yesterday() returns: ",avg_spread_yesterday);
     return avg_spread_yesterday;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+bool is_range_overblown(double multiplier)
+  {
+    if(HOP_price-LOP_price>ADR_pts*multiplier) return true;
+    else return false;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 bool expired_peak_level(datetime _current_time)
   {
-    datetime peak_levels_time;
     //if(peak_expire_seconds==0 || peak_expire_seconds==NULL) return false;
-    if(uptrend) 
+    if(retracement_percent>0)
       {
-        peak_levels_time=HOP_time;
-        //double price_diff_since_last_peak=current_pivot_level_price-last_pivot_levels_price;
+        datetime peak_levels_time;
+        if(uptrend) 
+          {
+            peak_levels_time=HOP_time;
+            //double price_diff_since_last_peak=current_pivot_level_price-last_pivot_levels_price;
+          }
+        else if(downtrend)
+          {
+            peak_levels_time=LOP_time;
+            //double price_diff_since_last_peak=last_pivot_levels_price-current_pivot_level_price;
+          }
+        else return false;
+        int seconds_since_peak=int(_current_time-peak_levels_time);
+        //int seconds_since_pivot=int(peak_levels_time-pivot_levels_time);
+        //if(is_new_M5_bar) Print("Peak time: ",TimeToString(pivot_levels_time)," Minutes since peak: ",seconds_since_peak/60);
+        if(seconds_since_peak>int(retracement_virtual_expire*3600)/*&& price_diff_since_last_peak>=ADR_pts*(ADR_pts*.1)*/)
+          {
+            //Print("Prevented a trade because it did not meet the expire_seconds from peak criteria");
+            return true;
+          }
       }
-    else if(downtrend)
-      {
-        peak_levels_time=LOP_time;
-        //double price_diff_since_last_peak=last_pivot_levels_price-current_pivot_level_price;
-      }
-    else return false;
-    int seconds_since_peak=int(_current_time-peak_levels_time);
-    //int seconds_since_pivot=int(peak_levels_time-pivot_levels_time);
-    //if(is_new_M5_bar) Print("Peak time: ",TimeToString(pivot_levels_time)," Minutes since peak: ",seconds_since_peak/60);
-    if(seconds_since_peak>int(retracement_virtual_expire*3600)/*&& price_diff_since_last_peak>=ADR_pts*(ADR_pts*.1)*/)
-      {
-        //Print("Prevented a trade because it did not meet the expire_seconds from peak criteria");
-        return true;
-      }
-    return false;
-  }
-bool range_overblown()
-  {
-    if(HOP_price-LOP_price>ADR_pts*2) return true;
     return false;
   }
 //+------------------------------------------------------------------+
@@ -3801,7 +3787,7 @@ double get_new_takeprofit_percent(string instrument,double _periods_range_pts,in
 //+------------------------------------------------------------------+
 void set_new_active_trade_expire(double _new_takeprofit_percent)
   {
-    if(active_trade_expire_is_target_based && takeprofit_percent>0)
+    if(active_trade_expire_is_tp_based && takeprofit_percent>0)
       {
         double change_percent=MathMin(NormalizeDouble((_new_takeprofit_percent/takeprofit_percent),2),active_trade_expire*2);
         if(change_percent<1) return;
