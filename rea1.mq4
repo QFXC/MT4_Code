@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Quant FX Capital/Tom Mazurek"
 #property link      "https://www.quantfxcapital.com"
-#property version   "2.11"
+#property version   "2.12"
 #property strict
 /* 
 Remember:
@@ -109,7 +109,7 @@ enum ENUM_MM // Money Management
 //+------------------------------------------------------------------+
   input bool        option=false;
   input bool        option2=false;
-  input string      version="2.11";
+  input string      version="2.12";
   input bool        broker_is_oanda=true;              // broker_is_oanda:
   input bool        use_recommended_settings=true;     // use_recommended_settings:
   int               init_result=INIT_FAILED;
@@ -230,7 +230,8 @@ enum ENUM_MM // Money Management
   extern double     too_big_move_percent=2.5;           // too_big_move_percent: 1.7
   extern double     range_overblown_multiplier=2;       // range_overblown_multiplier:
   input int         over_extended_x_days=0;             // over_extended_x_days: 
-  extern int        past_x_days_same_trend=1;           // past_x_days_same_trend: 
+  extern int        past_x_periods_same_trend=1;        // past_x_periods_same_trend:
+  extern int        ADR_pts_raw_divider=6;              // ADR_pts_divider: 6 
   input double      move_too_big_multiplier=6;          // move_too_big_multiplier:
   extern bool       use_fixed_ADR=true;                 // use_fixed_ADR:
   extern double     fixed_ADR_pips=30;                  // fixed_ADR_pips:
@@ -254,6 +255,10 @@ enum ENUM_MM // Money Management
   input double      above_ADR_outlier_percent=1.5;      // above_ADR_outlier_percent: 1.5 Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be surpassed in a day for it to be neglected from the average calculation?
   input double      below_ADR_outlier_percent=.5;       // below_ADR_outlier_percent: .5 Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be under in a day for it to be neglected from the average calculation?
   
+
+  extern int        diff_moving_avg_period;
+  extern int        since_hours_ago;
+  extern double     ma_diff_multiplier;
   double pivot_peak[20][5]={}; // The columns are: instrument_id,HOP_price,HOP_time,LOP_price,LOP_time
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -882,11 +887,11 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
                     if(is_acceptable_spread==false)
                       {
                         /*Steps that were used to calculate percent_allows_trading:
-                        double max_spread=((ADR_pts)*max_spread_percent);
+                        double max_spread=((ADR_pts_raw)*max_spread_percent);
                         double spread_diff=average_spread_yesterday-max_spread;
-                        double spread_diff_percent=spread_diff/(ADR_pts);
+                        double spread_diff_percent=spread_diff/(ADR_pts_raw);
                         double percent_allows_trading=spread_diff_percent+max_spread_percent;*/
-                        double percent_allows_trading=NormalizeDouble(((average_spread_yesterday-(ADR_pts*max_spread_percent))/ADR_pts)+max_spread_percent,3);
+                        double percent_allows_trading=NormalizeDouble(((average_spread_yesterday-(ADR_pts_raw*max_spread_percent))/ADR_pts_raw)+max_spread_percent,3);
                         Alert(instrument," can't be traded today because the average spread yesterday does not meet your max_spread_percent (",
                         DoubleToStr(max_spread_percent,3),") of ADR criteria. The average spread yesterday was ",
                         DoubleToStr(average_spread_yesterday,3),
@@ -922,8 +927,8 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
                     ObjectSetText(dow_text,"0",15,NULL,clrWhite);
                   }
                 ObjectSetText(dow_text,IntegerToString(DayOfWeek(),1),0);
-                if(uptrend) ObjectMove(dow_text,0,TimeCurrent(),bid_price-ADR_pts/2);
-                else ObjectMove(dow_text,0,TimeCurrent(),bid_price+ADR_pts/2);
+                if(uptrend) ObjectMove(dow_text,0,TimeCurrent(),bid_price-ADR_pts_raw/2);
+                else ObjectMove(dow_text,0,TimeCurrent(),bid_price+ADR_pts_raw/2);
               }    
           }
       }
@@ -986,15 +991,32 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
           {
             enter_signal=DIRECTION_BIAS_NEUTRALIZE;
           }
-        if(enter_signal>0 && past_x_days_same_trend>0)
+        /*if(enter_signal>0 && past_x_periods_same_trend>0 && ADR_pts_raw_divider>0)
           {
-            if(enter_signal==DIRECTION_BIAS_BUY && is_over_extended_trend(instrument,past_x_days_same_trend,DOWNTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts/2,digits),past_x_days_same_trend,true,current_bid)) enter_signal=DIRECTION_BIAS_BUY;
-            else if(enter_signal==DIRECTION_BIAS_SELL && is_over_extended_trend(instrument,past_x_days_same_trend,UPTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts/2,digits),past_x_days_same_trend,true,current_bid)) enter_signal=DIRECTION_BIAS_SELL;
+            // check if the previous D1 bar's Open-Close(Absolute) is at least ADR_pts_raw divided by ADR_pts_raw_divider
+            if(enter_signal==DIRECTION_BIAS_BUY && is_over_extended_trend(instrument,past_x_periods_same_trend,DOWNTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts_raw/ADR_pts_raw_divider,digits),past_x_periods_same_trend,true,current_bid)) enter_signal=DIRECTION_BIAS_BUY;
+            else if(enter_signal==DIRECTION_BIAS_SELL && is_over_extended_trend(instrument,past_x_periods_same_trend,UPTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts_raw/ADR_pts_raw_divider,digits),past_x_periods_same_trend,true,current_bid)) enter_signal=DIRECTION_BIAS_SELL;
             else enter_signal=DIRECTION_BIAS_NEUTRALIZE;
+            // check if the previous D1 bar's High-Low is at least half of ADR_pts_raw
+            //if(enter_signal==DIRECTION_BIAS_BUY && is_over_extended_trend(instrument,past_x_periods_same_trend,DOWNTREND,HIGH_MINUS_LOW,NormalizeDouble(ADR_pts_raw/2,digits),past_x_periods_same_trend,true,current_bid)) enter_signal=DIRECTION_BIAS_BUY;
+            //else if(enter_signal==DIRECTION_BIAS_SELL && is_over_extended_trend(instrument,past_x_periods_same_trend,UPTREND,HIGH_MINUS_LOW,NormalizeDouble(ADR_pts_raw/2,digits),past_x_periods_same_trend,true,current_bid)) enter_signal=DIRECTION_BIAS_SELL;
+            //else enter_signal=DIRECTION_BIAS_NEUTRALIZE;
+          }*/
+        if(enter_signal>0)
+          {
+            enter_signal=signal_ma_multi_period_trend(instrument,enter_signal,diff_moving_avg_period,since_hours_ago,ma_diff_multiplier,past_x_periods_same_trend);
+            //enter_signal=signal_ma_trend(instrument,enter_signal,diff_moving_avg_period,since_hours_ago,ma_diff_multiplier,1);
           }
         if(option2)
           {
-            if(enter_signal>0) enter_signal=signal_counter_trend_trade(instrument,enter_signal);
+            if(enter_signal>0) 
+              {
+                enter_signal=signal_counter_trend_trade(instrument,enter_signal);
+              }
+            /*if(enter_signal>0) 
+              {
+                enter_signal=signal_counter_trend_trade_2(instrument,enter_signal);
+              }*/
           }
         if(enter_signal>0)
           {
@@ -1039,8 +1061,8 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
                     if(filter_over_extended_trends && over_extended_x_days>0)
                       {
                         RefreshRates();
-                        overbought_1=is_over_extended_trend(instrument,over_extended_x_days,UPTREND,HIGH_MINUS_LOW,NormalizeDouble(ADR_pts*.75,digits),over_extended_x_days,false,current_bid);
-                        overbought_2=is_over_extended_trend(instrument,over_extended_x_days,UPTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts*.75,digits),over_extended_x_days,false,current_bid);           
+                        overbought_1=is_over_extended_trend(instrument,over_extended_x_days,UPTREND,HIGH_MINUS_LOW,NormalizeDouble(ADR_pts_raw*.75,digits),over_extended_x_days,false,current_bid);
+                        overbought_2=is_over_extended_trend(instrument,over_extended_x_days,UPTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts_raw*.75,digits),over_extended_x_days,false,current_bid);           
                       }
                     if(overbought_1==false && overbought_2==false) 
                       {
@@ -1074,8 +1096,8 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
                     if(filter_over_extended_trends && over_extended_x_days>0)
                       {
                         RefreshRates();
-                        oversold_1=is_over_extended_trend(instrument,over_extended_x_days,DOWNTREND,HIGH_MINUS_LOW,NormalizeDouble(ADR_pts*.75,digits),over_extended_x_days,false,current_bid);
-                        oversold_2=is_over_extended_trend(instrument,over_extended_x_days,DOWNTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts*.75,digits),over_extended_x_days,false,current_bid);
+                        oversold_1=is_over_extended_trend(instrument,over_extended_x_days,DOWNTREND,HIGH_MINUS_LOW,NormalizeDouble(ADR_pts_raw*.75,digits),over_extended_x_days,false,current_bid);
+                        oversold_2=is_over_extended_trend(instrument,over_extended_x_days,DOWNTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts_raw*.75,digits),over_extended_x_days,false,current_bid);
                       }
                     if(oversold_1==false && oversold_2==false) 
                       {
@@ -1162,7 +1184,8 @@ void reset_pivot_peak(string instrument)
 //|                                                                  |
 //+------------------------------------------------------------------+
 bool set_point_multiplier(string instrument)
-  {  
+  { 
+    // note: jpy currency pairs have 2 or 3 digits
     int digits=(int)MarketInfo(instrument,MODE_DIGITS);
     if(auto_adjust_broker_digits==true && (digits==3 || digits==5))
       {
@@ -1179,14 +1202,52 @@ bool set_point_multiplier(string instrument)
 bool set_spread_divider()
   {  
     if(broker_is_oanda)
-      {
-        spread_divider=10;
-      }
+      spread_divider=10;
+    else
+      spread_divider=1;
+    return true;    
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+ENUM_DIRECTION_BIAS signal_ma_trend(string instrument,ENUM_DIRECTION_BIAS bias,int _moving_avg_period,int _since_hours_ago,double _ma_diff_multiplier,int shift)
+  {
+    if(bias<=0) 
+      return bias;
+    if(shift<=0) 
+      bias=DIRECTION_BIAS_NEUTRALIZE;
     else
       {
-        spread_divider=1;
-      }  
-    return true;    
+        int    digits=(int)MarketInfo(instrument,MODE_DIGITS);
+        double older_ma_price=iMA(instrument,PERIOD_M5,int(_moving_avg_period),0,MODE_SMA,PRICE_MEDIAN,_since_hours_ago*12*shift),
+               newer_ma_price=iMA(instrument,PERIOD_M5,int(_moving_avg_period),0,MODE_SMA,PRICE_MEDIAN,_since_hours_ago*12*(shift-1)),
+               difference=MathAbs(older_ma_price-newer_ma_price);
+        if(compare_doubles(difference,ADR_pts_raw*_ma_diff_multiplier,digits)==-1) 
+          bias=DIRECTION_BIAS_NEUTRALIZE;
+        else if(bias==DIRECTION_BIAS_BUY && older_ma_price>newer_ma_price) 
+          bias=DIRECTION_BIAS_BUY;
+        else if(bias==DIRECTION_BIAS_SELL && older_ma_price<newer_ma_price) 
+          bias=DIRECTION_BIAS_SELL;
+        else 
+          bias=DIRECTION_BIAS_NEUTRALIZE;
+      }
+    return bias;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+ENUM_DIRECTION_BIAS signal_ma_multi_period_trend(string instrument,ENUM_DIRECTION_BIAS bias,int _moving_avg_period,int _since_hours_ago,double _ma_diff_multiplier,int _past_x_periods_same_trend)
+  {
+    if(bias<=0) 
+      return bias;
+    if(_past_x_periods_same_trend<=0) 
+      bias=DIRECTION_BIAS_NEUTRALIZE;
+    else
+      {
+        for(int i=1;i<=_past_x_periods_same_trend;i++)
+          if(bias>0) bias=signal_ma_trend(instrument,bias,_moving_avg_period,_since_hours_ago,_ma_diff_multiplier,i);
+      }
+    return bias;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1413,9 +1474,10 @@ ENUM_DIRECTION_BIAS signal_counter_trend_trade(string instrument,ENUM_DIRECTION_
   {
     if(bias>0)
       {
+        int    digits=(int)MarketInfo(instrument,MODE_DIGITS);
         double high_price=get_previous_days_bar_info(instrument,myHIGH,myPRICE);
         double low_price=get_previous_days_bar_info(instrument,myLOW,myPRICE);
-        if(high_price-low_price>=ADR_pts/2)
+        if(compare_doubles(high_price-low_price,ADR_pts_raw/4,digits)>=0)
           {
             double open_price=get_previous_days_bar_info(instrument,myOPEN,myPRICE);
             //datetime open_time=get_previous_days_bar_info(instrument,myOPEN,myTIME);
@@ -1425,18 +1487,39 @@ ENUM_DIRECTION_BIAS signal_counter_trend_trade(string instrument,ENUM_DIRECTION_
             datetime low_time=(datetime)get_previous_days_bar_info(instrument,myLOW,myTIME);
             if(bias==DIRECTION_BIAS_BUY)
               {
-                if(open_price>close_price && high_time<low_time)  
-                  return DIRECTION_BIAS_NEUTRALIZE;
-                else 
+                if(/*open_price>close_price &&*/ high_time<low_time)  
                   return DIRECTION_BIAS_BUY;
+                else 
+                  return DIRECTION_BIAS_NEUTRALIZE;
               }
             else if(bias==DIRECTION_BIAS_SELL)
               {
-                if(open_price<close_price && high_time>low_time) 
-                  return DIRECTION_BIAS_NEUTRALIZE;
-                else 
+                if(/*open_price<close_price &&*/ high_time>low_time) 
                   return DIRECTION_BIAS_SELL;
+                else 
+                  return DIRECTION_BIAS_NEUTRALIZE;
               }
+          }
+      }
+    return DIRECTION_BIAS_NEUTRALIZE;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+ENUM_DIRECTION_BIAS signal_counter_trend_trade_2(string instrument,ENUM_DIRECTION_BIAS bias)
+  {
+    if(bias>0)
+      {
+        int    digits=(int)MarketInfo(instrument,MODE_DIGITS);
+        double open_price=iOpen(instrument,PERIOD_D1,0);
+        double current_price=MarketInfo(instrument,MODE_BID);
+        if(bias==DIRECTION_BIAS_BUY && compare_doubles(open_price-current_price,ADR_pts_raw/4,digits)>=0)
+          {
+            return DIRECTION_BIAS_BUY;
+          }
+        if(bias==DIRECTION_BIAS_SELL && compare_doubles(current_price-open_price,ADR_pts_raw/4,digits)>=0)
+          {
+            return DIRECTION_BIAS_SELL;
           }
       }
     return DIRECTION_BIAS_NEUTRALIZE;
@@ -2704,8 +2787,8 @@ void set_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_out
           }
         if(instrument==current_chart)
           {
-            ObjectSetText(ADR_pts_object,DoubleToString(ADR_pts*100,3),0);
-            ObjectMove(ADR_pts_object,0,TimeCurrent(),bid_price+ADR_pts/4);        
+            ObjectSetText(ADR_pts_object,DoubleToString(ADR_pts_raw*100,3),0);
+            ObjectMove(ADR_pts_object,0,TimeCurrent(),bid_price+ADR_pts_raw/4);        
           }
       }
     else print_and_email("Error","set_changed_ADR_pts: An ADR_pts_raw of 0 or was passed into this function for "+instrument+".");
@@ -2772,7 +2855,7 @@ bool set_moves_start_bar(string instrument,double _H1s_to_roll,int gmt_offset,do
                   double weeks_open_price=iOpen(instrument,PERIOD_M5,weeks_start_bar);
                   double last_weeks_close_price=iClose(instrument,PERIOD_M5,iBarShift(instrument,PERIOD_M5,last_weeks_end_time,false));
                   double weekend_gap_points=MathAbs(last_weeks_close_price-weeks_open_price);
-                  double max_weekend_gap_points=NormalizeDouble(((ADR_pts*change_ADR_percent)+ADR_pts)*_max_weekend_gap_percent,digits); // calculated based off of raw ADR (not the user's modified ADR)
+                  double max_weekend_gap_points=NormalizeDouble(ADR_pts_raw*_max_weekend_gap_percent,digits); // TODO: check that ADR_pts_raw is not 0 before using it
                   if(weekend_gap_points>max_weekend_gap_points) // TODO: use compare_doubles()?
                     {
                       moves_start_bar=weeks_start_bar;
@@ -3856,7 +3939,7 @@ int check_for_entry_errors(string instrument,int cmd,double lots,double _distanc
 //+------------------------------------------------------------------+
 void unacceptable_spread_message(double spread_pts,string instrument)
   {
-    double percent_allows_trading=NormalizeDouble(((average_spread_yesterday-(ADR_pts*max_spread_percent))/ADR_pts)+max_spread_percent,3);
+    double percent_allows_trading=NormalizeDouble(((average_spread_yesterday-(ADR_pts_raw*max_spread_percent))/ADR_pts_raw)+max_spread_percent,3);
     string message=StringConcatenate (instrument,": The signal to enter can't be sent because the current spread does not meet your max_spread_percent (",
                                       DoubleToStr(max_spread_percent,3),") of ADR criteria. The average spread yesterday was ",
                                       DoubleToStr(average_spread_yesterday,3),
@@ -4205,17 +4288,17 @@ double get_lots(ENUM_MM method,bool _reduced_risk,int magic,string instrument,do
       }
     else if(lot_size_is_ma_distance_based && moving_avg_period>0) // note: setting lot_size_is_ma_distance_based==true doesn't increase the profit factor
       {
-          //double ma_price=iMA(instrument,PERIOD_M5,moving_avg_period,0,MODE_SMA,PRICE_MEDIAN,0);
-          double ma_distance_pts=MathAbs(Bid-_ma_price); // this variable corresponds to the get_lots function
-          double distance_percent=NormalizeDouble(ma_distance_pts/ADR_pts_raw,2);
-          Print("trade's distance_percent: ",DoubleToString(distance_percent,2));
-          /*if(distance_percent>=1.50)    lot_multiplier=lot_multiplier*1.50;
-          else if(distance_percent>=1.25) lot_multiplier=lot_multiplier*1.25;
-          else if(distance_percent>=1.00) lot_multiplier=lot_multiplier*1.00;
-          else if(distance_percent>=0.75) lot_multiplier=lot_multiplier*0.75;
-          else if(distance_percent>=0.50) lot_multiplier=lot_multiplier*0.50;
-          else                            lot_multiplier=lot_multiplier*0.25;*/
-          lot_multiplier=MathMin(distance_percent,1)*lot_multiplier;
+        //double ma_price=iMA(instrument,PERIOD_M5,moving_avg_period,0,MODE_SMA,PRICE_MEDIAN,0);
+        double ma_distance_pts=MathAbs(Bid-_ma_price); // this variable corresponds to the get_lots function
+        double distance_percent=NormalizeDouble(ma_distance_pts/ADR_pts_raw,2);
+        Print("trade's distance_percent: ",DoubleToString(distance_percent,2));
+        /*if(distance_percent>=1.50)    lot_multiplier=lot_multiplier*1.50;
+        else if(distance_percent>=1.25) lot_multiplier=lot_multiplier*1.25;
+        else if(distance_percent>=1.00) lot_multiplier=lot_multiplier*1.00;
+        else if(distance_percent>=0.75) lot_multiplier=lot_multiplier*0.75;
+        else if(distance_percent>=0.50) lot_multiplier=lot_multiplier*0.50;
+        else                            lot_multiplier=lot_multiplier*0.25;*/
+        lot_multiplier=MathMin(distance_percent,1)*lot_multiplier;
       }
     lots=NormalizeDouble(lots*lot_multiplier,lot_digits);
     // If the lots value is below or above the broker's MODE_MINLOT or MODE_MAXLOT, the lots will be change to one of those lot sizes. This is in order to prevent Error 131 - invalid trade volume
