@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Quant FX Capital/Tom Mazurek"
 #property link      "https://www.quantfxcapital.com"
-#property version   "2.14"
+#property version   "2.15"
 #property strict
 /* 
 Remember:
@@ -110,7 +110,7 @@ enum ENUM_MM // Money Management
 //+------------------------------------------------------------------+
   input bool        option=false;
   input bool        option2=false;
-  input string      version="2.14";
+  input string      version="2.15";
   input bool        broker_is_oanda=true;              // broker_is_oanda:
   input bool        use_recommended_settings=true;     // use_recommended_settings:
   input int         settings_set=0;
@@ -181,6 +181,7 @@ enum ENUM_MM // Money Management
 // enter_order
   /*input*/ ENUM_SIGNAL_SET SIGNAL_SET=SIGNAL_SET_1; //SIGNAL_SET: Which signal set would you like to test? (the details of each signal set are found in the signal_entry function)
   // TODO: make sure you have coded for the scenerios when each of these is set to 0
+  extern bool       take_retracement_trade_based_on_candle=false;
 	extern double     retracement_percent=.25;            // retracement_percent: Must be positive.
 	input double      pullback_percent=0;                 // pullback_percent:  Must be positive. If you want a buy or sell limit order, it must be positive.
 	extern double     takeprofit_percent=.4;              // takeprofit_percent: Must be a positive number. (What % of ADR should you tarket?)
@@ -230,7 +231,7 @@ enum ENUM_MM // Money Management
   input bool        include_previous_day=true;
   input bool        include_last_week=false;            // include_last_week: Should the EA take Friday's moves into account when starting to determine length of the current move? FYI, when include_previous_day==false, this setting has no affect.
   extern double     H1s_to_roll=.5;                     // H1s_to_roll: Only divisible by .5 // How many hours should you roll to determine a short term market trend?
-  extern string     trade_triggering_timeframe="H1";  // previous_candle_triggers_trade: M1,M5,H1,D1
+  extern string     trade_triggering_timeframe="H1";    // trade_triggering_timeframe: M1,M5,H1,D1
   input double      max_weekend_gap_percent=.15;        // max_weekend_gap_percent: What is the maximum weekend gap (as a percent of raw ADR) for H1s_to_roll to not take the previous week into account?
   extern double     too_big_move_percent=2.5;           // too_big_move_percent: 1.7
   extern double     range_overblown_multiplier=2;       // range_overblown_multiplier:
@@ -759,22 +760,6 @@ double get_pivot_peak_info(ENUM_PIVOT_PEAK en,string instrument) // TODO: this f
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-/*bool is_HOP_HOD(string instrument)
-  {
-    if(HOP_price==iHigh(instrument,PERIOD_D1,0)) return true;
-    else return false;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-bool is_LOP_LOD(string instrument)
-  {
-    if(HOP_price==iLow(instrument,PERIOD_D1,0)) return true;
-    else return false;
-  }*/
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
 bool a_trade_closed_since_last_checked(int magic)
   {
     static int last_trade_count=-1;
@@ -1296,7 +1281,9 @@ ENUM_DIRECTION_BIAS signal_MA_better_2(string instrument,double current_bid)
       }
     return bias;
   }
-
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 ENUM_DIRECTION_BIAS signal_MA_better(string instrument,double current_bid) 
   {
     ENUM_DIRECTION_BIAS bias=DIRECTION_BIAS_NEUTRALIZE;
@@ -1348,9 +1335,9 @@ ENUM_DIRECTION_BIAS signal_MA_better(string instrument,double current_bid)
       }
     return bias;
   }
-
-
-
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 ENUM_DIRECTION_BIAS _signal_MA_better_test_3(string instrument,double current_bid) 
   {
     ENUM_DIRECTION_BIAS bias=DIRECTION_BIAS_NEUTRALIZE;
@@ -1783,6 +1770,74 @@ ENUM_DIRECTION_BIAS signal_previous_bar_triggered(string instrument,ENUM_TIMEFRA
                 downtrend=false;
               }
           }
+      }
+    return DIRECTION_BIAS_NEUTRALIZE;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+  
+ENUM_DIRECTION_BIAS signal_is_pin_bar(string instrument,ENUM_TIMEFRAMES timeframe,int shift,double min_high_low_range)
+  {
+    int    digits=(int)MarketInfo(instrument,MODE_DIGITS);
+    double high=iHigh(instrument,timeframe,shift),
+           low=iLow(instrument,timeframe,shift),
+           high_low_range=high-low;
+    if(compare_doubles(high_low_range,min_high_low_range,digits)>=0)
+      {
+        double open=iOpen(instrument,timeframe,shift),
+               close=iClose(instrument,timeframe,shift),
+               open_close_range=MathAbs(open-close),
+               one_fifth=high_low_range/5;
+        if(compare_doubles(open_close_range,one_fifth,digits)<=0)
+          {
+            double max_wick_pts=one_fifth,
+                   min_pin_pts=one_fifth*3,
+                   top_body_point=MathMax(open,close);
+            if(compare_doubles(high-top_body_point,max_wick_pts,digits)<=0)
+              {
+                double bottom_body_point=MathMin(open,close);
+                if(compare_doubles(bottom_body_point-low,min_pin_pts,digits)>=0)
+                  return DIRECTION_BIAS_BUY;
+              }
+            else if(compare_doubles(high-top_body_point,min_pin_pts,digits)>=0)
+              {
+                double bottom_body_point=MathMin(open,close);
+                if(compare_doubles(bottom_body_point-low,max_wick_pts,digits)<=0)
+                  return DIRECTION_BIAS_SELL;
+              }
+          }
+      }
+    return DIRECTION_BIAS_NEUTRALIZE;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+ 
+ENUM_DIRECTION_BIAS signal_last_x_bars_are_pin_bars(string instrument,int x_bars,ENUM_TIMEFRAMES timeframe,double min_high_low_range)
+  {
+    int enum_count=0;
+    for(int i=1;i<=x_bars;i++)
+      {
+        ENUM_DIRECTION_BIAS bias=signal_is_pin_bar(instrument,timeframe,i,min_high_low_range);
+        if(bias<=0) return DIRECTION_BIAS_NEUTRALIZE;
+        enum_count+=bias;
+      }
+    if(x_bars==enum_count) return DIRECTION_BIAS_BUY;
+    else return DIRECTION_BIAS_SELL;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+  
+ENUM_DIRECTION_BIAS is_railroad_track_bar(string instrument,ENUM_TIMEFRAMES timeframe,int shift,double min_high_low_range)
+  {
+    int    digits=(int)MarketInfo(instrument,MODE_DIGITS);
+    double high1=iHigh(instrument,timeframe,shift),
+           low1=iLow(instrument,timeframe,shift),
+           high_low_range1=high1-low1,
+           high2=iHigh(instrument,timeframe,shift+1),
+           low2=iLow(instrument,timeframe,shift+1),
+           high_low_range2=high2-low2;
+    if(compare_doubles(high_low_range1,min_high_low_range,digits)>=0 && compare_doubles(high_low_range2,min_high_low_range,digits)>=0)
+      {
       }
     return DIRECTION_BIAS_NEUTRALIZE;
   }
@@ -3130,6 +3185,22 @@ double range_pts_calculation(int cmd,string instrument,int coming_from)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+/*bool is_HOP_HOD(string instrument)
+  {
+    if(HOP_price==iHigh(instrument,PERIOD_D1,0)) return true;
+    else return false;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool is_LOP_LOD(string instrument)
+  {
+    if(HOP_price==iLow(instrument,PERIOD_D1,0)) return true;
+    else return false;
+  }*/
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 ENUM_DIRECTION_BIAS signal_is_pivot_extreme_of_period(string instrument,ENUM_DIRECTION_BIAS bias,int H1s_ago,ENUM_TIMEFRAMES timeframe)
   {
     if(bias>0)
@@ -3258,7 +3329,15 @@ bool uptrend_retracement_met_price(string instrument)
                         return false;
                       }                
                   }
-                return true;  
+                if(take_retracement_trade_based_on_candle)
+                  {
+                    ENUM_DIRECTION_BIAS signal=DIRECTION_BIAS_NEUTRALIZE;
+                    signal=signal_last_x_bars_are_pin_bars(instrument,1,PERIOD_M5,MathMin(ADR_pts_raw/4,ADR_pts/3));
+                    if(signal!=DIRECTION_BIAS_BUY) signal=signal_last_x_bars_are_pin_bars(instrument,2,PERIOD_M1,MathMin(ADR_pts_raw/6,ADR_pts/5));
+                    if(signal==DIRECTION_BIAS_BUY) return true;
+                    else return false;
+                  }
+                else return true;
               }
             else return false;
           }         
@@ -3379,7 +3458,7 @@ bool downtrend_retracement_met_price(string instrument)
                 if(too_big_move_percent>1)
                   {
                     bool too_big_move=compare_doubles(range_pts,NormalizeDouble(ADR_pts*too_big_move_percent,digits),digits)>=0;
-                    if(too_big_move) 
+                    if(too_big_move)
                       {
                         //if(is_new_M5_bar) Print("too_big_move");
                         //Print("too_big_move");                        
@@ -3390,9 +3469,17 @@ bool downtrend_retracement_met_price(string instrument)
                         ObjectDelete(current_chart+"_retrace_LOP_up");
                         ObjectDelete(current_chart+"_retrace_LOP_down");
                         return false;
-                      }                
+                      }
                   }
-                return true;  
+                if(take_retracement_trade_based_on_candle)
+                  {
+                    ENUM_DIRECTION_BIAS signal=DIRECTION_BIAS_NEUTRALIZE;
+                    signal=signal_last_x_bars_are_pin_bars(instrument,1,PERIOD_M5,MathMin(ADR_pts_raw/4,ADR_pts/3));
+                    if(signal!=DIRECTION_BIAS_SELL) signal=signal_last_x_bars_are_pin_bars(instrument,2,PERIOD_M1,MathMin(ADR_pts_raw/6,ADR_pts/5));
+                    if(signal==DIRECTION_BIAS_SELL) return true;
+                    else return false;
+                  }
+                else return true;
               }
             else return false;
           }
