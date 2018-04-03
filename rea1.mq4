@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Quant FX Capital/Tom Mazurek"
 #property link      "https://www.quantfxcapital.com"
-#property version   "2.13"
+#property version   "2.14"
 #property strict
 /* 
 Remember:
@@ -110,7 +110,7 @@ enum ENUM_MM // Money Management
 //+------------------------------------------------------------------+
   input bool        option=false;
   input bool        option2=false;
-  input string      version="2.13";
+  input string      version="2.14";
   input bool        broker_is_oanda=true;              // broker_is_oanda:
   input bool        use_recommended_settings=true;     // use_recommended_settings:
   input int         settings_set=0;
@@ -150,6 +150,8 @@ enum ENUM_MM // Money Management
 	extern int        max_directional_trades_in_x_hours=2;// max_directional_trades_in_x_hours: How many trades are allowed to be opened (even if they are close now) after the start of each current day?
 	extern double     x_hours=6;                          // x_hours: Any whole or fraction of an hour. // FYI, this setting only takes affect when
   
+  extern string     primary_ma_timeframe="M5";
+  static ENUM_TIMEFRAMES primary_ma_tf=-1;
   extern int        moving_avg_period=500;              // moving_avg_period:
   input double      ma_multiplier=1;                    // ma_multiplier:
   input bool        include_weaker_ma_setup=false;      // include_weaker_ma_setup:
@@ -284,7 +286,6 @@ int OnInit()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -466,8 +467,10 @@ int on_initialization(ENUM_SIGNAL_SET signal_set,string instrument)
     Print(ran," 4");
     ran=ran(ran,set_moves_start_bar_tf(trade_triggering_timeframe));
     Print(ran," 5");
-    ran=ran(ran,set_moves_start_bar(instrument,H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week));
+    ran=ran(ran,set_primary_ma_tf(primary_ma_timeframe));
     Print(ran," 6");
+    ran=ran(ran,set_moves_start_bar(instrument,H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week));
+    Print(ran," 7");
     reset_pivot_peak(instrument); // the set_moves_start_bar function should run before this function (only on initialization)
     is_new_M5_bar(instrument,true);
     ADR_pts_raw=get_ADR_pts_raw(instrument,H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,num_ADR_months);
@@ -1004,7 +1007,7 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
           }*/
         if(enter_signal>0 && diff_moving_avg_period>0 && past_x_periods_same_trend>0)
           {
-            enter_signal=signal_ma_multi_period_trend(instrument,enter_signal,diff_moving_avg_period,since_hours_ago,ma_diff_multiplier,past_x_periods_same_trend);
+            enter_signal=signal_ma_multi_period_trend(instrument,enter_signal,diff_moving_avg_period,since_hours_ago,ma_diff_multiplier,past_x_periods_same_trend,moves_start_bar_tf);
           }
         /*if(enter_signal>0)
           {
@@ -1202,7 +1205,14 @@ bool set_spread_divider()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-ENUM_DIRECTION_BIAS signal_ma_trend(string instrument,ENUM_DIRECTION_BIAS bias,int _moving_avg_period,int _since_hours_ago,double _ma_diff_multiplier,int shift)
+double get_primary_ma_price(string instrument)
+  {
+    return iMA(instrument,moves_start_bar_tf,moving_avg_period,0,MODE_SMA,PRICE_MEDIAN,0);
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+ENUM_DIRECTION_BIAS signal_ma_trend(string instrument,ENUM_DIRECTION_BIAS bias,int _moving_avg_period,int _since_hours_ago,double _ma_diff_multiplier,ENUM_TIMEFRAMES timeframe,int shift)
   {
     if(bias<=0) 
       return bias;
@@ -1211,8 +1221,8 @@ ENUM_DIRECTION_BIAS signal_ma_trend(string instrument,ENUM_DIRECTION_BIAS bias,i
     else
       {
         int    digits=(int)MarketInfo(instrument,MODE_DIGITS);
-        double older_ma_price=iMA(instrument,PERIOD_M5,int(_moving_avg_period),0,MODE_SMA,PRICE_MEDIAN,_since_hours_ago*12*shift),
-               newer_ma_price=iMA(instrument,PERIOD_M5,int(_moving_avg_period),0,MODE_SMA,PRICE_MEDIAN,_since_hours_ago*12*(shift-1)),
+        double older_ma_price=iMA(instrument,timeframe,int(_moving_avg_period),0,MODE_SMA,PRICE_MEDIAN,_since_hours_ago*12*shift),
+               newer_ma_price=iMA(instrument,timeframe,int(_moving_avg_period),0,MODE_SMA,PRICE_MEDIAN,_since_hours_ago*12*(shift-1)),
                difference=MathAbs(older_ma_price-newer_ma_price);
         if(compare_doubles(difference,ADR_pts_raw*_ma_diff_multiplier,digits)==-1) 
           bias=DIRECTION_BIAS_NEUTRALIZE;
@@ -1228,7 +1238,7 @@ ENUM_DIRECTION_BIAS signal_ma_trend(string instrument,ENUM_DIRECTION_BIAS bias,i
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-ENUM_DIRECTION_BIAS signal_ma_multi_period_trend(string instrument,ENUM_DIRECTION_BIAS bias,int _moving_avg_period,int _since_hours_ago,double _ma_diff_multiplier,int _past_x_periods_same_trend)
+ENUM_DIRECTION_BIAS signal_ma_multi_period_trend(string instrument,ENUM_DIRECTION_BIAS bias,int _moving_avg_period,int _since_hours_ago,double _ma_diff_multiplier,int _past_x_periods_same_trend,ENUM_TIMEFRAMES timeframe)
   {
     if(bias<=0) 
       return bias;
@@ -1237,7 +1247,7 @@ ENUM_DIRECTION_BIAS signal_ma_multi_period_trend(string instrument,ENUM_DIRECTIO
     else
       {
         for(int i=1;i<=_past_x_periods_same_trend;i++)
-          if(bias>0) bias=signal_ma_trend(instrument,bias,_moving_avg_period,_since_hours_ago,_ma_diff_multiplier,i);
+          if(bias>0) bias=signal_ma_trend(instrument,bias,_moving_avg_period,_since_hours_ago,_ma_diff_multiplier,timeframe,i);
       }
     return bias;
   }
@@ -1251,7 +1261,7 @@ ENUM_DIRECTION_BIAS signal_MA_better_2(string instrument,double current_bid)
         bias=DIRECTION_BIAS_IGNORE;
     else
       {
-        double ma_price=iMA(instrument,PERIOD_M5,moving_avg_period,0,MODE_SMA,PRICE_MEDIAN,0);
+        double ma_price=get_primary_ma_price(instrument);
         /*if(LOP_price<ma_price && HOP_price>ma_price) 
           {
             bias=DIRECTION_BIAS_NEUTRALIZE;
@@ -1294,7 +1304,7 @@ ENUM_DIRECTION_BIAS signal_MA_better(string instrument,double current_bid)
         bias=DIRECTION_BIAS_IGNORE;
     else
       {
-        double ma_price=iMA(instrument,PERIOD_M5,moving_avg_period,0,MODE_SMA,PRICE_MEDIAN,0);
+        double ma_price=get_primary_ma_price(instrument);
         if(LOP_price<ma_price && HOP_price>ma_price) 
           {
             bias=DIRECTION_BIAS_NEUTRALIZE;
@@ -1348,9 +1358,7 @@ ENUM_DIRECTION_BIAS _signal_MA_better_test_3(string instrument,double current_bi
         bias=DIRECTION_BIAS_IGNORE;
     else
       {
-        int ma_shift=0;
-        int ma_index=0;
-        double ma_price=iMA(instrument,PERIOD_M5,moving_avg_period,ma_shift,MODE_SMA,PRICE_MEDIAN,ma_index);
+        double ma_price=get_primary_ma_price(instrument);
         if(LOP_price<ma_price && HOP_price>ma_price) 
           {
             bias=DIRECTION_BIAS_NEUTRALIZE;
@@ -1385,7 +1393,7 @@ ENUM_DIRECTION_BIAS _signal_MA_better_test_3(string instrument,double current_bi
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-ENUM_DIRECTION_BIAS signal_MA_worse(string instrument) 
+ENUM_DIRECTION_BIAS signal_MA_worse(string instrument,ENUM_TIMEFRAMES timeframe) 
   {
     ENUM_DIRECTION_BIAS bias=DIRECTION_BIAS_NEUTRALIZE;
     if(moving_avg_period<=0 || ma_multiplier<=0)
@@ -1394,9 +1402,7 @@ ENUM_DIRECTION_BIAS signal_MA_worse(string instrument)
       }      
     else
       {
-        int ma_shift=0;
-        int ma_index=0;
-        double ma2_price=iMA(instrument,PERIOD_M5,600,ma_shift,MODE_SMA,PRICE_MEDIAN,ma_index);
+        double ma2_price=iMA(instrument,timeframe,600,0,MODE_SMA,PRICE_MEDIAN,0);
         if(LOP_price<ma2_price && HOP_price>ma2_price) // First check if the lower quality setup with reduced risk is valid.
           {
             // _EJ_1.26pf_10.5dd_432t    tick data,      ADR_pts=65, moving_avg_period=600
@@ -2892,7 +2898,17 @@ bool set_moves_start_bar_tf(string timeframe)
         Sleep(1000);
         ExpertRemove();
       }
-    return true;
+    if(moves_start_bar_tf>0) return true;
+    else return false;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool set_primary_ma_tf(string timeframe)
+  {
+    primary_ma_tf=string_to_timeframe(timeframe);
+    if(primary_ma_tf>0) return true;
+    else return false;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -3018,7 +3034,7 @@ double periods_pivot_price(ENUM_DIRECTIONAL_MODE mode,string instrument)
   {
     //int moves_start_bar=get_moves_start_bar(instrument,H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week); // not needed anymore since it became a global variable
     //Print("move start bar: ",move_start_bar);
-    //Print("move start bar's time: ",TimeToString(iTime(instrument,PERIOD_M5,move_start_bar))," and price is: ",iOpen(instrument,PERIOD_M5,move_start_bar));
+    //Print("move start bar's time: ",TimeToString(iTime(instrument,moves_start_bar_tf,move_start_bar))," and price is: ",iOpen(instrument,PERIOD_M5,move_start_bar));
     if(mode==BUYING_MODE)
       { 
         int lowest_bar;
@@ -3114,18 +3130,18 @@ double range_pts_calculation(int cmd,string instrument,int coming_from)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-ENUM_DIRECTION_BIAS signal_is_pivot_extreme_of_period(string instrument,ENUM_DIRECTION_BIAS bias,int H1s_ago)
+ENUM_DIRECTION_BIAS signal_is_pivot_extreme_of_period(string instrument,ENUM_DIRECTION_BIAS bias,int H1s_ago,ENUM_TIMEFRAMES timeframe)
   {
     if(bias>0)
       {
         if(bias==DIRECTION_BIAS_BUY)
           {
-            double LOP=iLowest(instrument,PERIOD_M5,MODE_LOW,H1s_ago*12,0);
+            double LOP=iLowest(instrument,timeframe,MODE_LOW,H1s_ago*12,0);
             if(LOP==LOP_price) return bias;
           }
         else if(bias==DIRECTION_BIAS_SELL)
           {
-            double HOP=iHighest(instrument,PERIOD_M5,MODE_HIGH,H1s_ago*12,0);
+            double HOP=iHighest(instrument,timeframe,MODE_HIGH,H1s_ago*12,0);
             if(HOP==HOP_price) return bias;
           }
       }
@@ -3876,16 +3892,17 @@ bool expired_pivot_level(datetime _current_time)
 //+------------------------------------------------------------------+
 void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,string instrument,bool _reduced_risk,int _max_risky_trades,double current_bid)
   {
-    double pending_order_distance_pts=0; // keep at 0
-    double periods_pivot_price;
-    color  arrow_color;
-    int    digits=(int)MarketInfo(instrument,MODE_DIGITS);
-    double point=MarketInfo(instrument,MODE_POINT);
-    double takeprofit_pts=0,stoploss_pts=0;
-    double _pullback_percent=pullback_percent;
-    double _retracement_percent=retracement_percent;
-    double periods_range_pts=ADR_pts; // keep as ADR_pts
-    double ma_price=iMA(instrument,PERIOD_M5,moving_avg_period,0,MODE_SMA,PRICE_MEDIAN,0);
+    color   arrow_color;
+    int     digits=(int)MarketInfo(instrument,MODE_DIGITS);
+    double  pending_order_distance_pts=0, // keep at 0
+            periods_pivot_price,
+            point=MarketInfo(instrument,MODE_POINT),
+            takeprofit_pts=0,
+            stoploss_pts=0,
+            _pullback_percent=pullback_percent,
+            _retracement_percent=retracement_percent,
+            periods_range_pts=ADR_pts, // keep as ADR_pts
+            ma_price=get_primary_ma_price(instrument);
     if(reverse_trade_direction) // TODO: should this code be run before or after range_pts_calculation is run? I think before because the periods_range_pts need to be calculated as if it was not a reverse trade.
       {
         if(type==OP_BUY) type=OP_SELL;
@@ -3918,7 +3935,6 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,str
         if(_pullback_percent>0) pending_order_distance_pts=NormalizeDouble(_pullback_percent*periods_range_pts,digits);
       }
     //Print("try_to_enter_order(): distance_pts: ",DoubleToString(pullback_distance_pts));
-    ENUM_TIMEFRAMES timeframe=PERIOD_M5;
     if(type==OP_BUY)
       {
         if(reverse_trade_direction) arrow_color=clrRed;
@@ -4017,7 +4033,7 @@ double get_new_takeprofit_percent(string instrument,double _periods_range_pts,in
     double _takeprofit_percent;
     if(takeprofit_pts_is_ma_distance_based && moving_avg_period>0 && takeprofit_percent>0)
       {
-        //double ma_price=iMA(instrument,PERIOD_M5,moving_avg_period,0,MODE_SMA,PRICE_MEDIAN,0);
+        //double ma_price=get_primary_ma_price(instrument);
         double ma_distance_pts=MathAbs(current_bid-_ma_price);
         double distance_percent=NormalizeDouble(ma_distance_pts/ADR_pts_raw,2);
         //if(distance_percent<0) distance_percent=0;
@@ -4436,7 +4452,7 @@ double get_lots(ENUM_MM method,bool _reduced_risk,int magic,string instrument,do
       }
     else if(lot_size_is_ma_distance_based && moving_avg_period>0) // note: setting lot_size_is_ma_distance_based==true doesn't increase the profit factor
       {
-        //double ma_price=iMA(instrument,PERIOD_M5,moving_avg_period,0,MODE_SMA,PRICE_MEDIAN,0);
+        //double ma_price=get_primary_ma_price(instrument);
         double ma_distance_pts=MathAbs(Bid-_ma_price); // this variable corresponds to the get_lots function
         double distance_percent=NormalizeDouble(ma_distance_pts/ADR_pts_raw,2);
         Print("trade's distance_percent: ",DoubleToString(distance_percent,2));
