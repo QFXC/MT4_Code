@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Quant FX Capital/Tom Mazurek"
 #property link      "https://www.quantfxcapital.com"
-#property version   "2.12"
+#property version   "2.13"
 #property strict
 /* 
 Remember:
@@ -45,6 +45,7 @@ enum ENUM_INSTRUMENTS
   {
     EURJPY=-1490791745,
     EURUSD=-1490779688,
+    GBPCHF=-1435133238,
     GBPJPY=-1435125332,
     GBPUSD=-1435113275,
     USDCHF=-867508323,
@@ -87,7 +88,7 @@ enum ENUM_ORDER_SET
     ORDER_SET_BUY,
     ORDER_SET_SELL,
     ORDER_SET_BUY_LIMIT,
-    ORDER_SET_SELL_LIMIT, 
+    ORDER_SET_SELL_LIMIT,
     ORDER_SET_LONG,
     ORDER_SET_SHORT,
     ORDER_SET_LIMIT,
@@ -109,9 +110,10 @@ enum ENUM_MM // Money Management
 //+------------------------------------------------------------------+
   input bool        option=false;
   input bool        option2=false;
-  input string      version="2.12";
+  input string      version="2.13";
   input bool        broker_is_oanda=true;              // broker_is_oanda:
   input bool        use_recommended_settings=true;     // use_recommended_settings:
+  input int         settings_set=0;
   int               init_result=INIT_FAILED;
   bool              ready=false, in_time_range=false;
   //bool            price_below_ma=false, price_above_ma=false;
@@ -135,7 +137,7 @@ enum ENUM_MM // Money Management
   static bool       uptrend_order_was_last=false, downtrend_order_was_last=false;
   static double     average_spread_yesterday=0;
 	
-	/*input*/ bool    reverse_trade_direction=false;
+	input bool        reverse_trade_direction=false;
 	//input bool      only_enter_on_new_bar=false; // Should you only enter trades when a new bar begins?
 	/*input*/ bool    exit_opposite_signal=false; //false exit_opposite_signal: Should the EA exit trades when there is a signal in the opposite direction?
   bool              long_allowed=true; // Are long trades allowed? // TODO: this is never set to anything in the code
@@ -226,6 +228,7 @@ enum ENUM_MM // Money Management
   input bool        include_previous_day=true;
   input bool        include_last_week=false;            // include_last_week: Should the EA take Friday's moves into account when starting to determine length of the current move? FYI, when include_previous_day==false, this setting has no affect.
   extern double     H1s_to_roll=.5;                     // H1s_to_roll: Only divisible by .5 // How many hours should you roll to determine a short term market trend?
+  extern string     trade_triggering_timeframe="H1";  // previous_candle_triggers_trade: M1,M5,H1,D1
   input double      max_weekend_gap_percent=.15;        // max_weekend_gap_percent: What is the maximum weekend gap (as a percent of raw ADR) for H1s_to_roll to not take the previous week into account?
   extern double     too_big_move_percent=2.5;           // too_big_move_percent: 1.7
   extern double     range_overblown_multiplier=2;       // range_overblown_multiplier:
@@ -241,6 +244,7 @@ enum ENUM_MM // Money Management
   static double     LOP_price;
   static datetime   LOP_time;
   static int        moves_start_bar;                    // the periods_pivot_price function uses this
+  static ENUM_TIMEFRAMES   moves_start_bar_tf;
   static datetime   hours_open_time=-1;  
   static datetime   days_open_time=-1;                  // keep it at -1
   static datetime   weeks_open_time=-1;                 // keep it at -1
@@ -255,7 +259,6 @@ enum ENUM_MM // Money Management
   input double      above_ADR_outlier_percent=1.5;      // above_ADR_outlier_percent: 1.5 Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be surpassed in a day for it to be neglected from the average calculation?
   input double      below_ADR_outlier_percent=.5;       // below_ADR_outlier_percent: .5 Can be any decimal with two numbers after the decimal point or a whole number. // How much should the ADR be under in a day for it to be neglected from the average calculation?
   
-
   extern int        diff_moving_avg_period;
   extern int        since_hours_ago;
   extern double     ma_diff_multiplier;
@@ -382,7 +385,6 @@ void print_and_email(string subject,string body,bool exclude_print=false)
 //+------------------------------------------------------------------+
 void print_and_email_margin_info(string instrument,string subject)
   {
-
     string  stopout_level=IntegerToString(AccountStopoutLevel()),
             account_stopout_level=IntegerToString(AccountStopoutLevel()),
             account_stopout_mode=IntegerToString(AccountStopoutMode()),
@@ -457,13 +459,15 @@ int on_initialization(ENUM_SIGNAL_SET signal_set,string instrument)
     pivot_peak[1][0]=EURUSD; pivot_peak[0][1]=HOP_price; pivot_peak[0][2]=HOP_time; pivot_peak[0][3]=LOP_price; pivot_peak[0][4]=LOP_time;
     pivot_peak[2][0]=USDJPY; pivot_peak[0][1]=HOP_price; pivot_peak[0][2]=HOP_time; pivot_peak[0][3]=LOP_price; pivot_peak[0][4]=LOP_time;
       
-    ran=ran(ran,set_recommended_input_parameters(instrument,use_recommended_settings));
+    ran=ran(ran,set_recommended_input_parameters(instrument,use_recommended_settings,settings_set));
     Print(ran," 3");
     //EventSetTimer(60);
     ran=ran(ran,set_gmt_offset(instrument,TimeCurrent(),610)); // this should run before set_moves_start_bar (which takes gmt_hour_offset as a parameter) as well all the other "new bar" functions
     Print(ran," 4");
-    ran=ran(ran,set_moves_start_bar(instrument,H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week));
+    ran=ran(ran,set_moves_start_bar_tf(trade_triggering_timeframe));
     Print(ran," 5");
+    ran=ran(ran,set_moves_start_bar(instrument,H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week));
+    Print(ran," 6");
     reset_pivot_peak(instrument); // the set_moves_start_bar function should run before this function (only on initialization)
     is_new_M5_bar(instrument,true);
     ADR_pts_raw=get_ADR_pts_raw(instrument,H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,num_ADR_months);
@@ -820,8 +824,8 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
           }
         ObjectSet(current_chart+"_LOP_price",OBJPROP_PRICE1,LOP_price);
         ObjectSet(current_chart+"_LOP_price",OBJPROP_TIME1,LOP_time);
-        ObjectSet(current_chart+"_HOP_price",OBJPROP_PRICE1,HOP_price); 
-        ObjectSet(current_chart+"_HOP_price",OBJPROP_TIME1,HOP_time);    
+        ObjectSet(current_chart+"_HOP_price",OBJPROP_PRICE1,HOP_price);
+        ObjectSet(current_chart+"_HOP_price",OBJPROP_TIME1,HOP_time);
       }
     /*exit_signal=signal_exit(instrument,SIGNAL_SET); // The exit signal should be made the priority and doesn't require in_time_range or adr_generated to be true
     if(exit_signal==DIRECTION_BIAS_VOID)       exit_all_trades_set(_exiting_max_slippage,ORDER_SET_ALL,magic); // close all pending and orders for the specific EA's orders. Don't do validation to see if there is an magic_num because the EA should try to exit even if for some reason there is none.
@@ -887,9 +891,9 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
                     if(is_acceptable_spread==false)
                       {
                         /*Steps that were used to calculate percent_allows_trading:
-                        double max_spread=((ADR_pts_raw)*max_spread_percent);
+                        double max_spread=(ADR_pts_raw*max_spread_percent);
                         double spread_diff=average_spread_yesterday-max_spread;
-                        double spread_diff_percent=spread_diff/(ADR_pts_raw);
+                        double spread_diff_percent=spread_diff/ADR_pts_raw;
                         double percent_allows_trading=spread_diff_percent+max_spread_percent;*/
                         double percent_allows_trading=NormalizeDouble(((average_spread_yesterday-(ADR_pts_raw*max_spread_percent))/ADR_pts_raw)+max_spread_percent,3);
                         Alert(instrument," can't be traded today because the average spread yesterday does not meet your max_spread_percent (",
@@ -957,16 +961,16 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
           {
             if(retracement_percent>0)
               {
-                signal_ADR_triggered(instrument);
+                signal_ADR_triggered(instrument,trade_triggering_timeframe);
                 enter_signal=signal_retracement_after_ADR_triggered(instrument);
               }
             else
-                enter_signal=signal_ADR_triggered(instrument);
+                enter_signal=signal_ADR_triggered(instrument,trade_triggering_timeframe);
             if(enter_signal>0 || enter_signal==DIRECTION_BIAS_IGNORE) 
               {
                 ENUM_DIRECTION_BIAS ma_bias;
                 ma_bias=signal_MA_better(instrument,current_bid);
-                if(ma_bias==DIRECTION_BIAS_NEUTRALIZE && include_weaker_ma_setup) 
+                /*if(ma_bias==DIRECTION_BIAS_NEUTRALIZE && include_weaker_ma_setup) 
                   {
                     enter_signal=signal_bias_compare(enter_signal,signal_MA_worse(instrument));
                     if(reduce_risk_for_weaker_setups && enter_signal>0) 
@@ -975,7 +979,7 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
                         //Print("reduced_risk=true");
                       }
                   }
-                else 
+                else */
                     enter_signal=signal_bias_compare(enter_signal,ma_bias);
               }
           }
@@ -997,27 +1001,15 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
             if(enter_signal==DIRECTION_BIAS_BUY && is_over_extended_trend(instrument,past_x_periods_same_trend,DOWNTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts_raw/ADR_pts_raw_divider,digits),past_x_periods_same_trend,true,current_bid)) enter_signal=DIRECTION_BIAS_BUY;
             else if(enter_signal==DIRECTION_BIAS_SELL && is_over_extended_trend(instrument,past_x_periods_same_trend,UPTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts_raw/ADR_pts_raw_divider,digits),past_x_periods_same_trend,true,current_bid)) enter_signal=DIRECTION_BIAS_SELL;
             else enter_signal=DIRECTION_BIAS_NEUTRALIZE;
-            // check if the previous D1 bar's High-Low is at least half of ADR_pts_raw
-            //if(enter_signal==DIRECTION_BIAS_BUY && is_over_extended_trend(instrument,past_x_periods_same_trend,DOWNTREND,HIGH_MINUS_LOW,NormalizeDouble(ADR_pts_raw/2,digits),past_x_periods_same_trend,true,current_bid)) enter_signal=DIRECTION_BIAS_BUY;
-            //else if(enter_signal==DIRECTION_BIAS_SELL && is_over_extended_trend(instrument,past_x_periods_same_trend,UPTREND,HIGH_MINUS_LOW,NormalizeDouble(ADR_pts_raw/2,digits),past_x_periods_same_trend,true,current_bid)) enter_signal=DIRECTION_BIAS_SELL;
-            //else enter_signal=DIRECTION_BIAS_NEUTRALIZE;
           }*/
-        if(enter_signal>0)
+        if(enter_signal>0 && diff_moving_avg_period>0 && past_x_periods_same_trend>0)
           {
             enter_signal=signal_ma_multi_period_trend(instrument,enter_signal,diff_moving_avg_period,since_hours_ago,ma_diff_multiplier,past_x_periods_same_trend);
-            //enter_signal=signal_ma_trend(instrument,enter_signal,diff_moving_avg_period,since_hours_ago,ma_diff_multiplier,1);
           }
-        if(option2)
+        /*if(enter_signal>0)
           {
-            if(enter_signal>0) 
-              {
-                enter_signal=signal_counter_trend_trade(instrument,enter_signal);
-              }
-            /*if(enter_signal>0) 
-              {
-                enter_signal=signal_counter_trend_trade_2(instrument,enter_signal);
-              }*/
-          }
+            enter_signal=signal_is_pivot_extreme_of_period(instrument,enter_signal,12);
+          }*/
         if(enter_signal>0)
           {
             int seconds_span;
@@ -1698,33 +1690,96 @@ bool past_x_D1_bars_up(string instrument,int x_bars)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-ENUM_DIRECTION_BIAS signal_ADR_triggered(string instrument)
+ENUM_DIRECTION_BIAS signal_ADR_triggered(string instrument,string _previous_candle_triggers_trade)
   {
     ENUM_DIRECTION_BIAS signal=DIRECTION_BIAS_NEUTRALIZE;
-    /*if(option3) boo=price_below_ma;
-    else  boo=uptrend_order_was_last;*/
-    if(/*uptrend_order_was_last==false || retracement_percent==0*/ uptrend==false)
-      {
-        //if(is_new_M5_bar) Print("uptrend_ADR_threshold_met_price is running");
-        RefreshRates();
-        if(uptrend_ADR_threshold_met_price(instrument,false)==true)
+    /*if(moves_start_bar_tf==PERIOD_M1) 
+        signal=signal_previous_bar_triggered(instrument,PERIOD_M5,ADR_pts,ADR_pts/5);
+    else
+      {*/
+        if(/*uptrend_order_was_last==false || retracement_percent==0*/ uptrend==false)
           {
-            return signal=DIRECTION_BIAS_BUY; // FYI, when using the signal_retracement_pullback_after_ADR_triggered for signals, this return value has absolutely no affect.
+            //if(is_new_M5_bar) Print("uptrend_ADR_threshold_met_price is running");
+            RefreshRates();
+            if(uptrend_ADR_threshold_met_price(instrument,false)==true)
+              {
+                return signal=DIRECTION_BIAS_BUY; // FYI, when using the signal_retracement_pullback_after_ADR_triggered for signals, this return value has absolutely no affect.
+              }
           }
-      }
-    // for a buying signal, take the level that adr was triggered and subtract the pullback_pips to get the pullback_entry_price
-    // if the pullback_entry_price is met or exceeded, signal = TRADE_SIGNAL_BUY
-    if(/*downtrend_order_was_last==false || retracement_percent==0*/ downtrend==false)
-      {
-        //if(is_new_M5_bar) Print("downtrend_ADR_threshold_met_price is running");
-        RefreshRates();
-        if(downtrend_ADR_threshold_met_price(instrument,false)==true) 
+        // for a buying signal, take the level that adr was triggered and subtract the pullback_pips to get the pullback_entry_price
+        // if the pullback_entry_price is met or exceeded, signal = TRADE_SIGNAL_BUY
+        if(/*downtrend_order_was_last==false || retracement_percent==0*/ downtrend==false)
           {
-            return signal=DIRECTION_BIAS_SELL; // FYI, when using the signal_retracement_pullback_after_ADR_triggered for signals, this return value has absolutely no affect.
+            //if(is_new_M5_bar) Print("downtrend_ADR_threshold_met_price is running");
+            RefreshRates();
+            if(downtrend_ADR_threshold_met_price(instrument,false)==true) 
+              {
+                return signal=DIRECTION_BIAS_SELL; // FYI, when using the signal_retracement_pullback_after_ADR_triggered for signals, this return value has absolutely no affect.
+              }
           }
-      }
+      //}
     return signal;
    }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+  
+ENUM_DIRECTION_BIAS signal_previous_bar_triggered(string instrument,ENUM_TIMEFRAMES timeframe,double min_body_pts,double max_wick_pts)
+  {
+    if(is_new_M5_bar)
+      {
+        ENUM_TIMEFRAMES timeframe2=-1;
+        int start_bar=-1;
+        if(timeframe==PERIOD_M5) 
+          {
+            timeframe2=PERIOD_M1;
+            start_bar=300; // 300 M1 bars in a M5 bar
+          }
+        else if(timeframe==PERIOD_H1 && is_new_H1_bar) 
+          {
+            timeframe2=PERIOD_M5;
+            start_bar=12; // 12 M5 bars in a H1 bar
+          }
+        else if(timeframe==PERIOD_D1 && is_new_D1_bar) // note: this is not using the is_new_custom_D1_bar variable
+          {
+            timeframe2=PERIOD_H1;
+            start_bar=24; // 24 H1 bars in a D1 bar
+          }
+        if(timeframe2>0 && start_bar>0)
+          {
+            double high=iHigh(instrument,timeframe,1);
+            double low=iLow(instrument,timeframe,1);
+            double open=iOpen(instrument,timeframe,1);
+            double close=iClose(instrument,timeframe,1);
+            bool valid_bull_candle=close-open>=min_body_pts && high-close<=max_wick_pts && open-low<=max_wick_pts;
+            bool valid_bear_candle=open-close>=min_body_pts && high-open<=max_wick_pts && close-low<=max_wick_pts;
+            int ranges_pivot_bar;
+            if(valid_bull_candle) 
+              {
+                LOP_price=low;
+                ranges_pivot_bar=ranges_pivot_bar(BUYING_MODE,instrument,timeframe2,start_bar); // get the range's pivot bar since the move's start bar
+                LOP_time=iTime(instrument,timeframe2,ranges_pivot_bar);
+                uptrend=true;
+                downtrend=false;
+                return DIRECTION_BIAS_BUY;
+              }
+            else if(valid_bear_candle) 
+              {
+                HOP_price=high;
+                ranges_pivot_bar=ranges_pivot_bar(SELLING_MODE,instrument,timeframe2,start_bar); // get the range's pivot bar since the move's start bar
+                HOP_time=iTime(instrument,timeframe2,ranges_pivot_bar);
+                downtrend=true;
+                uptrend=false;
+                return DIRECTION_BIAS_SELL;
+              }
+            else
+              {
+                uptrend=false;
+                downtrend=false;
+              }
+          }
+      }
+    return DIRECTION_BIAS_NEUTRALIZE;
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+  
@@ -2732,7 +2787,7 @@ double get_ADR_pts_raw(string instrument,double hours_to_roll,double low_outlier
     datetime        date=iTime(instrument,PERIOD_D1,0);
     if(date!=date_last_modified || _adr_pts==0)
       {
-        if(low_outlier>high_outlier || _num_ADR_months<=0 || _num_ADR_months==NULL || MathMod(hours_to_roll,.25)!=0)
+        if(low_outlier>high_outlier || _num_ADR_months<=0 || _num_ADR_months==NULL /*|| MathMod(hours_to_roll,.25)!=0*/)
           {
             print_and_email("Error","get_raw_ADR_pts: The user inputed the wrong outlier variables or a H1s_to_roll number that is not divisible by .25. It is not possible to calculate ADR.");
             return -1;
@@ -2795,95 +2850,164 @@ void set_changed_ADR_pts(double hours_to_roll,double low_outlier,double high_out
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
-//+------------------------------------------------------------------+  
-bool set_moves_start_bar(string instrument,double _H1s_to_roll,int gmt_offset,double _max_weekend_gap_percent,bool _include_last_week=true) // TODO: include current_time as a parameter?
+//+------------------------------------------------------------------+
+ENUM_TIMEFRAMES string_to_timeframe(string timeframe)
   {
-    int         _moves_start_bar=int(_H1s_to_roll*12/*-1*/); // any double divisible by .5 will always be an integer when multiplied by an even number like 12 so it is okay to convert it into an int
-    string      current_chart=Symbol();
-    string      move_start_text=current_chart+"_Move_Start";
-    int         digits=(int)MarketInfo(instrument,MODE_DIGITS); 
-    static bool alert_flag=false;
-    if(DayOfWeek()==6) // if the broker's server time is Saturday
+    ENUM_TIMEFRAMES timeframe2=-1;
+    if(timeframe=="D1" || timeframe=="PERIOD_D1")
       {
-        // reset all static and global variables to the default values
-        weeks_open_time=-1;
-        days_open_time=-1;
-        last_weeks_end_time=-1;
+        timeframe2=PERIOD_D1;
+      }
+    else if(timeframe=="H1" || timeframe=="PERIOD_H1")
+      {
+        timeframe2=PERIOD_H1;
+      }
+    else if(timeframe=="M5" || timeframe=="PERIOD_M5")
+      {
+        timeframe2=PERIOD_M5;
+      }
+    else if(timeframe=="M1" || timeframe=="PERIOD_M1")
+      {
+        timeframe2=PERIOD_M1;
       }
     else
       {
-      /*if(uptrend || downtrend)
-        {
-          datetime pivot_time=-1;
-          if(uptrend) pivot_time=LOP_time;
-          else if(downtrend) pivot_time=HOP_time;
-          moves_start_bar=iBarShift(instrument,PERIOD_M5,pivot_time,false);
-        }*/
-      //else
-        //{
-          // Remember that the weeks_open_time is a global variable that is reset to -1 when is_new_custom_W1_bar function returns true.
-          if(include_previous_day && (weeks_open_time==-1 /*|| (day==1 && is_new_custom_W1_bar)*/))
-            {
-              set_custom_W1_times(instrument,_include_last_week,_H1s_to_roll,gmt_offset);
-              //alert_flag=false;
-            } 
-          // Remember that the days_open_time is a global variable that should be set to -1 every end of day.
-          else if(!include_previous_day && (days_open_time==-1))
-            {
-              set_custom_D1_open_time(instrument,0); // get the D1 bar's open time (based on the current time)
-              if(display_chart_objects && ObjectFind(move_start_text)<0) 
+        print_and_email("Error","You cannot type anything other than D1, H1, M5, or M1 into the previous_candle_triggers_trade input box.");
+        Sleep(1000);
+        ExpertRemove();
+      }
+    return timeframe2;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool set_moves_start_bar_tf(string timeframe)
+  {
+    ENUM_TIMEFRAMES timeframe2=string_to_timeframe(timeframe);
+    if(timeframe2==PERIOD_M5) moves_start_bar_tf=PERIOD_M1;
+    else if(timeframe2==PERIOD_H1) moves_start_bar_tf=PERIOD_M5;
+    else
+      {
+        print_and_email("Error","You cannot type anything other than H1 or M5 into the trade_triggering_timeframe input box.");
+        Sleep(1000);
+        ExpertRemove();
+      }
+    return true;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool set_moves_start_bar(string instrument,double _H1s_to_roll,int gmt_offset,double _max_weekend_gap_percent,bool _include_last_week) // TODO: include current_time as a parameter?
+  {
+    //if(moves_start_bar_tf<1) set_moves_start_bar_tf(trade_triggering_timeframe);
+    static bool alert_flag=false;
+    int _moves_start_bar=-1;
+    if(moves_start_bar_tf==PERIOD_M1) _moves_start_bar=int(_H1s_to_roll*3600);
+    else if(moves_start_bar_tf==PERIOD_M5) _moves_start_bar=MathMax(int(_H1s_to_roll*12),1);
+    if(_moves_start_bar>0)
+      {
+        string current_chart=Symbol();
+        string move_start_text=current_chart+"_Move_Start";
+        int    digits=(int)MarketInfo(instrument,MODE_DIGITS); 
+        int    tf_multiplier=1;
+        if(moves_start_bar_tf==PERIOD_M1) 
+          {
+            tf_multiplier=300;
+            //_moves_start_M5_bar=int(_H1s_to_roll*60);
+          }
+        if(DayOfWeek()==6) // if the broker's server time is Saturday
+          {
+            // reset all static and global variables to the default values
+            weeks_open_time=-1;
+            days_open_time=-1;
+            last_weeks_end_time=-1;
+          }
+        else
+          {
+            if(false)
+              {
+    
+              }
+            else
+              {
+              /*if(uptrend || downtrend)
                 {
-                  int days_start_bar=iBarShift(instrument,PERIOD_M5,days_open_time,false);
-                  double days_open_price=iOpen(instrument,PERIOD_M5,days_start_bar);
-                  ObjectCreate(move_start_text,OBJ_VLINE,0,days_open_time,days_open_price); // it only gets set to these anchors for 1 M5 bar, so it is okay if it is wrong the first bar.
-                  ObjectSet(move_start_text,OBJPROP_COLOR,clrWhite);
-                }
-            }
-          if(include_previous_day)
-            {
-              int weeks_start_bar=iBarShift(instrument,PERIOD_M5,weeks_open_time,false);
-              
-              if(display_chart_objects && ObjectFind(move_start_text)<0) 
-                {
-                  double weeks_open_price=iOpen(instrument,PERIOD_M5,weeks_start_bar);
-                  ObjectCreate(move_start_text,OBJ_VLINE,0,weeks_open_time,weeks_open_price); // it only gets set to these anchors for 1 M5 bar, so it is okay if it is wrong the first bar.
-                  ObjectSet(move_start_text,OBJPROP_COLOR,clrWhite);
-                }
-              if(_moves_start_bar<=weeks_start_bar) moves_start_bar=_moves_start_bar; 
-              else if(_include_last_week)
-                {
-                  double weeks_open_price=iOpen(instrument,PERIOD_M5,weeks_start_bar);
-                  double last_weeks_close_price=iClose(instrument,PERIOD_M5,iBarShift(instrument,PERIOD_M5,last_weeks_end_time,false));
-                  double weekend_gap_points=MathAbs(last_weeks_close_price-weeks_open_price);
-                  double max_weekend_gap_points=NormalizeDouble(ADR_pts_raw*_max_weekend_gap_percent,digits); // TODO: check that ADR_pts_raw is not 0 before using it
-                  if(weekend_gap_points>max_weekend_gap_points) // TODO: use compare_doubles()?
+                  datetime pivot_time=-1;
+                  if(uptrend) pivot_time=LOP_time;
+                  else if(downtrend) pivot_time=HOP_time;
+                  moves_start_bar=iBarShift(instrument,PERIOD_M5,pivot_time,false);
+                }*/
+              //else
+                //{
+                  bool create_object=(display_chart_objects && ObjectFind(move_start_text)<0);
+                  // Remember that the weeks_open_time is a global variable that is reset to -1 when is_new_custom_W1_bar function returns true.
+                  if(include_previous_day && (weeks_open_time==-1 /*|| (day==1 && is_new_custom_W1_bar)*/))
                     {
-                      moves_start_bar=weeks_start_bar;
-                      if(alert_flag==false)
+                      set_custom_W1_times(instrument,_include_last_week,_H1s_to_roll,gmt_offset);
+                      alert_flag=false;
+                    } 
+                  // Remember that the days_open_time is a global variable that should be set to -1 every end of day.
+                  else if(!include_previous_day && days_open_time==-1)
+                    {
+                      set_custom_D1_open_time(instrument,0); // get the D1 bar's open time (based on the current time)
+                      if(create_object) 
                         {
-                          Print("This weekend's weekend_gap_points based on the raw ADR (",DoubleToString(weekend_gap_points),") is > the user's max_weekend_gap_points (",DoubleToString(max_weekend_gap_points),") setting.");
-                          alert_flag=true;
+                          int days_start_bar=iBarShift(instrument,PERIOD_M5,days_open_time,false);
+                          double days_open_price=iOpen(instrument,PERIOD_M5,days_start_bar);
+                          ObjectCreate(move_start_text,OBJ_VLINE,0,days_open_time,days_open_price); // it only gets set to these anchors for 1 M5 bar, so it is okay if it is wrong the first bar.
+                          ObjectSet(move_start_text,OBJPROP_COLOR,clrWhite);
                         }
                     }
-                  else moves_start_bar=_moves_start_bar;
-                }
-              else moves_start_bar=weeks_start_bar;   
-            }
-          else if(!include_previous_day)
-            {
-              int days_start_bar=iBarShift(instrument,PERIOD_M5,days_open_time,false);
-              if(display_chart_objects && ObjectFind(move_start_text)<0) 
-                {
-                  double days_open_price=iOpen(instrument,PERIOD_M5,days_start_bar);
-                  ObjectCreate(move_start_text,OBJ_VLINE,0,days_open_time,days_open_price); // it only gets set to these anchors for 1 M5 bar, so it is okay if it is wrong the first bar.
-                  ObjectSet(move_start_text,OBJPROP_COLOR,clrWhite);
-                }
-              if(_moves_start_bar<=days_start_bar) moves_start_bar=_moves_start_bar;
-              else moves_start_bar=days_start_bar;  
-            }
-        //}
-        ObjectSet(move_start_text,OBJPROP_TIME1,iTime(current_chart,PERIOD_M5,moves_start_bar));
-        ObjectSet(move_start_text,OBJPROP_PRICE1,iOpen(current_chart,PERIOD_M5,moves_start_bar));      
+                  if(include_previous_day)
+                    {
+                      int weeks_start_bar=iBarShift(instrument,moves_start_bar_tf,weeks_open_time,false);
+                      if(create_object) 
+                        {
+                          double weeks_open_price=iOpen(instrument,moves_start_bar_tf,weeks_start_bar);
+                          ObjectCreate(move_start_text,OBJ_VLINE,0,weeks_open_time,weeks_open_price); // it only gets set to these anchors for 1 M5 bar, so it is okay if it is wrong the first bar.
+                          ObjectSet(move_start_text,OBJPROP_COLOR,clrWhite);
+                        }
+                      if(_moves_start_bar<=weeks_start_bar) moves_start_bar=_moves_start_bar;
+                      else if(_include_last_week)
+                        {
+                          double weeks_open_price=iOpen(instrument,moves_start_bar_tf,weeks_start_bar);
+                          double last_weeks_close_price=iClose(instrument,PERIOD_M5,iBarShift(instrument,PERIOD_M5,last_weeks_end_time,false));
+                          double weekend_gap_points=MathAbs(last_weeks_close_price-weeks_open_price);
+                          double max_weekend_gap_points=NormalizeDouble(ADR_pts_raw*_max_weekend_gap_percent,digits); // TODO: check that ADR_pts_raw is not 0 before using it
+                          if(weekend_gap_points>max_weekend_gap_points) // TODO: use compare_doubles()?
+                            {
+                              moves_start_bar=weeks_start_bar;
+                              if(alert_flag==false)
+                                {
+                                  Print("This weekend's weekend_gap_points based on the raw ADR (",DoubleToString(weekend_gap_points),") is > the user's max_weekend_gap_points (",DoubleToString(max_weekend_gap_points),") setting.");
+                                  alert_flag=true;
+                                }
+                            }
+                          else moves_start_bar=_moves_start_bar;
+                        }
+                      else moves_start_bar=weeks_start_bar;   
+                    }
+                  else // if(!include_previous_day)
+                    {
+                      int days_start_bar=iBarShift(instrument,moves_start_bar_tf,days_open_time,false);
+                      if(create_object) 
+                        {
+                          double days_open_price=iOpen(instrument,moves_start_bar_tf,days_start_bar);
+                          ObjectCreate(move_start_text,OBJ_VLINE,0,days_open_time,days_open_price); // it only gets set to these anchors for 1 M5 bar, so it is okay if it is wrong the first bar.
+                          ObjectSet(move_start_text,OBJPROP_COLOR,clrWhite);
+                        }
+                      if(_moves_start_bar<=days_start_bar) moves_start_bar=_moves_start_bar;
+                      else moves_start_bar=days_start_bar;
+                    }
+                //}
+                ObjectSet(move_start_text,OBJPROP_TIME1,iTime(current_chart,moves_start_bar_tf,moves_start_bar));
+                ObjectSet(move_start_text,OBJPROP_PRICE1,iOpen(current_chart,moves_start_bar_tf,moves_start_bar));      
+              }
+          }
+      }
+    else
+      {
+        return false;
       }
     return true;
   }
@@ -2899,8 +3023,8 @@ double periods_pivot_price(ENUM_DIRECTIONAL_MODE mode,string instrument)
       { 
         int lowest_bar;
         if(moves_start_bar==0) lowest_bar=0;
-        else lowest_bar=iLowest(instrument,PERIOD_M5,MODE_LOW,moves_start_bar,0);
-        double pivot_price=iLow(instrument,PERIOD_M5,lowest_bar); // get the price of the bar that has the lowest price for the determined period
+        else lowest_bar=iLowest(instrument,moves_start_bar_tf,MODE_LOW,moves_start_bar,0);
+        double pivot_price=iLow(instrument,moves_start_bar_tf,lowest_bar); // get the price of the bar that has the lowest price for the determined period
         //Print("The buying mode lowest_bar is: ",DoubleToString(lowest_bar));
         //Print("The buying mode pivot_price is: ",DoubleToString(pivot_price));
         //Print("periods_pivot_price(): Bid: ",DoubleToString(Bid));
@@ -2912,8 +3036,8 @@ double periods_pivot_price(ENUM_DIRECTIONAL_MODE mode,string instrument)
       {
         int highest_bar;
         if(moves_start_bar==0) highest_bar=0;
-        else highest_bar=iHighest(instrument,PERIOD_M5,MODE_HIGH,moves_start_bar,0);
-        double pivot_price=iHigh(instrument,PERIOD_M5,highest_bar); // get the price of the bar that has the highest price for the determined period
+        else highest_bar=iHighest(instrument,moves_start_bar_tf,MODE_HIGH,moves_start_bar,0);
+        double pivot_price=iHigh(instrument,moves_start_bar_tf,highest_bar); // get the price of the bar that has the highest price for the determined period
         //Print("The selling mode highest_bar is: ",DoubleToString(highest_bar));
         //Print("The selling mode pivot_price is: ",DoubleToString(pivot_price));
         //Print("periods_pivot_price(): Bid: ",DoubleToString(Bid));
@@ -2926,24 +3050,24 @@ double periods_pivot_price(ENUM_DIRECTIONAL_MODE mode,string instrument)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-int ranges_pivot_bar(ENUM_DIRECTIONAL_MODE mode,string instrument)
+int ranges_pivot_bar(ENUM_DIRECTIONAL_MODE mode,string instrument,ENUM_TIMEFRAMES timeframe,int start_bar)
   {
     if(mode==BUYING_MODE)
       { 
         int lowest_bar;
-        if(moves_start_bar==0) 
+        if(start_bar==0) 
           lowest_bar=0;
         else 
-          lowest_bar=iLowest(instrument,PERIOD_M5,MODE_LOW,moves_start_bar,0);
+          lowest_bar=iLowest(instrument,timeframe,MODE_LOW,start_bar,0);
         return lowest_bar;
       }
     else if(mode==SELLING_MODE)
       {
         int highest_bar;
-        if(moves_start_bar==0) 
+        if(start_bar==0) 
           highest_bar=0;
         else 
-          highest_bar=iHighest(instrument,PERIOD_M5,MODE_HIGH,moves_start_bar,0);
+          highest_bar=iHighest(instrument,timeframe,MODE_HIGH,start_bar,0);
         return highest_bar;
       }
     else 
@@ -2952,15 +3076,15 @@ int ranges_pivot_bar(ENUM_DIRECTIONAL_MODE mode,string instrument)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double range_pts_calculation(int cmd,string instrument, int coming_from)
+double range_pts_calculation(int cmd,string instrument,int coming_from)
   {
-    int ranges_pivot_bar;  
+    int ranges_pivot_bar;
     if(cmd==OP_BUY)
       {
         double HOP;
         HOP=periods_pivot_price(SELLING_MODE,instrument); // get the pivot price since the move's start bar
-        ranges_pivot_bar=ranges_pivot_bar(SELLING_MODE,instrument); // get the range's pivot bar since the move's start bar
-        HOP_time=iTime(instrument,PERIOD_M5,ranges_pivot_bar);
+        ranges_pivot_bar=ranges_pivot_bar(SELLING_MODE,instrument,moves_start_bar_tf,moves_start_bar); // get the range's pivot bar since the move's start bar
+        HOP_time=iTime(instrument,moves_start_bar_tf,ranges_pivot_bar);
         /*if(compare_doubles(HOP_price,HOP,Digits)!=0)
           {
             Print("range_pts_calculation: HOP_price changed to: ",DoubleToString(HOP,5));
@@ -2974,8 +3098,8 @@ double range_pts_calculation(int cmd,string instrument, int coming_from)
       {
         double LOP;
         LOP=periods_pivot_price(BUYING_MODE,instrument); // get the pivot price since the move's start bar
-        ranges_pivot_bar=ranges_pivot_bar(BUYING_MODE,instrument); // get the range;s pivot bar since the move's start bar
-        LOP_time=iTime(instrument,PERIOD_M5,ranges_pivot_bar);
+        ranges_pivot_bar=ranges_pivot_bar(BUYING_MODE,instrument,moves_start_bar_tf,moves_start_bar); // get the range;s pivot bar since the move's start bar
+        LOP_time=iTime(instrument,moves_start_bar_tf,ranges_pivot_bar);
         /*if(compare_doubles(LOP_price,LOP,Digits)!=0)
           {
             Print("range_pts_calculation: LOP_price changed to: ",DoubleToString(LOP,5));
@@ -2986,6 +3110,26 @@ double range_pts_calculation(int cmd,string instrument, int coming_from)
         return(HOP_price-LOP_price);
       }
     else return -1;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+ENUM_DIRECTION_BIAS signal_is_pivot_extreme_of_period(string instrument,ENUM_DIRECTION_BIAS bias,int H1s_ago)
+  {
+    if(bias>0)
+      {
+        if(bias==DIRECTION_BIAS_BUY)
+          {
+            double LOP=iLowest(instrument,PERIOD_M5,MODE_LOW,H1s_ago*12,0);
+            if(LOP==LOP_price) return bias;
+          }
+        else if(bias==DIRECTION_BIAS_SELL)
+          {
+            double HOP=iHighest(instrument,PERIOD_M5,MODE_HIGH,H1s_ago*12,0);
+            if(HOP==HOP_price) return bias;
+          }
+      }
+    return DIRECTION_BIAS_NEUTRALIZE;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -3650,12 +3794,12 @@ double calculate_avg_spread_yesterday(string instrument)
         if(in_time_range)
           {
             // TODO: you won't be able to get the average spread from the previous day because it is not possible. Try to code a spread history indicator and get it from there.
-            double spread=NormalizeDouble(MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier/spread_divider,Digits); // divide by 10
+            double spread=NormalizeDouble((MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier)/spread_divider,Digits); // divide by 10
             spread_total+=spread;
           }
       }
     return NormalizeDouble(spread_total/(new_server_day_bar-end_server_day_bar),Digits); // return the average spread*/
-    double avg_spread_yesterday=NormalizeDouble((MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier)/spread_divider,digits); // this line is temporary until I find a way to get spread history
+    double avg_spread_yesterday=NormalizeDouble((MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier)/spread_divider,digits); // this line is temporary until I find a way to get spread history with a spread logger
     //Print("calculate_avg_spread_yesterday() returns: ",avg_spread_yesterday);
     return avg_spread_yesterday;
   }
@@ -3774,6 +3918,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,str
         if(_pullback_percent>0) pending_order_distance_pts=NormalizeDouble(_pullback_percent*periods_range_pts,digits);
       }
     //Print("try_to_enter_order(): distance_pts: ",DoubleToString(pullback_distance_pts));
+    ENUM_TIMEFRAMES timeframe=PERIOD_M5;
     if(type==OP_BUY)
       {
         if(reverse_trade_direction) arrow_color=clrRed;
@@ -3834,7 +3979,7 @@ void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,str
       }
     // If the flow reaches this point, the trade should really be made and not simulated.
     RefreshRates();
-    double spread_pts=NormalizeDouble(MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier/spread_divider,digits);
+    double spread_pts=NormalizeDouble((MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier)/spread_divider,digits);
     if(prevent_ultrawide_stoploss) periods_range_pts=MathMin(periods_range_pts,ADR_pts); // Does not allow the stoploss and takeprofit to be more than ADR_pts. This line must go above the lots, takeprofit_pts and stoploss_pts calculations.
     double lots;
     lots=calculate_lots(money_management,periods_range_pts,risk_percent_per_range,spread_pts,instrument,magic,_reduced_risk,ma_price);
@@ -3876,7 +4021,7 @@ double get_new_takeprofit_percent(string instrument,double _periods_range_pts,in
         double ma_distance_pts=MathAbs(current_bid-_ma_price);
         double distance_percent=NormalizeDouble(ma_distance_pts/ADR_pts_raw,2);
         //if(distance_percent<0) distance_percent=0;
-        _takeprofit_percent=MathMin((takeprofit_percent*distance_percent),takeprofit_percent)+takeprofit_percent;
+        _takeprofit_percent=MathMin(takeprofit_percent*distance_percent,takeprofit_percent)+takeprofit_percent;
         set_new_active_trade_expire(_takeprofit_percent);
       }
     else
@@ -4193,6 +4338,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
         string subject="Info: A "+instrument+" Trade Was Entered";
         string email_body=StringConcatenate(subject,
                                             ". Details: entry_price: ",DoubleToString(entry_price,digits),
+                                            ", spread_points: ",DoubleToString(spread_pts,digits),
                                             ", target_points: ",DoubleToString(MathAbs(price_sl-price_tp)),
                                             ", price_sl: ",DoubleToString(price_sl,digits),
                                             ", price_tp: ",DoubleToString(price_tp,digits),
@@ -4243,6 +4389,8 @@ double get_lots(ENUM_MM method,bool _reduced_risk,int magic,string instrument,do
         case EURJPY:
           micro_multiplier=point_multiplier*100; break;
         case EURUSD:
+          micro_multiplier=point_multiplier*10000; break;
+        case GBPCHF:
           micro_multiplier=point_multiplier*10000; break;
         case GBPJPY:
           micro_multiplier=point_multiplier*100; break;
@@ -4319,7 +4467,7 @@ double get_acceptable_spread(string instrument,double _spread_pts)
         case EURUSD:
           return max_spread=point*point_multiplier*2.5;
         default:
-          print_and_email("Error","get_acceptable_spread: "+instrument+"'s maximum spread value for is not coded.");
+          print_and_email("Error","get_acceptable_spread: "+instrument+"'s maximum spread value is not coded.");
           return false;
       }
   }
@@ -4770,7 +4918,7 @@ ENUM_DIRECTION_BIAS signal_check_risky_market_trade(string instrument,ENUM_DIREC
               }
             if(count<_max_risk_trades) 
               {
-                bias=DIRECTION_BIAS_IGNORE;
+                bias=current_bias;
               }  
             else 
               {
@@ -4931,7 +5079,7 @@ int last_order_ticket(ENUM_ORDER_SET order_set,bool most_recent)
           }
       }
     else ticket=0;
-    return(ticket); 
+    return(ticket);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
