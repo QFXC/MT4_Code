@@ -115,7 +115,7 @@ enum ENUM_MM // Money Management
   input bool        use_recommended_settings=true;     // use_recommended_settings:
   input int         settings_set=0;
   int               init_result=INIT_FAILED;
-  bool              ready=false, in_time_range=false;
+  bool              ready=false;
   //bool            price_below_ma=false, price_above_ma=false;
              
 // timeframe changes
@@ -224,7 +224,7 @@ enum ENUM_MM // Money Management
 	double            lot_size=0.0;
 	/*input*/ int     increase_lots_after_x_losses=0;
 	/*input*/ double  increase_lots_by_percent=0;
-	/*input*/ bool    reduce_risk_for_weaker_setups=true;
+	//input bool      reduce_risk_for_weaker_setups=true; // this functionality will most likely be removed
 	input int         max_risky_trades=2;
 	 
 // Market Trends
@@ -287,6 +287,7 @@ int OnInit()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -784,9 +785,10 @@ bool a_trade_closed_since_last_checked(int magic)
 //+------------------------------------------------------------------+
 bool main_script_ran(string instrument,int digits,int magic,datetime current_time,int exit_signal,int exit_signal_2,int _exiting_max_slippage,double current_bid)
   {
-    string  current_chart=Symbol();
-    bool    current_chart_matches=(current_chart==instrument);
-    bool    _display_chart_objects=(display_chart_objects && current_chart_matches);
+    static bool in_time_range=false;
+    string      current_chart=Symbol();
+    bool        current_chart_matches=(current_chart==instrument);
+    bool        _display_chart_objects=(display_chart_objects && current_chart_matches);
     if(_display_chart_objects)
       {
         if(ObjectFind(current_chart+"_LOP_price")<0)
@@ -824,6 +826,7 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
     //   virtualstop_check(virtual_sl,virtual_tp); 
     if(is_new_M5_bar) 
       {
+        // tasks that happen every 5 minutes
         bool a_trade_closed=a_trade_closed_since_last_checked(magic);
         if(a_trade_closed && active_trade_expire_is_tp_based) 
           {
@@ -838,14 +841,15 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
             // reset the LOP_price, HOP_price, and trends because the signal is no longer valid
             reset_pivot_peak(instrument);
           }
-        if(active_trade_expire>0) exit_all_trades_set(_exiting_max_slippage,ORDER_SET_MARKET,magic,int(active_trade_expire*3600),current_time); // This runs every 5 minutes (whether the time is in_time_range or not). It only exit trades that have been on for too long and haven't hit stoploss or takeprofit.
+        if(active_trade_expire>0) 
+            exit_all_trades_set(_exiting_max_slippage,ORDER_SET_MARKET,magic,int(active_trade_expire*3600),current_time); // This runs every 5 minutes (whether the time is in_time_range or not). It only exit trades that have been on for too long and haven't hit stoploss or takeprofit.
         in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,fri_end_time_hour,fri_end_time_minute,gmt_hour_offset,current_bid); // only check if it is in the time range once the EA is loaded and, then, afterward at the beginning of every M5 bar  
         if(in_time_range==true && ready==false && average_spread_yesterday!=-1) 
           {
             set_gmt_offset(instrument,current_time,1140);
             ADR_pts_raw=get_ADR_pts_raw(instrument,H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,num_ADR_months);
             set_changed_ADR_pts(H1s_to_roll,below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent,instrument,ADR_pts_raw);
-            average_spread_yesterday=calculate_avg_spread_yesterday(instrument);
+            //average_spread_yesterday=calculate_avg_spread_yesterday(instrument);
             bool is_acceptable_spread=true; // TODO: delete this line after finishing the average_spread_yesterday function
             if(ADR_pts>0 && ADR_pts_raw>0 && magic>0 && is_acceptable_spread==true && days_open_time>0 && gmt_hour_offset_is_NULL==false) // days_open_time is required to have been generated in order to prevent duplicate trades or allow trades to happen
               {
@@ -921,174 +925,17 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
                 ObjectSetText(dow_text,IntegerToString(DayOfWeek(),1),0);
                 if(uptrend) ObjectMove(dow_text,0,TimeCurrent(),bid_price-ADR_pts_raw/2);
                 else ObjectMove(dow_text,0,TimeCurrent(),bid_price+ADR_pts_raw/2);
-              }    
+              }
           }
       }
     if(ready && in_time_range)
       {
-        // start to filter and generally look for the buy or sell enter signals before specifically analyzing the buy and sell signals
-        ENUM_DIRECTION_BIAS enter_signal=DIRECTION_BIAS_NEUTRALIZE; // 0
-        bool reduced_risk=false;
-        if(is_new_M5_bar) 
-          {
-            set_moves_start_bar(instrument,H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week); // this is here so the vertical line can get moved every 5 minutes
-            //Print("moves_start_bar=",moves_start_bar);
-          }
-        if(option)
-          {
-            /*enter_signal=_signal_MA_better_test(instrument,Bid);
-            if(retracement_percent>0)
-              {
-                _signal_ADR_triggered_test(instrument);
-                enter_signal=signal_bias_compare(enter_signal,signal_retracement_after_ADR_triggered(instrument));
-              }
-            else 
-                enter_signal=signal_ADR_triggered(instrument);*/
-          }
-        else
-          {
-            if(retracement_percent>0)
-              {
-                signal_ADR_triggered(instrument,trade_triggering_timeframe);
-                enter_signal=signal_retracement_after_ADR_triggered(instrument);
-              }
-            else
-                enter_signal=signal_ADR_triggered(instrument,trade_triggering_timeframe);
-            if(enter_signal>0 || enter_signal==DIRECTION_BIAS_IGNORE) 
-              {
-                ENUM_DIRECTION_BIAS ma_bias;
-                ma_bias=signal_MA_better(instrument,current_bid);
-                /*if(ma_bias==DIRECTION_BIAS_NEUTRALIZE && include_weaker_ma_setup) 
-                  {
-                    enter_signal=signal_bias_compare(enter_signal,signal_MA_worse(instrument));
-                    if(reduce_risk_for_weaker_setups && enter_signal>0) 
-                      {
-                        reduced_risk=true;
-                        //Print("reduced_risk=true");
-                      }
-                  }
-                else */
-                    enter_signal=signal_bias_compare(enter_signal,ma_bias);
-              }
-          }
-        if((enter_signal>0 || enter_signal==DIRECTION_BIAS_IGNORE) && pullback_percent>0 && max_pending_orders_at_once>0)
-          {
-            if(pending_orders_open>=max_pending_orders_at_once) enter_signal=DIRECTION_BIAS_NEUTRALIZE;
-          }
-        if(enter_signal>0 && move_too_big_multiplier>0)
-          {
-            if(days_move_too_big(instrument)) enter_signal=DIRECTION_BIAS_NEUTRALIZE;
-          }     
-        if(compare_doubles(HOP_price-LOP_price,ADR_pts,digits)==-1) // the range between the HOP and LOP price should never be less than ADR_pts
-          {
-            enter_signal=DIRECTION_BIAS_NEUTRALIZE;
-          }
-        /*if(enter_signal>0 && past_x_periods_same_trend>0 && ADR_pts_raw_divider>0)
-          {
-            // check if the previous D1 bar's Open-Close(Absolute) is at least ADR_pts_raw divided by ADR_pts_raw_divider
-            if(enter_signal==DIRECTION_BIAS_BUY && is_over_extended_trend(instrument,past_x_periods_same_trend,DOWNTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts_raw/ADR_pts_raw_divider,digits),past_x_periods_same_trend,true,current_bid)) enter_signal=DIRECTION_BIAS_BUY;
-            else if(enter_signal==DIRECTION_BIAS_SELL && is_over_extended_trend(instrument,past_x_periods_same_trend,UPTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts_raw/ADR_pts_raw_divider,digits),past_x_periods_same_trend,true,current_bid)) enter_signal=DIRECTION_BIAS_SELL;
-            else enter_signal=DIRECTION_BIAS_NEUTRALIZE;
-          }*/
-        if(enter_signal>0 && diff_moving_avg_period>0 && past_x_periods_same_trend>0)
-          {
-            enter_signal=signal_ma_multi_period_trend(instrument,enter_signal,diff_moving_avg_period,since_hours_ago,ma_diff_multiplier,past_x_periods_same_trend,moves_start_bar_tf);
-          }
-        /*if(enter_signal>0)
-          {
-            enter_signal=signal_is_pivot_extreme_of_period(instrument,enter_signal,12);
-          }*/
+        ENUM_DIRECTION_BIAS enter_signal=signal_EA_with_ADR_filters(instrument,digits,current_bid);
         if(enter_signal>0)
           {
-            int seconds_span;
-            if(!include_previous_day) 
-              {
-                if(x_hours>0) seconds_span=MathMin(int(current_time-days_open_time),int(x_hours*3600)); // ensure that the seconds span never spans to the previous day while also taking x_hours into account
-                else seconds_span=int(current_time-days_open_time);
-              }
-            else 
-              {
-                if(x_hours>0) seconds_span=int(x_hours*3600);
-                else seconds_span=86400; // Default to the past 24 hours. (There are 86400 seconds in a day.)
-              }
-            if(reverse_trade_direction==true)
-              {
-                if(enter_signal==DIRECTION_BIAS_BUY) enter_signal=DIRECTION_BIAS_SELL;
-                else if(enter_signal==DIRECTION_BIAS_SELL) enter_signal=DIRECTION_BIAS_BUY;
-              }
-            // these if ane else if blocks will start to specifically analyze the buy or sell signals from the above filters
-            if(enter_signal==DIRECTION_BIAS_BUY && long_allowed)
-              {
-                if(exit_opposite_signal) exit_all_trades_set(_exiting_max_slippage,ORDER_SET_SELL,magic);
-                int long_trades_closed_today=count_orders (ORDER_SET_BUY, // should be first because the days_seconds variable was just calculated
-                                                           magic,
-                                                           MODE_HISTORY,
-                                                           OrdersHistoryTotal()-1,
-                                                           seconds_span,
-                                                           current_time);
-                int current_long_count=count_orders       (ORDER_SET_BUY, 
-                                                           magic,
-                                                           MODE_TRADES,
-                                                           OrdersTotal()-1);
-                //Print(longs_opened_today);
-                //Print(current_long_count);         
-                if(current_long_count<max_directional_trades_at_once &&
-                  current_long_count+long_trades_closed_today<max_directional_trades_in_x_hours)
-                  {
-                    //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
-                    bool overbought_1=false;
-                    bool overbought_2=false;
-                    if(filter_over_extended_trends && over_extended_x_days>0)
-                      {
-                        RefreshRates();
-                        overbought_1=is_over_extended_trend(instrument,over_extended_x_days,UPTREND,HIGH_MINUS_LOW,NormalizeDouble(ADR_pts_raw*.75,digits),over_extended_x_days,false,current_bid);
-                        overbought_2=is_over_extended_trend(instrument,over_extended_x_days,UPTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts_raw*.75,digits),over_extended_x_days,false,current_bid);           
-                      }
-                    if(overbought_1==false && overbought_2==false) 
-                      {
-                        //Print("try_to_enter_order: OP_BUY");
-                        try_to_enter_order(OP_BUY,magic,entering_max_slippage_pips,instrument,reduced_risk,max_risky_trades,current_bid);
-                        //uptrend_order_was_last=true;
-                        //downtrend_order_was_last=false;
-                      }
-                    else print_and_email("Info","A potential "+instrument+" trade was prevented because the market was overbought.");
-                  }
-              }
-            else if(enter_signal==DIRECTION_BIAS_SELL && short_allowed)
-              {
-                if(exit_opposite_signal) exit_all_trades_set(_exiting_max_slippage,ORDER_SET_BUY,magic);
-                int short_trades_closed_today=count_orders(ORDER_SET_SELL, // should be first because the days_seconds variable was just calculated
-                                                           magic,
-                                                           MODE_HISTORY,
-                                                           OrdersHistoryTotal()-1,
-                                                           seconds_span,
-                                                           current_time);
-                int current_short_count=count_orders      (ORDER_SET_SELL,
-                                                           magic,
-                                                           MODE_TRADES,
-                                                           OrdersTotal()-1);
-                if(current_short_count<max_directional_trades_at_once &&
-                  current_short_count+short_trades_closed_today<max_directional_trades_in_x_hours)
-                  {
-                    //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
-                    bool oversold_1=false;
-                    bool oversold_2=false;
-                    if(filter_over_extended_trends && over_extended_x_days>0)
-                      {
-                        RefreshRates();
-                        oversold_1=is_over_extended_trend(instrument,over_extended_x_days,DOWNTREND,HIGH_MINUS_LOW,NormalizeDouble(ADR_pts_raw*.75,digits),over_extended_x_days,false,current_bid);
-                        oversold_2=is_over_extended_trend(instrument,over_extended_x_days,DOWNTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts_raw*.75,digits),over_extended_x_days,false,current_bid);
-                      }
-                    if(oversold_1==false && oversold_2==false) 
-                      {
-                        try_to_enter_order(OP_SELL,magic,entering_max_slippage_pips,instrument,reduced_risk,max_risky_trades,current_bid);
-                        //Print("try_to_enter_order: OP_SELL");
-                        //downtrend_order_was_last=true;
-                        //uptrend_order_was_last=false;
-                      }
-                    else print_and_email("Info","A potential "+instrument+" trade was prevented because the market was oversold.");
-                  }
-              }
+            int final_trade_direction=-1;
+            final_trade_direction=ordertype_after_general_filters(instrument,digits,enter_signal,magic,current_time,current_bid);
+            if(final_trade_direction>-1) try_to_enter_order(final_trade_direction,magic,entering_max_slippage_pips,instrument,false,max_risky_trades,current_bid);
           }
       }
     else if(in_time_range==false)
@@ -1139,6 +986,215 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
           }
       }
     return true;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int ordertype_after_general_filters(string instrument,int digits,ENUM_DIRECTION_BIAS enter_signal,int magic,datetime current_time,double current_bid)
+  {
+    if((enter_signal>0 || enter_signal==DIRECTION_BIAS_IGNORE) && pullback_percent>0 && max_pending_orders_at_once>0)
+      {
+        if(pending_orders_open>=max_pending_orders_at_once) enter_signal=DIRECTION_BIAS_NEUTRALIZE;
+      }
+    /*if(enter_signal>0 && past_x_periods_same_trend>0 && ADR_pts_raw_divider>0)
+      {
+        // check if the previous D1 bar's Open-Close(Absolute) is at least ADR_pts_raw divided by ADR_pts_raw_divider
+        if(enter_signal==DIRECTION_BIAS_BUY && is_over_extended_trend(instrument,past_x_periods_same_trend,DOWNTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts_raw/ADR_pts_raw_divider,digits),past_x_periods_same_trend,true,current_bid)) enter_signal=DIRECTION_BIAS_BUY;
+        else if(enter_signal==DIRECTION_BIAS_SELL && is_over_extended_trend(instrument,past_x_periods_same_trend,UPTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts_raw/ADR_pts_raw_divider,digits),past_x_periods_same_trend,true,current_bid)) enter_signal=DIRECTION_BIAS_SELL;
+        else enter_signal=DIRECTION_BIAS_NEUTRALIZE;
+      }*/
+    if(enter_signal>0 && diff_moving_avg_period>0 && past_x_periods_same_trend>0)
+      {
+        enter_signal=signal_ma_multi_period_trend(instrument,enter_signal,diff_moving_avg_period,since_hours_ago,ma_diff_multiplier,past_x_periods_same_trend,moves_start_bar_tf);
+      }
+    /*if(enter_signal>0)
+      {
+        enter_signal=signal_is_pivot_extreme_of_period(instrument,enter_signal,12);
+      }*/
+    int seconds_span;
+    if(!include_previous_day) 
+      {
+        if(x_hours>0) seconds_span=MathMin(int(current_time-days_open_time),int(x_hours*3600)); // ensure that the seconds span never spans to the previous day while also taking x_hours into account
+        else seconds_span=int(current_time-days_open_time);
+      }
+    else 
+      {
+        if(x_hours>0) seconds_span=int(x_hours*3600);
+        else seconds_span=86400; // Default to the past 24 hours. (There are 86400 seconds in a day.)
+      }
+    if(reverse_trade_direction==true)
+      {
+        if(enter_signal==DIRECTION_BIAS_BUY) enter_signal=DIRECTION_BIAS_SELL;
+        else if(enter_signal==DIRECTION_BIAS_SELL) enter_signal=DIRECTION_BIAS_BUY;
+      }
+    // these if ane else if blocks will start to specifically analyze the buy or sell signals from the above filters
+    if(enter_signal==DIRECTION_BIAS_BUY && long_allowed)
+      {
+        if(exit_opposite_signal) exit_all_trades_set(exiting_max_slippage_pips,ORDER_SET_SELL,magic);
+        int long_trades_closed_today=count_orders (ORDER_SET_BUY, // should be first because the days_seconds variable was just calculated
+                                                   magic,
+                                                   MODE_HISTORY,
+                                                   OrdersHistoryTotal()-1,
+                                                   seconds_span,
+                                                   current_time);
+        int current_long_count=count_orders       (ORDER_SET_BUY, 
+                                                   magic,
+                                                   MODE_TRADES,
+                                                   OrdersTotal()-1);
+        //Print(longs_opened_today);
+        //Print(current_long_count);         
+        if(current_long_count<max_directional_trades_at_once &&
+          current_long_count+long_trades_closed_today<max_directional_trades_in_x_hours)
+          {
+            //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
+            bool overbought=false;
+            if(filter_over_extended_trends && over_extended_x_days>0)
+              {
+                RefreshRates();
+                overbought=is_over_extended_trend(instrument,over_extended_x_days,UPTREND,HIGH_MINUS_LOW,NormalizeDouble(ADR_pts_raw*.75,digits),over_extended_x_days,false,current_bid);
+                if(!overbought) overbought=is_over_extended_trend(instrument,over_extended_x_days,UPTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts_raw*.75,digits),over_extended_x_days,false,current_bid);           
+              }
+            if(!overbought) 
+              {
+                return OP_BUY;
+                //Print("try_to_enter_order: OP_BUY");
+                //uptrend_order_was_last=true;
+                //downtrend_order_was_last=false;
+              }
+            else 
+              {
+                print_and_email("Info","A potential "+instrument+" trade was prevented because the market was overbought.");
+              }
+          }
+      }
+    else if(enter_signal==DIRECTION_BIAS_SELL && short_allowed)
+      {
+        if(exit_opposite_signal) exit_all_trades_set(exiting_max_slippage_pips,ORDER_SET_BUY,magic);
+        int short_trades_closed_today=count_orders(ORDER_SET_SELL, // should be first because the days_seconds variable was just calculated
+                                                   magic,
+                                                   MODE_HISTORY,
+                                                   OrdersHistoryTotal()-1,
+                                                   seconds_span,
+                                                   current_time);
+        int current_short_count=count_orders      (ORDER_SET_SELL,
+                                                   magic,
+                                                   MODE_TRADES,
+                                                   OrdersTotal()-1);
+        if(current_short_count<max_directional_trades_at_once &&
+          current_short_count+short_trades_closed_today<max_directional_trades_in_x_hours)
+          {
+            //if(!only_enter_on_new_bar || (only_enter_on_new_bar && is_new_M5_bar))
+            bool oversold=false;
+            if(filter_over_extended_trends && over_extended_x_days>0)
+              {
+                RefreshRates();
+                oversold=is_over_extended_trend(instrument,over_extended_x_days,DOWNTREND,HIGH_MINUS_LOW,NormalizeDouble(ADR_pts_raw*.75,digits),over_extended_x_days,false,current_bid);
+                if(!oversold) oversold=is_over_extended_trend(instrument,over_extended_x_days,DOWNTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts_raw*.75,digits),over_extended_x_days,false,current_bid);
+              }
+            if(!oversold)
+              {
+                return OP_SELL;
+                //Print("try_to_enter_order: OP_SELL");
+                //downtrend_order_was_last=true;
+                //uptrend_order_was_last=false;
+              }
+            else 
+              {
+                print_and_email("Info","A potential "+instrument+" trade was prevented because the market was oversold.");
+              }
+          }
+      }
+    return -1;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+ENUM_DIRECTION_BIAS signal_EA_with_ADR_filters(string instrument,int digits,double current_bid)
+  {
+    // start to filter and generally look for the buy or sell enter signals before specifically analyzing the buy and sell signals
+    ENUM_DIRECTION_BIAS enter_signal=DIRECTION_BIAS_NEUTRALIZE; // 0
+    if(is_new_M5_bar) 
+      {
+        set_moves_start_bar(instrument,H1s_to_roll,gmt_hour_offset,max_weekend_gap_percent,include_last_week); // this is here so the vertical line can get moved every 5 minutes
+        //Print("moves_start_bar=",moves_start_bar);
+      }
+    if(option)
+      {
+        /*enter_signal=_signal_MA_better_test(instrument,Bid);
+        if(retracement_percent>0)
+          {
+            _signal_ADR_triggered_test(instrument);
+            enter_signal=signal_bias_compare(enter_signal,signal_retracement_after_ADR_triggered(instrument));
+          }
+        else 
+            enter_signal=signal_ADR_triggered(instrument);*/
+      }
+    else
+      {
+        if(retracement_percent>0)
+          {
+            signal_ADR_triggered(instrument,trade_triggering_timeframe);
+            enter_signal=signal_retracement_after_ADR_triggered(instrument);
+          }
+        else
+            enter_signal=signal_ADR_triggered(instrument,trade_triggering_timeframe);
+        if(enter_signal>0 || enter_signal==DIRECTION_BIAS_IGNORE) 
+          {
+            ENUM_DIRECTION_BIAS ma_bias;
+            ma_bias=signal_MA_better(instrument,current_bid);
+            enter_signal=signal_bias_compare(enter_signal,ma_bias);
+          }
+      }
+    if(enter_signal>0 && move_too_big_multiplier>0)
+      {
+        if(days_move_too_big(instrument)) enter_signal=DIRECTION_BIAS_NEUTRALIZE;
+      }     
+    if(compare_doubles(HOP_price-LOP_price,ADR_pts,digits)==-1) // the range between the HOP and LOP price should never be less than ADR_pts
+      {
+        enter_signal=DIRECTION_BIAS_NEUTRALIZE;
+      }
+    return enter_signal;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+ENUM_DIRECTION_BIAS signal_EA_reversals(string instrument,int digits,double current_bid)
+  {
+    // start to filter and generally look for the buy or sell enter signals before specifically analyzing the buy and sell signals
+    ENUM_DIRECTION_BIAS enter_signal=DIRECTION_BIAS_NEUTRALIZE; // 0
+    /*
+    1) ADR threshold meets price
+    2) start checking for reversal candlesticks
+    3) after reversal candlestick, take a trade in the opposite direction of the trend (if uptrend is triggered you should sell)
+    4) determine the takeprofit_pts=MathAbs(ma_price-current_price)*takeprofit_percent;
+    5) determine the stoploss_pts=takeprofit_pts*stoploss_percent;
+
+
+    functions dependant on moves_start_bar
+    
+    set_moves_start_bar
+    	on_initialization
+    	signal_EA_with_ADR_filters
+    
+    periods_pivot_price
+    	range_pts_calculation
+    	try_to_enter_order
+    	check_for_entry_errors
+    	send_and_get_order_ticket
+    	
+    range_pts_calculation
+    	uptrend_retracement_met_price
+    	downtrend_retracement_met_price
+    	uptrend_ADR_threshold_met_price
+    	downtrend_ADR_threshold_met_price
+    	reset_pivot_peak
+    
+    reset_pivot_peak
+    	on_initialization
+    	main_script_ran
+    	uptrend_retracement_met_price
+    	downtrend_retracement_met_price
+    */
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -3126,7 +3182,7 @@ int ranges_pivot_bar(ENUM_DIRECTIONAL_MODE mode,string instrument,ENUM_TIMEFRAME
     if(mode==BUYING_MODE)
       { 
         int lowest_bar;
-        if(start_bar==0) 
+        if(start_bar==0)
           lowest_bar=0;
         else 
           lowest_bar=iLowest(instrument,timeframe,MODE_LOW,start_bar,0);
@@ -3977,7 +4033,7 @@ bool expired_pivot_level(datetime _current_time)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void try_to_enter_order(ENUM_ORDER_TYPE type,int magic,int max_slippage_pips,string instrument,bool _reduced_risk,int _max_risky_trades,double current_bid)
+void try_to_enter_order(int type,int magic,int max_slippage_pips,string instrument,bool _reduced_risk,int _max_risky_trades,double current_bid)
   {
     color   arrow_color;
     int     digits=(int)MarketInfo(instrument,MODE_DIGITS);
