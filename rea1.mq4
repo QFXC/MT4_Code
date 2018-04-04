@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Quant FX Capital/Tom Mazurek"
 #property link      "https://www.quantfxcapital.com"
-#property version   "2.15"
+#property version   "2.16"
 #property strict
 /* 
 Remember:
@@ -110,8 +110,8 @@ enum ENUM_MM // Money Management
 //+------------------------------------------------------------------+
   input bool        option=false;
   input bool        option2=false;
-  input string      version="2.15";
   input bool        broker_is_oanda=true;              // broker_is_oanda:
+  input int         fixed_account_balance=5000;
   input bool        use_recommended_settings=true;     // use_recommended_settings:
   input int         settings_set=0;
   int               init_result=INIT_FAILED;
@@ -150,7 +150,7 @@ enum ENUM_MM // Money Management
 	extern int        max_directional_trades_in_x_hours=2;// max_directional_trades_in_x_hours: How many trades are allowed to be opened (even if they are close now) after the start of each current day?
 	extern double     x_hours=6;                          // x_hours: Any whole or fraction of an hour. // FYI, this setting only takes affect when
   
-  extern string     primary_ma_timeframe="M5";
+  extern string     primary_ma_timeframe="M5";          // primary_ma_timeframe: M1,M5,H1,D1 (from string_to_timeframe_function)
   static ENUM_TIMEFRAMES primary_ma_tf=-1;
   extern int        moving_avg_period=500;              // moving_avg_period:
   input double      ma_multiplier=1;                    // ma_multiplier:
@@ -209,6 +209,7 @@ enum ENUM_MM // Money Management
 // exit or do not take orders based on time
 	/*input*/ int     exiting_max_slippage_pips=50;       // exiting_max_slippage_pips: Must be in whole number. // TODO: For 3 and 5 digit brokers, is 50 equivalent to 5 pips?
 	extern double     active_trade_expire=1;            // active_trade_expire: Any hours or fractions of hour(s). How many hours can a trade be on that hasn't hit stoploss or takeprofit?
+  extern bool       expire_negative_trades_sooner=false; // expire_negative_trades_sooner:
   static double     active_trade_expire_stored=active_trade_expire;
 	input double      pending_order_expire=0;             // pending_order_expire: Any hours or fractions of hour(s). In how many hours do you want your pending orders to expire?
 	extern double     retracement_virtual_expire=.5;      // retracement_virtual_expire: Any hours or fractions of hour(s). In how many hours after the high/low do you want the potential retracement trades to expire?
@@ -615,6 +616,7 @@ void OnTick()
         if(is_new_M5_bar)
           {
             is_new_H1_bar=is_new_H1_bar(instrument,true);
+            if(active_trade_expire>0) exit_expired_trades(int(active_trade_expire*3600),expire_negative_trades_sooner,_exiting_max_slippage,current_time,magic_num); // This runs every 5 minutes (whether the time is in_time_range or not). It only exits trades that have been on for too long and haven't hit stoploss or takeprofit.
             if(is_new_H1_bar) 
               {
                 //Print("hourly gmt: ",gmt_hour_offset);
@@ -622,7 +624,8 @@ void OnTick()
                 is_new_custom_D1_bar=is_new_custom_D1_bar(instrument,current_time); // set_gmt_offset needs to be run before is_new_custom_D1_bar because is_new_custom_D1_bar uses the gmt_offset_hour variable
                 // set_gmt_offset has to run here because the broker's server time can change very frequently, so this function needs to get called frequently
                 // also because set_gmt_offset can only be run after is_new_D1_bar and is_new_custom_D1_bar is run
-                safe_to_trade=boolean_compare(safe_to_trade,set_gmt_offset(instrument,current_time,750)); 
+                safe_to_trade=boolean_compare(safe_to_trade,set_gmt_offset(instrument,current_time,750));
+                safe_to_trade=boolean_compare(safe_to_trade,is_account_balance_suffucient(NormalizeDouble(fixed_account_balance*.8,2)));
                 if(gmt_offset_visible==false && (gmt_hour_offset!=0 /*|| gmt_hour_offset_is_NULL*/)) 
                   {
                     print_and_email("Error","THE EA WILL FOR "+instrument+" WILL BE TERMINATED BECAUSE THE gmt_hour_offset IS 0 OR NULL");
@@ -841,8 +844,6 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
             // reset the LOP_price, HOP_price, and trends because the signal is no longer valid
             reset_pivot_peak(instrument);
           }
-        if(active_trade_expire>0) 
-            exit_all_trades_set(_exiting_max_slippage,ORDER_SET_MARKET,magic,int(active_trade_expire*3600),current_time); // This runs every 5 minutes (whether the time is in_time_range or not). It only exit trades that have been on for too long and haven't hit stoploss or takeprofit.
         in_time_range=in_time_range(current_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,fri_end_time_hour,fri_end_time_minute,gmt_hour_offset,current_bid); // only check if it is in the time range once the EA is loaded and, then, afterward at the beginning of every M5 bar  
         if(in_time_range==true && ready==false && average_spread_yesterday!=-1) 
           {
@@ -930,7 +931,7 @@ bool main_script_ran(string instrument,int digits,int magic,datetime current_tim
       }
     if(ready && in_time_range)
       {
-        ENUM_DIRECTION_BIAS enter_signal=signal_EA_with_ADR_filters(instrument,digits,current_bid);
+        ENUM_DIRECTION_BIAS enter_signal=signal_retracements_ea(instrument,digits,current_bid);
         if(enter_signal>0)
           {
             int final_trade_direction=-1;
@@ -1109,7 +1110,7 @@ int ordertype_after_general_filters(string instrument,int digits,ENUM_DIRECTION_
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-ENUM_DIRECTION_BIAS signal_EA_with_ADR_filters(string instrument,int digits,double current_bid)
+ENUM_DIRECTION_BIAS signal_retracements_ea(string instrument,int digits,double current_bid)
   {
     // start to filter and generally look for the buy or sell enter signals before specifically analyzing the buy and sell signals
     ENUM_DIRECTION_BIAS enter_signal=DIRECTION_BIAS_NEUTRALIZE; // 0
@@ -1158,7 +1159,7 @@ ENUM_DIRECTION_BIAS signal_EA_with_ADR_filters(string instrument,int digits,doub
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-ENUM_DIRECTION_BIAS signal_EA_reversals(string instrument,int digits,double current_bid)
+ENUM_DIRECTION_BIAS signal_reversals_ea(string instrument,int digits,double current_bid)
   {
     // start to filter and generally look for the buy or sell enter signals before specifically analyzing the buy and sell signals
     ENUM_DIRECTION_BIAS enter_signal=DIRECTION_BIAS_NEUTRALIZE; // 0
@@ -1195,6 +1196,22 @@ ENUM_DIRECTION_BIAS signal_EA_reversals(string instrument,int digits,double curr
     	uptrend_retracement_met_price
     	downtrend_retracement_met_price
     */
+    return enter_signal;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+ENUM_DIRECTION_BIAS signal_pinbar_ea(string instrument,int digits,double current_bid)
+  {
+    // start to filter and generally look for the buy or sell enter signals before specifically analyzing the buy and sell signals
+    ENUM_DIRECTION_BIAS enter_signal=DIRECTION_BIAS_NEUTRALIZE; // 0
+    /*
+    1) large pin bar occurs
+    2) stoploss is at the pin
+    3) takeprofit is the size of the pin
+
+    */
+    return enter_signal;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1832,6 +1849,31 @@ ENUM_DIRECTION_BIAS signal_previous_bar_triggered(string instrument,ENUM_TIMEFRA
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+  
+ENUM_DIRECTION_BIAS signal_candle_has_body(string instrument,ENUM_TIMEFRAMES timeframe,int shift,double min_high_low_range)
+  {
+    int    digits=(int)MarketInfo(instrument,MODE_DIGITS);
+    double high=iHigh(instrument,timeframe,shift),
+           low=iLow(instrument,timeframe,shift),
+           high_low_range=high-low;
+    if(compare_doubles(high_low_range,min_high_low_range,digits)>=0)
+      {
+        double open=iOpen(instrument,timeframe,shift),
+               close=iClose(instrument,timeframe,shift),
+               open_close_range=MathAbs(open-close),
+               one_half=high_low_range/2;
+        if(compare_doubles(open_close_range,one_half,digits)>=0)
+          {
+            if(compare_doubles(close,open,digits)==1)
+              return DIRECTION_BIAS_BUY;
+            else if(compare_doubles(open,close,digits)==1)
+              return DIRECTION_BIAS_SELL;
+          }
+      }
+    return DIRECTION_BIAS_NEUTRALIZE;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+  
 ENUM_DIRECTION_BIAS signal_is_pin_bar(string instrument,ENUM_TIMEFRAMES timeframe,int shift,double min_high_low_range)
   {
     int    digits=(int)MarketInfo(instrument,MODE_DIGITS);
@@ -1883,7 +1925,7 @@ ENUM_DIRECTION_BIAS signal_last_x_bars_are_pin_bars(string instrument,int x_bars
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+  
-ENUM_DIRECTION_BIAS is_railroad_track_bar(string instrument,ENUM_TIMEFRAMES timeframe,int shift,double min_high_low_range)
+ENUM_DIRECTION_BIAS signal_is_railroad_track_bar(string instrument,ENUM_TIMEFRAMES timeframe,int shift,double min_high_low_range)
   {
     int    digits=(int)MarketInfo(instrument,MODE_DIGITS);
     double high1=iHigh(instrument,timeframe,shift),
@@ -2256,7 +2298,7 @@ bool set_gmt_offset(string instrument,datetime current_time,int coming_from) // 
               }
             else print_and_email("Error","set_gmt_offset: The code failed to determine if gmt_offset_required is true or false.");
             // determine if there is an issue with what the user sees on the chart and what is actually on the chart
-            if(gmt_offset_required==true) // if it is Sunday or Monday (but only running the code one time per day) or if it is the first time the gmt offset was attempted to be generated
+            if(gmt_offset_required) // if it is Sunday or Monday (but only running the code one time per day) or if it is the first time the gmt offset was attempted to be generated
               {
                 //Print("gmt_offset_required: ",gmt_offset_required);
                 if(gmt_offset_visible==false) 
@@ -3388,8 +3430,9 @@ bool uptrend_retracement_met_price(string instrument)
                 if(take_retracement_trade_based_on_candle)
                   {
                     ENUM_DIRECTION_BIAS signal=DIRECTION_BIAS_NEUTRALIZE;
-                    signal=signal_last_x_bars_are_pin_bars(instrument,1,PERIOD_M5,MathMin(ADR_pts_raw/4,ADR_pts/3));
-                    if(signal!=DIRECTION_BIAS_BUY) signal=signal_last_x_bars_are_pin_bars(instrument,2,PERIOD_M1,MathMin(ADR_pts_raw/6,ADR_pts/5));
+                    //signal=signal_last_x_bars_are_pin_bars(instrument,1,PERIOD_M5,MathMin(ADR_pts_raw/4,ADR_pts/3));
+                    //if(signal!=DIRECTION_BIAS_BUY) signal=signal_last_x_bars_are_pin_bars(instrument,2,PERIOD_M1,MathMin(ADR_pts_raw/6,ADR_pts/5));
+                    signal=signal_candle_has_body(instrument,PERIOD_M5,1,ADR_pts/6);
                     if(signal==DIRECTION_BIAS_BUY) return true;
                     else return false;
                   }
@@ -3530,8 +3573,9 @@ bool downtrend_retracement_met_price(string instrument)
                 if(take_retracement_trade_based_on_candle)
                   {
                     ENUM_DIRECTION_BIAS signal=DIRECTION_BIAS_NEUTRALIZE;
-                    signal=signal_last_x_bars_are_pin_bars(instrument,1,PERIOD_M5,MathMin(ADR_pts_raw/4,ADR_pts/3));
-                    if(signal!=DIRECTION_BIAS_SELL) signal=signal_last_x_bars_are_pin_bars(instrument,2,PERIOD_M1,MathMin(ADR_pts_raw/6,ADR_pts/5));
+                    //signal=signal_last_x_bars_are_pin_bars(instrument,1,PERIOD_M5,MathMin(ADR_pts_raw/4,ADR_pts/3));
+                    //if(signal!=DIRECTION_BIAS_SELL) signal=signal_last_x_bars_are_pin_bars(instrument,2,PERIOD_M1,MathMin(ADR_pts_raw/6,ADR_pts/5));
+                    signal=signal_candle_has_body(instrument,PERIOD_M5,1,ADR_pts/6);
                     if(signal==DIRECTION_BIAS_SELL) return true;
                     else return false;
                   }
@@ -3839,7 +3883,7 @@ void exit_all_trades_set(int max_slippage_pips,ENUM_ORDER_SET type_needed=ORDER_
   {
     for(int i=OrdersTotal()-1;i>=0;i--) // interate through the index from position 0 to OrdersTotal()-1
       {
-        if(OrderSelect(i,SELECT_BY_POS)) // if an open trade can be found
+        if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) // if an open trade can be found
           {
             if(magic==OrderMagicNumber() || magic==-1)
               {
@@ -3847,7 +3891,6 @@ void exit_all_trades_set(int max_slippage_pips,ENUM_ORDER_SET type_needed=ORDER_
                 int ticket=OrderTicket();
                 if(exit_seconds>0 && current_time>0)
                 if((current_time-OrderOpenTime())<exit_seconds) break;  // TODO: be sure that this still can get the open time of the current selected ticket // TODO: is this actually working?
-                
                 switch(type_needed)
                   {
                     case ORDER_SET_BUY:
@@ -3872,6 +3915,29 @@ void exit_all_trades_set(int max_slippage_pips,ENUM_ORDER_SET type_needed=ORDER_
                     case ORDER_SET_PENDING:
                       if(actual_type>1) try_to_exit_order(ticket,max_slippage_pips); break;
                     default: try_to_exit_order(ticket,max_slippage_pips); // this is the case where type==ORDER_SET_ALL falls into
+                  }
+              }
+          }
+      }
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void exit_expired_trades(int _active_trade_expire_secs,bool _expire_negative_trades_sooner,int max_slippage_pips,datetime current_time,int magic=-1)  // magic==-1 means that all orders/trades will close (including ones managed by other running EAs)
+  {
+    for(int i=OrdersTotal()-1;i>=0;i--) // interate through the index from position 0 to OrdersTotal()-1
+      {
+        if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) // if an open trade can be found
+          {
+            if(magic==OrderMagicNumber() || magic==-1)
+              {
+                if(OrderType()<=1)
+                  {
+                    int exit_seconds=_active_trade_expire_secs;
+                    if(_expire_negative_trades_sooner && OrderProfit()<0) 
+                      exit_seconds=int(exit_seconds*.75);
+                    if(current_time-OrderOpenTime()>=exit_seconds) 
+                      try_to_exit_order(OrderTicket(),max_slippage_pips);
                   }
               }
           }
@@ -4563,7 +4629,7 @@ double get_lots(ENUM_MM method,bool _reduced_risk,int magic,string instrument,do
           micro_multiplier=0;
       }    
     if(compound_balance || AccountBalance()<5000) balance=AccountBalance();
-    else balance=5000;
+    else balance=fixed_account_balance;
     switch(method)
       {
         case MM_RISK_PERCENT_PER_ADR:
@@ -4612,6 +4678,19 @@ double get_lots(ENUM_MM method,bool _reduced_risk,int magic,string instrument,do
     if(lots<min_lots) lots=min_lots;
     if(lots>max_lots) lots=max_lots;
     return lots;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool is_account_balance_suffucient(double min_balance)
+  {
+    double balance=AccountBalance();
+    if(balance<min_balance) 
+      {
+        print_and_email("Important Warning","Your account is below the minimum account balance threshold and all trades from now on will be prevented.");
+        return false;
+      }
+    else return true;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
