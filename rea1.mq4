@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Quant FX Capital/Tom Mazurek"
 #property link      "https://www.quantfxcapital.com"
-#property version   "3.00"
+#property version   "3.01"
 #property strict
 /* 
 Remember:
@@ -237,7 +237,7 @@ enum ENUM_MM // Money Management
   input int         over_extended_x_days=0;             // over_extended_x_days: 
   extern int        past_x_periods_same_trend=1;        // past_x_periods_same_trend:
   extern int        ADR_pts_raw_divider=6;              // ADR_pts_divider: 6 
-  input double      move_too_big_multiplier=6;          // move_too_big_multiplier:
+  extern double     move_too_big_multiplier=6;          // move_too_big_multiplier:
   extern bool       use_fixed_ADR=true;                 // use_fixed_ADR:
   extern double     fixed_ADR_pips=30;                  // fixed_ADR_pips:
   extern int        ma_range_pts=0;                     // ma_range_pts:
@@ -616,7 +616,7 @@ void OnTick()
             // set_gmt_offset has to run here because the broker's server time can change very frequently, so this function needs to get called frequently
             // also because set_gmt_offset can only be run after is_new_D1_bar and is_new_custom_D1_bar is run
             safe_to_trade=boolean_compare(safe_to_trade,set_gmt_offset(instrument,current_time,750));
-            safe_to_trade=boolean_compare(safe_to_trade,is_account_balance_suffucient(NormalizeDouble(fixed_account_balance*.8,2)));
+            //safe_to_trade=boolean_compare(safe_to_trade,is_account_balance_suffucient(NormalizeDouble(fixed_account_balance*.8,2)));
             if(gmt_offset_visible==false && (gmt_hour_offset!=0 /*|| gmt_hour_offset_is_NULL*/)) 
               {
                 print_and_email("Error","THE EA WILL FOR "+instrument+" WILL BE TERMINATED BECAUSE THE gmt_hour_offset IS 0 OR NULL");
@@ -706,7 +706,7 @@ void analyze_market_for_trading(string instrument,int magic,int digits,datetime 
         if(enter_signal>0)
           {
             ENUM_ORDER_TYPE final_trade_direction=-1;
-            final_trade_direction=ordertype_after_general_filters(instrument,digits,enter_signal,magic,current_time,current_bid);
+            final_trade_direction=general_filters(instrument,digits,enter_signal,magic,current_time,current_bid);
             if(final_trade_direction>-1) retracement_ea_try_to_enter_order(final_trade_direction,magic,entering_max_slippage_pips,instrument,false,max_risky_trades,current_bid); // SPECIFIC TO RETRACEMENT EA
           }
       }
@@ -905,7 +905,7 @@ ENUM_DIRECTION_BIAS retracement_ea_signal(string instrument,int digits,double cu
   {
     // start to filter and generally look for the buy or sell enter signals before specifically analyzing the buy and sell signals
     ENUM_DIRECTION_BIAS enter_signal=DIRECTION_BIAS_NEUTRALIZE; // 0
-    if(is_new_M5_bar) 
+    if(is_new_M5_bar || moves_start_bar_tf==PERIOD_M1) 
       {
         set_moves_start_bar(instrument,moves_start_bar_tf,hours_to_roll(),gmt_hour_offset,max_weekend_gap_percent,include_last_week); // this is here so the vertical line can get moved every 5 minutes
         //Print("moves_start_bar=",moves_start_bar);
@@ -1007,7 +1007,7 @@ ENUM_DIRECTION_BIAS signal_pinbar_ea(string instrument,int digits,double current
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-ENUM_ORDER_TYPE ordertype_after_general_filters(string instrument,int digits,ENUM_DIRECTION_BIAS enter_signal,int magic,datetime current_time,double current_bid)
+ENUM_ORDER_TYPE general_filters(string instrument,int digits,ENUM_DIRECTION_BIAS enter_signal,int magic,datetime current_time,double current_bid)
   {
     if((enter_signal>0 || enter_signal==DIRECTION_BIAS_IGNORE) && pullback_percent>0 && max_pending_orders_at_once>0)
       {
@@ -1361,12 +1361,6 @@ ENUM_DIRECTION_BIAS signal_MA_better(string instrument,double current_bid)
           }
         else
           {
-            // _UJ_19pf_6dd_343t    control points, ADR_pts=65, moving_avg_period=500
-            // _UJ_16pf_8dd_348t    tick data,      ADR_pts=65, moving_avg_period=500
-            // _EU_16pf_7dd_345t    control points, ADR_pts=50, moving_avg_period=500
-            // _EU_133pf_10dd_341t  tick data,      ADR_pts=50, moving_avg_period=500
-            // _EJ_188pf_7dd_342t   control points, ADR_pts=65, moving_avg_period=500
-            // _EJ_16pf_8dd_347t    tick data,      ADR_pts=65, moving_avg_period=500
             if(uptrend && HOP_price<ma_price) // current_bid>ma_price && uptrend && LOP_price>ma_price
               { 
                 //price_below_ma=true;
@@ -1401,7 +1395,7 @@ ENUM_DIRECTION_BIAS signal_MA_better(string instrument,double current_bid)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-ENUM_DIRECTION_BIAS _signal_MA_better_test_3(string instrument,double current_bid) 
+/*ENUM_DIRECTION_BIAS _signal_MA_better_test_3(string instrument,double current_bid) 
   {
     ENUM_DIRECTION_BIAS bias=DIRECTION_BIAS_NEUTRALIZE;
     if(moving_avg_period<=0)
@@ -1439,11 +1433,11 @@ ENUM_DIRECTION_BIAS _signal_MA_better_test_3(string instrument,double current_bi
           }
       }
     return bias;
-  }
+  }*/
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-ENUM_DIRECTION_BIAS signal_MA_worse(string instrument,ENUM_TIMEFRAMES timeframe) 
+/*ENUM_DIRECTION_BIAS signal_MA_worse(string instrument,ENUM_TIMEFRAMES timeframe) 
   {
     ENUM_DIRECTION_BIAS bias=DIRECTION_BIAS_NEUTRALIZE;
     if(moving_avg_period<=0 || ma_multiplier<=0)
@@ -1461,7 +1455,7 @@ ENUM_DIRECTION_BIAS signal_MA_worse(string instrument,ENUM_TIMEFRAMES timeframe)
           }
       }
     return bias;  
-  }
+  }*/
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -3048,7 +3042,7 @@ double hours_to_roll()
     double hours_to_roll=-1;
     if(H1s_to_roll>0) 
         hours_to_roll=H1s_to_roll;
-    if(M1s_to_roll>0) 
+    else if(M1s_to_roll>0) 
       {
         //Print("minutes to roll 1: ",M1s_to_roll);
         hours_to_roll=NormalizeDouble(M1s_to_roll/60,4);
