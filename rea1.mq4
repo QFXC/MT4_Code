@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Quant FX Capital/Tom Mazurek"
 #property link      "https://www.quantfxcapital.com"
-#property version   "3.01"
+#property version   "3.02"
 #property strict
 /* 
 Remember:
@@ -108,27 +108,23 @@ enum ENUM_MM // Money Management
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-  input bool        option=false;
-  input bool        option2=false;
+  input bool        try_alternative_signal_generation=false;
   input bool        broker_is_oanda=true;              // broker_is_oanda:
+  input bool        market_exec=false;                 // market_exec: False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
   input int         fixed_account_balance=5000;
   input bool        use_recommended_settings=true;     // use_recommended_settings:
   input int         settings_set=0;
-  int               init_result=INIT_FAILED;
   bool              ready=false,in_time_range=false;
-  //bool            price_below_ma=false, price_above_ma=false;
              
 // timeframe changes
   bool              is_new_M5_bar, is_new_H1_bar, is_new_custom_D1_bar,is_new_D1_bar,is_new_custom_W1_bar;
-  ///*input*/ bool    wait_next_M5_on_load=true; //wait_next_M5_on_load: This setting currently affects all bars (including D1) so do not set it to true unless code changes are made. // When you load the EA, should it wait for the next bar to load before giving the EA the ability to enter a trade or calculate ADR?
   
 // general settings
   /*input*/ bool    auto_adjust_broker_digits=true;    // auto_adjust_broker_digits:
+  static int        point_multiplier,spread_divider;
   input bool        display_chart_objects=false;       // display_chart_objects:
   input bool        print_time_info=false;              // print_time_info:
   input bool        email_alerts_on=true;              // email_alerts_on:
-  static int        point_multiplier,spread_divider;
-  input bool        market_exec=false;                 // market_exec: False means that it is instant execution rather than market execution. Not all brokers offer market execution. The rule of thumb is to never set it as instant execution if the broker only provides market execution.
   int               retries=3; // TODO: eventually get rid of this global variable
   static int        magic_num; // An EA can only have one magic number. Used to identify the EA that is managing the order. TODO: see if it can auto generate the magic number every time the EA is loaded on the chart.
   static bool       uptrend=false, downtrend=false;
@@ -137,7 +133,6 @@ enum ENUM_MM // Money Management
   static double     average_spread_yesterday=0;
 	
 	input bool        reverse_trade_direction=false;
-	//input bool      only_enter_on_new_bar=false; // Should you only enter trades when a new bar begins?
 	/*input*/ bool    exit_opposite_signal=false; //false exit_opposite_signal: Should the EA exit trades when there is a signal in the opposite direction?
   bool              long_allowed=true;  // Are long trades allowed? // TODO: this is never set to anything in the code
 	bool              short_allowed=true; // Are short trades allowed? // TODO: this is never set to anything in the code
@@ -145,9 +140,12 @@ enum ENUM_MM // Money Management
 	input bool        filter_over_extended_trends=false;  // filter_over_extended_trends: // TODO: test that this filter works
 	/*input*/ int     max_pending_orders_at_once=2;       // max_pending_orders_at_once:
 	//input int       max_open_trades_at_once=2;          // market_trades_at_once: How many long or short market trades can be on at the same time?
-	/*input*/ int     max_directional_trades_at_once=1;   // max_directional_trades_at_once: How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
+  /*input*/ int     max_directional_trades_at_once=1;   // max_directional_trades_at_once: How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
 	extern int        max_directional_trades_in_x_hours=2;// max_directional_trades_in_x_hours: How many trades are allowed to be opened (even if they are close now) after the start of each current day?
 	extern double     x_hours=6;                          // x_hours: Any whole or fraction of an hour. // FYI, this setting only takes affect when
+  extern int        max_any_trades_in_y_hours=2;
+  extern double     y_hours=24;
+  extern bool       hedging_allowed=false;
   
   extern string     primary_ma_timeframe="M5";          // primary_ma_timeframe: M1,M5,H1,D1 (from string_to_timeframe_function)
   static ENUM_TIMEFRAMES primary_ma_tf=-1;
@@ -202,7 +200,6 @@ enum ENUM_MM // Money Management
 	input double      trail_step_percent=0;               // trail_step_percent: The % of takeprofit to set the minimum difference between the proposed new value of the stoploss to the current stoploss price
 	/*input*/ int     entering_max_slippage_pips=5;       // entering_max_slippage_pips: Must be in whole number. // TODO: For 3 and 5 digit brokers, is 50 equivalent to 5 pips?
 	/*input*/ int     exiting_max_slippage_pips=50;       // exiting_max_slippage_pips: Must be in whole number. // TODO: For 3 and 5 digit brokers, is 50 equivalent to 5 pips?
-//input int         unfavorable_slippage=5;
 
 // exit or do not take orders based on time
 	extern double     active_trade_expire=1;            // active_trade_expire: Any hours or fractions of hour(s). How many hours can a trade be on that hasn't hit stoploss or takeprofit?
@@ -222,7 +219,6 @@ enum ENUM_MM // Money Management
 	double            lot_size=0.0;
 	/*input*/ int     increase_lots_after_x_losses=0;
 	/*input*/ double  increase_lots_by_percent=0;
-	//input bool      reduce_risk_for_weaker_setups=true; // this functionality will most likely be removed
 	input int         max_risky_trades=2;
 	 
 // Market Trends
@@ -266,12 +262,16 @@ enum ENUM_MM // Money Management
 
   double pivot_peak[20][5]={}; // The columns are: instrument_id,HOP_price,HOP_time,LOP_price,LOP_time
 //+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 // Runs once when the EA is turned on
 int OnInit()
   {
-    init_result=INIT_FAILED;
+    int init_result=INIT_FAILED;
     init_result=on_initialization(SIGNAL_SET,Symbol());
     //print_info(Symbol());
     if(init_result==INIT_FAILED) 
@@ -282,151 +282,6 @@ int OnInit()
         ExpertRemove();
       }
     return init_result;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-bool print_broker_info(string instrument)
-  {
-    /*
-    Print("Symbol=",Symbol()); 
-    Print("Low day price=",MarketInfo(Symbol(),MODE_LOW)); 
-    Print("High day price=",MarketInfo(Symbol(),MODE_HIGH));  
-    Print("Point size in the quote currency=",MarketInfo(Symbol(),MODE_POINT)); 
-    Print("Digits after decimal point=",MarketInfo(Symbol(),MODE_DIGITS)); 
-    Print("Spread value in points=",MarketInfo(Symbol(),MODE_SPREAD)); 
-    Print("Stop level in points=",MarketInfo(Symbol(),MODE_STOPLEVEL)); 
-    Print("Lot size in the base currency=",MarketInfo(Symbol(),MODE_LOTSIZE)); 
-    Print("Tick value in the deposit currency=",MarketInfo(Symbol(),MODE_TICKVALUE)); 
-    Print("Tick size in points=",MarketInfo(Symbol(),MODE_TICKSIZE));  
-    Print("Trade is allowed for the symbol=",MarketInfo(Symbol(),MODE_TRADEALLOWED)); 
-    Print("Minimum permitted amount of a lot=",MarketInfo(Symbol(),MODE_MINLOT)); 
-    Print("Step for changing lots=",MarketInfo(Symbol(),MODE_LOTSTEP)); 
-    Print("Maximum permitted amount of a lot=",MarketInfo(Symbol(),MODE_MAXLOT)); 
-    Print("Swap calculation method=",MarketInfo(Symbol(),MODE_SWAPTYPE)); 
-    Print("Profit calculation mode=",MarketInfo(Symbol(),MODE_PROFITCALCMODE)); 
-    Print("Margin calculation mode=",MarketInfo(Symbol(),MODE_MARGINCALCMODE)); 
-    Print("Initial margin requirements for 1 lot=",MarketInfo(Symbol(),MODE_MARGININIT)); 
-    Print("Margin to maintain open orders calculated for 1 lot=",MarketInfo(Symbol(),MODE_MARGINMAINTENANCE)); 
-    Print("Hedged margin calculated for 1 lot=",MarketInfo(Symbol(),MODE_MARGINHEDGED)); 
-    Print("Free margin required to open 1 lot for buying=",MarketInfo(Symbol(),MODE_MARGINREQUIRED)); 
-    Print("Order freeze level in points=",MarketInfo(Symbol(),MODE_FREEZELEVEL)); 
-    */
-    string   current_bar_open_time=TimeToString(iTime(instrument,PERIOD_M5,0));        
-    datetime current_time=(datetime)MarketInfo(instrument,MODE_TIME);
-    bool     market_open_today=is_market_open_today(instrument,current_time);
-    string   instrument_int=IntegerToString(get_string_integer(StringSubstr(instrument,0,6)));
-    string   expert_name=WindowExpertName();
-    string   tick_value=DoubleToString(MarketInfo(instrument,MODE_TICKVALUE));
-    double   point=MarketInfo(instrument,MODE_POINT);
-    double   spread=MarketInfo(instrument,MODE_SPREAD);
-    string   bid_price=DoubleToString(MarketInfo(instrument,MODE_BID));
-    double   min_distance_pips=MarketInfo(instrument,MODE_STOPLEVEL);
-    string   min_lot=DoubleToString(MarketInfo(instrument,MODE_MINLOT));
-    string   max_lot=DoubleToString(MarketInfo(instrument,MODE_MAXLOT));
-    string   lot_digits=IntegerToString((int) -MathLog10(MarketInfo(instrument,MODE_LOTSTEP)));
-    string   lot_step=IntegerToString((int)(MarketInfo(instrument,MODE_LOTSTEP)));
-    int      digits=(int)MarketInfo(instrument,MODE_DIGITS);
-    bool     trade_allowed=(int)MarketInfo(instrument,MODE_TRADEALLOWED);
-    string   one_lot_initial_margin=DoubleToString(MarketInfo(instrument,MODE_MARGININIT));
-    string   margin_to_maintain_open_orders=DoubleToString(MarketInfo(instrument,MODE_MARGINMAINTENANCE));
-    string   hedged_margin=DoubleToString(MarketInfo(instrument,MODE_MARGINHEDGED));
-    string   free_margin_required=DoubleToString(MarketInfo(instrument,MODE_MARGINREQUIRED));
-    string   freeze_level_pts=DoubleToString(MarketInfo(instrument,MODE_FREEZELEVEL));
-    string   current_chart=Symbol();
-    
-    Print("Account company: ",AccountCompany());
-    Print("Account name: ", AccountName());
-    Print("Account number: ", IntegerToString(AccountNumber()));
-    Print("Account Server Name: ", AccountServer());
-    Print("current time: ",TimeToString(current_time));
-    Print("current bar open time: ",current_bar_open_time);
-    Print("market_open_today: ",market_open_today);
-    Print(StringSubstr(instrument,0,6),"'s string integer: ",instrument_int);
-    Print("expert_name: ",expert_name);
-    Print("trade_allowed: ",trade_allowed);
-    Print("one_lot_initial_margin: ",one_lot_initial_margin);
-    Print("margin_to_maintain_open_orders for 1 lot: ",margin_to_maintain_open_orders);
-    Print("hedged_margin: ",hedged_margin);
-    Print("free_margin_required to open 1 lot: ",free_margin_required);
-    Print("freeze_level_pts: ",freeze_level_pts);
-    Print("tick_value: ",tick_value);
-    Print("Point: ",DoubleToStr(point));
-    Print("spread before the function calls: ",DoubleToStr(spread));
-    Print("spread before the function calls * point: ",DoubleToStr(spread*point));
-    Print("spread before the function calls * point * point_multiplier: ",DoubleToStr(spread*point*point_multiplier));
-    if(broker_is_oanda) Print("Oanda spread before the function calls * point * point_multiplier / spread_divider: ",DoubleToStr(spread*point*point_multiplier/spread_divider));
-    Print("ADR_pts: ",DoubleToStr(ADR_pts)); 
-    Print("bid_price: ",bid_price);
-    Print("min_distance_pips: ",DoubleToStr(min_distance_pips));
-    Print("min_distance_pips*point: ",DoubleToStr(min_distance_pips*point));
-    Print("min_distance_pips*point*point_multiplier: ",NormalizeDouble(min_distance_pips*point*point_multiplier,digits));
-    Print("(min_distance_pips*point*point_multiplier)*max_spread_percent: ",DoubleToStr(NormalizeDouble(min_distance_pips*point*point_multiplier*max_spread_percent,digits))); 
-    Print("min_lot: ",min_lot," .01=micro lots, .1=mini lots, 1=standard lots");
-    Print("max_lot: ",max_lot);
-    Print("lot_digits: ",lot_digits," after the decimal point.");
-    Print("lot_step: ",lot_step);    
-    Print("broker digits: ",IntegerToString(digits)," after the decimal point.");
-    Print("current_chart: ",current_chart);
-    return true;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-void print_and_email(string subject,string body,bool exclude_print=false)
-  {
-    if(exclude_print==false) Print(subject,": ",body);
-    if(email_alerts_on) SendMail(subject,subject+": "+body);
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-void print_and_email_margin_info(string instrument,string subject)
-  {
-    string  stopout_level=IntegerToString(AccountStopoutLevel()),
-            account_stopout_level=IntegerToString(AccountStopoutLevel()),
-            account_stopout_mode=IntegerToString(AccountStopoutMode()),
-            account_leverage=IntegerToString(AccountLeverage()),
-            account_margin=DoubleToStr(AccountMargin()),
-            account_equity=DoubleToStr(AccountEquity()),
-            one_lot_initial_margin=DoubleToStr(MarketInfo(instrument,MODE_MARGININIT)),
-            margin_to_maintain_open_orders=DoubleToStr(MarketInfo(instrument,MODE_MARGINMAINTENANCE)),
-            hedged_margin=DoubleToStr(MarketInfo(instrument,MODE_MARGINHEDGED)),
-            free_margin_required=DoubleToStr(MarketInfo(instrument,MODE_MARGINREQUIRED)),
-            freeze_level_pts=DoubleToStr(MarketInfo(instrument,MODE_FREEZELEVEL));
-    /*Print(subject,": stopout_level: ",stopout_level);
-    Print(subject,": one_lot_initial_margin: ",one_lot_initial_margin);
-    Print(subject,": margin_to_maintain_open_orders for 1 lot: ",margin_to_maintain_open_orders);
-    Print(subject,": hedged_margin: ",hedged_margin);
-    Print(subject,": free_margin_required to open 1 lot: ",free_margin_required);
-    Print(subject,": freeze_level_pts: ",freeze_level_pts);*/
-    if(email_alerts_on) 
-      {
-        string email_body=StringConcatenate("stopout_level: ",stopout_level,
-                                            ", account_stopout_level: ",account_stopout_level,
-                                            ", account_stopout_mode: ",account_stopout_mode,
-                                            ", account_leverage: ",account_leverage,
-                                            ", account_margin: ",account_margin,
-                                            ", account_equity: ",account_equity,
-                                            ", one_lot_initial_margin: ",one_lot_initial_margin,
-                                            ", margin_to_maintain_open_orders for 1 lot: ",margin_to_maintain_open_orders,
-                                            ", hedged_margin for 1 lot: ",hedged_margin,
-                                            ", free_margin_required to open 1 lot: ",free_margin_required,
-                                            ", freeze_level_pts: ",freeze_level_pts
-                                           );
-        SendMail(subject,subject+": "+email_body);
-      }  
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-void platform_alert(string subject,string body)
-  {
-    Alert(subject,": ",body);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -584,6 +439,147 @@ void OnTimer()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+bool print_broker_info(string instrument)
+  {
+    /*
+    Print("Symbol=",Symbol()); 
+    Print("Low day price=",MarketInfo(Symbol(),MODE_LOW)); 
+    Print("High day price=",MarketInfo(Symbol(),MODE_HIGH));  
+    Print("Point size in the quote currency=",MarketInfo(Symbol(),MODE_POINT)); 
+    Print("Digits after decimal point=",MarketInfo(Symbol(),MODE_DIGITS)); 
+    Print("Spread value in points=",MarketInfo(Symbol(),MODE_SPREAD)); 
+    Print("Stop level in points=",MarketInfo(Symbol(),MODE_STOPLEVEL)); 
+    Print("Lot size in the base currency=",MarketInfo(Symbol(),MODE_LOTSIZE)); 
+    Print("Tick value in the deposit currency=",MarketInfo(Symbol(),MODE_TICKVALUE)); 
+    Print("Tick size in points=",MarketInfo(Symbol(),MODE_TICKSIZE));  
+    Print("Trade is allowed for the symbol=",MarketInfo(Symbol(),MODE_TRADEALLOWED)); 
+    Print("Minimum permitted amount of a lot=",MarketInfo(Symbol(),MODE_MINLOT)); 
+    Print("Step for changing lots=",MarketInfo(Symbol(),MODE_LOTSTEP)); 
+    Print("Maximum permitted amount of a lot=",MarketInfo(Symbol(),MODE_MAXLOT)); 
+    Print("Swap calculation method=",MarketInfo(Symbol(),MODE_SWAPTYPE)); 
+    Print("Profit calculation mode=",MarketInfo(Symbol(),MODE_PROFITCALCMODE)); 
+    Print("Margin calculation mode=",MarketInfo(Symbol(),MODE_MARGINCALCMODE)); 
+    Print("Initial margin requirements for 1 lot=",MarketInfo(Symbol(),MODE_MARGININIT)); 
+    Print("Margin to maintain open orders calculated for 1 lot=",MarketInfo(Symbol(),MODE_MARGINMAINTENANCE)); 
+    Print("Hedged margin calculated for 1 lot=",MarketInfo(Symbol(),MODE_MARGINHEDGED)); 
+    Print("Free margin required to open 1 lot for buying=",MarketInfo(Symbol(),MODE_MARGINREQUIRED)); 
+    Print("Order freeze level in points=",MarketInfo(Symbol(),MODE_FREEZELEVEL)); 
+    */
+    string   current_bar_open_time=TimeToString(iTime(instrument,PERIOD_M5,0));        
+    datetime current_time=(datetime)MarketInfo(instrument,MODE_TIME);
+    bool     market_open_today=is_market_open_today(instrument,current_time);
+    string   instrument_int=IntegerToString(get_string_integer(StringSubstr(instrument,0,6)));
+    string   expert_name=WindowExpertName();
+    string   tick_value=DoubleToString(MarketInfo(instrument,MODE_TICKVALUE));
+    double   point=MarketInfo(instrument,MODE_POINT);
+    double   spread=MarketInfo(instrument,MODE_SPREAD);
+    string   bid_price=DoubleToString(MarketInfo(instrument,MODE_BID));
+    double   min_distance_pips=MarketInfo(instrument,MODE_STOPLEVEL);
+    string   min_lot=DoubleToString(MarketInfo(instrument,MODE_MINLOT));
+    string   max_lot=DoubleToString(MarketInfo(instrument,MODE_MAXLOT));
+    string   lot_digits=IntegerToString((int) -MathLog10(MarketInfo(instrument,MODE_LOTSTEP)));
+    string   lot_step=IntegerToString((int)(MarketInfo(instrument,MODE_LOTSTEP)));
+    int      digits=(int)MarketInfo(instrument,MODE_DIGITS);
+    bool     trade_allowed=(int)MarketInfo(instrument,MODE_TRADEALLOWED);
+    string   one_lot_initial_margin=DoubleToString(MarketInfo(instrument,MODE_MARGININIT));
+    string   margin_to_maintain_open_orders=DoubleToString(MarketInfo(instrument,MODE_MARGINMAINTENANCE));
+    string   hedged_margin=DoubleToString(MarketInfo(instrument,MODE_MARGINHEDGED));
+    string   free_margin_required=DoubleToString(MarketInfo(instrument,MODE_MARGINREQUIRED));
+    string   freeze_level_pts=DoubleToString(MarketInfo(instrument,MODE_FREEZELEVEL));
+    string   current_chart=Symbol();
+    
+    Print("Account company: ",AccountCompany());
+    Print("Account name: ", AccountName());
+    Print("Account number: ", IntegerToString(AccountNumber()));
+    Print("Account Server Name: ", AccountServer());
+    Print("current time: ",TimeToString(current_time));
+    Print("current bar open time: ",current_bar_open_time);
+    Print("market_open_today: ",market_open_today);
+    Print(StringSubstr(instrument,0,6),"'s string integer: ",instrument_int);
+    Print("expert_name: ",expert_name);
+    Print("trade_allowed: ",trade_allowed);
+    Print("one_lot_initial_margin: ",one_lot_initial_margin);
+    Print("margin_to_maintain_open_orders for 1 lot: ",margin_to_maintain_open_orders);
+    Print("hedged_margin: ",hedged_margin);
+    Print("free_margin_required to open 1 lot: ",free_margin_required);
+    Print("freeze_level_pts: ",freeze_level_pts);
+    Print("tick_value: ",tick_value);
+    Print("Point: ",DoubleToStr(point));
+    Print("spread before the function calls: ",DoubleToStr(spread));
+    Print("spread before the function calls * point: ",DoubleToStr(spread*point));
+    Print("spread before the function calls * point * point_multiplier: ",DoubleToStr(spread*point*point_multiplier));
+    if(broker_is_oanda) Print("Oanda spread before the function calls * point * point_multiplier / spread_divider: ",DoubleToStr(spread*point*point_multiplier/spread_divider));
+    Print("ADR_pts: ",DoubleToStr(ADR_pts)); 
+    Print("bid_price: ",bid_price);
+    Print("min_distance_pips: ",DoubleToStr(min_distance_pips));
+    Print("min_distance_pips*point: ",DoubleToStr(min_distance_pips*point));
+    Print("min_distance_pips*point*point_multiplier: ",NormalizeDouble(min_distance_pips*point*point_multiplier,digits));
+    Print("(min_distance_pips*point*point_multiplier)*max_spread_percent: ",DoubleToStr(NormalizeDouble(min_distance_pips*point*point_multiplier*max_spread_percent,digits))); 
+    Print("min_lot: ",min_lot," .01=micro lots, .1=mini lots, 1=standard lots");
+    Print("max_lot: ",max_lot);
+    Print("lot_digits: ",lot_digits," after the decimal point.");
+    Print("lot_step: ",lot_step);    
+    Print("broker digits: ",IntegerToString(digits)," after the decimal point.");
+    Print("current_chart: ",current_chart);
+    return true;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void print_and_email(string subject,string body,bool exclude_print=false)
+  {
+    if(exclude_print==false) Print(subject,": ",body);
+    if(email_alerts_on) SendMail(subject,subject+": "+body);
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void print_and_email_margin_info(string instrument,string subject)
+  {
+    string  stopout_level=IntegerToString(AccountStopoutLevel()),
+            account_stopout_level=IntegerToString(AccountStopoutLevel()),
+            account_stopout_mode=IntegerToString(AccountStopoutMode()),
+            account_leverage=IntegerToString(AccountLeverage()),
+            account_margin=DoubleToStr(AccountMargin()),
+            account_equity=DoubleToStr(AccountEquity()),
+            one_lot_initial_margin=DoubleToStr(MarketInfo(instrument,MODE_MARGININIT)),
+            margin_to_maintain_open_orders=DoubleToStr(MarketInfo(instrument,MODE_MARGINMAINTENANCE)),
+            hedged_margin=DoubleToStr(MarketInfo(instrument,MODE_MARGINHEDGED)),
+            free_margin_required=DoubleToStr(MarketInfo(instrument,MODE_MARGINREQUIRED)),
+            freeze_level_pts=DoubleToStr(MarketInfo(instrument,MODE_FREEZELEVEL));
+    /*Print(subject,": stopout_level: ",stopout_level);
+    Print(subject,": one_lot_initial_margin: ",one_lot_initial_margin);
+    Print(subject,": margin_to_maintain_open_orders for 1 lot: ",margin_to_maintain_open_orders);
+    Print(subject,": hedged_margin: ",hedged_margin);
+    Print(subject,": free_margin_required to open 1 lot: ",free_margin_required);
+    Print(subject,": freeze_level_pts: ",freeze_level_pts);*/
+    if(email_alerts_on) 
+      {
+        string email_body=StringConcatenate("stopout_level: ",stopout_level,
+                                            ", account_stopout_level: ",account_stopout_level,
+                                            ", account_stopout_mode: ",account_stopout_mode,
+                                            ", account_leverage: ",account_leverage,
+                                            ", account_margin: ",account_margin,
+                                            ", account_equity: ",account_equity,
+                                            ", one_lot_initial_margin: ",one_lot_initial_margin,
+                                            ", margin_to_maintain_open_orders for 1 lot: ",margin_to_maintain_open_orders,
+                                            ", hedged_margin for 1 lot: ",hedged_margin,
+                                            ", free_margin_required to open 1 lot: ",free_margin_required,
+                                            ", freeze_level_pts: ",freeze_level_pts
+                                           );
+        SendMail(subject,subject+": "+email_body);
+      }  
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void platform_alert(string subject,string body)
+  {
+    Alert(subject,": ",body);
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void OnTick()
   {
     static bool safe_to_trade=true;
@@ -610,11 +606,10 @@ void OnTick()
         if(active_trade_expire>0) exit_expired_trades(int(active_trade_expire*3600),expire_negative_trades_sooner,exiting_max_slippage_pips,current_time,magic_num); // This runs every 5 minutes (whether the time is in_time_range or not). It only exits trades that have been on for too long and haven't hit stoploss or takeprofit.   
         if(is_new_H1_bar) 
           {
-            //Print("hourly gmt: ",gmt_hour_offset);
             set_custom_D1_open_time(instrument,0); // Since the gmt_hour_offset was just set, that means that the custom D1 open time can also be different and, also, the next line (is_new_custom_D1_bar) uses the days_open_time variable. So this function needs to be here to assign the updated value to the variable.             
             is_new_custom_D1_bar=is_new_custom_D1_bar(instrument,current_time); // set_gmt_offset needs to be run before is_new_custom_D1_bar because is_new_custom_D1_bar uses the gmt_offset_hour variable
             // set_gmt_offset has to run here because the broker's server time can change very frequently, so this function needs to get called frequently
-            // also because set_gmt_offset can only be run after is_new_D1_bar and is_new_custom_D1_bar is run
+            // ... also because set_gmt_offset can only be run after is_new_D1_bar and is_new_custom_D1_bar is run
             safe_to_trade=boolean_compare(safe_to_trade,set_gmt_offset(instrument,current_time,750));
             //safe_to_trade=boolean_compare(safe_to_trade,is_account_balance_suffucient(NormalizeDouble(fixed_account_balance*.8,2)));
             if(gmt_offset_visible==false && (gmt_hour_offset!=0 /*|| gmt_hour_offset_is_NULL*/)) 
@@ -671,13 +666,6 @@ void OnTick()
         is_new_custom_D1_bar=false;
         is_new_custom_W1_bar=false;
       }
-    /*else 
-      {
-        print_and_email("Error","The OnInit function failed to complete so the algorithm cannot proceed running.");
-        platform_alert("Error","The OnInit function failed to complete so the algorithm cannot proceed running.");
-        Sleep(1000);
-        ExpertRemove();
-      }*/
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -739,7 +727,7 @@ void daily_ready_check(string instrument,datetime current_time,int magic)
         set_gmt_offset(instrument,current_time,1140);
         ADR_pts_raw=get_ADR_pts_raw(instrument,hours_to_roll(),below_ADR_outlier_percent,above_ADR_outlier_percent,num_ADR_months);
         set_ADR_pts(hours_to_roll(),below_ADR_outlier_percent,above_ADR_outlier_percent,change_ADR_percent,instrument,ADR_pts_raw);
-        //average_spread_yesterday=calculate_avg_spread_yesterday(instrument);
+        //average_spread_yesterday=calculate_avg_spread_yesterday(instrument); // TODO: work on the calculate_avg_spread yesterday function and then uncomment this line
         bool is_acceptable_spread=true; // TODO: delete this line after finishing the average_spread_yesterday function
         if(ADR_pts>0 && ADR_pts_raw>0 && magic>0 && is_acceptable_spread==true && days_open_time>0 && gmt_hour_offset_is_NULL==false) // days_open_time is required to have been generated in order to prevent duplicate trades or allow trades to happen
           {
@@ -751,7 +739,6 @@ void daily_ready_check(string instrument,datetime current_time,int magic)
             //ObjectSet(current_chart+"_HOP",OBJPROP_WIDTH,1);
             //ObjectSet(current_chart+"_LOP",OBJPROP_WIDTH,1);
             ready=true; // the ADR and average spread yesterday that has just been calculated won't generate again until after the cycle of not being in the time range completes
-            //Print("INFO: THE ALGORITHM IS READY");
           }
         else
           {
@@ -852,7 +839,7 @@ void retracement_ea_maintenance(string instrument,datetime current_time,double c
                 ObjectSet(current_chart+"_HOP_price",OBJPROP_COLOR,clrBlue);
                 ObjectSet(current_chart+"_HOP_price",OBJPROP_STYLE,STYLE_DOT);
               }
-            /*string name=current_chart+"_last_order_direction";
+            /*string name=current_chart+"_last_order_direction"; // TODO: decide if you want to keep this code (currently, this functionality has been replaced by the Comment function throughout the code
             if(ObjectFind(name)<0)
               {
                 ObjectCreate(name,OBJ_LABEL,0,0,0);
@@ -885,15 +872,6 @@ void retracement_ea_maintenance(string instrument,datetime current_time,double c
                     ObjectDelete(current_chart+"_retrace_LOP_down");
                     //ObjectDelete(current_chart+"_Move_Start");
                   }
-                /*if(ObjectFind(current_chart+"_end_time")<0)
-                    {
-                      ObjectCreate(current_chart+"_end_time",OBJ_VLINE,0,current_time,Bid);
-                      ObjectSet(current_chart+"_end_time",OBJPROP_COLOR,clrWhite);
-                    }
-                else
-                  {
-                    ObjectMove(current_chart+"_end_time",0,current_time,Bid);
-                  }*/
               }
           }
       }
@@ -910,7 +888,7 @@ ENUM_DIRECTION_BIAS retracement_ea_signal(string instrument,int digits,double cu
         set_moves_start_bar(instrument,moves_start_bar_tf,hours_to_roll(),gmt_hour_offset,max_weekend_gap_percent,include_last_week); // this is here so the vertical line can get moved every 5 minutes
         //Print("moves_start_bar=",moves_start_bar);
       }
-    if(option)
+    if(try_alternative_signal_generation)
       {
         /*enter_signal=_signal_MA_better_test(instrument,Bid);
         if(retracement_percent>0)
@@ -1028,21 +1006,49 @@ ENUM_ORDER_TYPE general_filters(string instrument,int digits,ENUM_DIRECTION_BIAS
       {
         enter_signal=signal_is_pivot_extreme_of_period(instrument,enter_signal,12);
       }*/
-    int seconds_span;
+    int x_seconds;
+    int y_seconds;
     if(!include_previous_day) 
       {
-        if(x_hours>0) seconds_span=MathMin(int(current_time-days_open_time),int(x_hours*3600)); // ensure that the seconds span never spans to the previous day while also taking x_hours into account
-        else seconds_span=int(current_time-days_open_time);
+        if(x_hours>0) 
+          x_seconds=MathMin(int(current_time-days_open_time),int(x_hours*3600)); // ensure that the seconds span never spans to the previous day while also taking x_hours into account
+        else 
+          x_seconds=int(current_time-days_open_time);
+        if(y_hours>0) 
+          y_seconds=MathMin(int(current_time-days_open_time),int(y_hours*3600)); // ensure that the seconds span never spans to the previous day while also taking x_hours into account
+        else 
+          y_seconds=int(current_time-days_open_time);
       }
     else 
       {
-        if(x_hours>0) seconds_span=int(x_hours*3600);
-        else seconds_span=86400; // Default to the past 24 hours. (There are 86400 seconds in a day.)
+        if(x_hours>0) 
+          x_seconds=int(x_hours*3600);
+        else 
+          x_seconds=86400; // Default to the past 24 hours. (There are 86400 seconds in a day.)
+        if(y_hours>0)
+          y_seconds=int(y_hours*3600);
+        else 
+          y_seconds=86400; // Default to the past 24 hours. (There are 86400 seconds in a day.)
       }
+    if(enter_signal>0 && max_any_trades_in_y_hours>0)
+      {
+        int market_trades_in_y_hours=count_orders(ORDER_SET_MARKET,magic,MODE_HISTORY,OrdersHistoryTotal()-1,y_seconds,current_time);
+        if(market_trades_in_y_hours==max_any_trades_in_y_hours) 
+          enter_signal=DIRECTION_BIAS_NEUTRALIZE;
+      }
+    int current_long_count=count_orders(ORDER_SET_BUY,magic,MODE_TRADES,OrdersTotal()-1); 
+    int current_short_count=count_orders(ORDER_SET_SELL,magic,MODE_TRADES,OrdersTotal()-1);
     if(reverse_trade_direction==true)
       {
         if(enter_signal==DIRECTION_BIAS_BUY) enter_signal=DIRECTION_BIAS_SELL;
         else if(enter_signal==DIRECTION_BIAS_SELL) enter_signal=DIRECTION_BIAS_BUY;
+      }
+    if(!hedging_allowed)
+      {
+        if(enter_signal==DIRECTION_BIAS_BUY && current_short_count>0) 
+          enter_signal=DIRECTION_BIAS_NEUTRALIZE;
+        else if(enter_signal==DIRECTION_BIAS_SELL && current_long_count>0) 
+          enter_signal=DIRECTION_BIAS_NEUTRALIZE;
       }
     // these if ane else if blocks will start to specifically analyze the buy or sell signals from the above filters
     if(enter_signal==DIRECTION_BIAS_BUY && long_allowed)
@@ -1052,14 +1058,9 @@ ENUM_ORDER_TYPE general_filters(string instrument,int digits,ENUM_DIRECTION_BIAS
                                                    magic,
                                                    MODE_HISTORY,
                                                    OrdersHistoryTotal()-1,
-                                                   seconds_span,
+                                                   x_seconds,
                                                    current_time);
-        int current_long_count=count_orders       (ORDER_SET_BUY, 
-                                                   magic,
-                                                   MODE_TRADES,
-                                                   OrdersTotal()-1);
-        //Print(longs_opened_today);
-        //Print(current_long_count);         
+       
         if(current_long_count<max_directional_trades_at_once &&
           current_long_count+long_trades_closed_today<max_directional_trades_in_x_hours)
           {
@@ -1092,12 +1093,9 @@ ENUM_ORDER_TYPE general_filters(string instrument,int digits,ENUM_DIRECTION_BIAS
                                                    magic,
                                                    MODE_HISTORY,
                                                    OrdersHistoryTotal()-1,
-                                                   seconds_span,
+                                                   x_seconds,
                                                    current_time);
-        int current_short_count=count_orders      (ORDER_SET_SELL,
-                                                   magic,
-                                                   MODE_TRADES,
-                                                   OrdersTotal()-1);
+
         if(current_short_count<max_directional_trades_at_once &&
           current_short_count+short_trades_closed_today<max_directional_trades_in_x_hours)
           {
@@ -1128,7 +1126,7 @@ ENUM_ORDER_TYPE general_filters(string instrument,int digits,ENUM_DIRECTION_BIAS
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool is_previous_D1_bar_correct_length(string instrument,datetime current_time)
+bool is_previous_D1_bar_correct_duration(string instrument,datetime current_time)
   {
     int current_day=TimeDayOfWeek(current_time);
     if(current_day<=1)
@@ -1140,8 +1138,6 @@ bool is_previous_D1_bar_correct_length(string instrument,datetime current_time)
         datetime current_day_time=iTime(instrument,PERIOD_D1,0);
         datetime previous_day_time=iTime(instrument,PERIOD_D1,1);
         int previous_day=TimeDayOfWeek(previous_day_time);
-        //Print("day of week: ",TimeDayOfWeek(current_day)," current_day: ",TimeToStr(current_day_time));
-        //Print("day of week: ",TimeDayOfWeek(previous_day)," previous_day: ",TimeToStr(previous_day_time));
         double hours_yesterday=double((current_day_time-previous_day_time)/3600); // keep it as a double not an int
         if(MathMod(hours_yesterday,24)!=0 || hours_yesterday>48) print_and_email("Warning","hours_yesterday: "+DoubleToString(hours_yesterday)); // the reason I am using MathMod is because sometimes brokers don't provide data or trading on holiday so, if the calculation is two days (24+24)=48 then that is okay
         if(current_day-previous_day==1 && hours_yesterday==24) return true;
@@ -1189,8 +1185,6 @@ bool a_trade_closed_since_last_checked(int magic)
     static int last_trade_count=-1;
     if(last_trade_count==-1) last_trade_count=count_orders(ORDER_SET_MARKET,magic,MODE_TRADES,OrdersTotal()-1);
     int current_trade_count=count_orders(ORDER_SET_MARKET,magic,MODE_TRADES,OrdersTotal()-1);
-    //Print("last_trades_count==",last_trade_count);
-    //Print("current_trade_count==",current_trade_count);
     if(current_trade_count==last_trade_count-1) 
       {
         last_trade_count=current_trade_count;
@@ -1253,237 +1247,33 @@ bool set_spread_divider()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double get_primary_ma_price(string instrument)
-  {
-    return iMA(instrument,moves_start_bar_tf,moving_avg_period,0,MODE_SMA,PRICE_MEDIAN,0);
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-ENUM_DIRECTION_BIAS signal_ma_trend(string instrument,ENUM_DIRECTION_BIAS bias,int _moving_avg_period,int _since_hours_ago,double _ma_diff_multiplier,ENUM_TIMEFRAMES timeframe,int shift)
-  {
-    if(bias<=0) 
-      return bias;
-    if(shift<=0) 
-      bias=DIRECTION_BIAS_NEUTRALIZE;
-    else
-      {
-        int    digits=(int)MarketInfo(instrument,MODE_DIGITS);
-        double older_ma_price=iMA(instrument,timeframe,_moving_avg_period,0,MODE_SMA,PRICE_MEDIAN,_since_hours_ago*12*shift),
-               newer_ma_price=iMA(instrument,timeframe,_moving_avg_period,0,MODE_SMA,PRICE_MEDIAN,_since_hours_ago*12*(shift-1)),
-               difference=MathAbs(older_ma_price-newer_ma_price);
-        if(compare_doubles(difference,ADR_pts_raw*_ma_diff_multiplier,digits)==-1) 
-          bias=DIRECTION_BIAS_NEUTRALIZE;
-        else if(bias==DIRECTION_BIAS_BUY && older_ma_price>newer_ma_price) 
-          bias=DIRECTION_BIAS_BUY;
-        else if(bias==DIRECTION_BIAS_SELL && older_ma_price<newer_ma_price) 
-          bias=DIRECTION_BIAS_SELL;
-        else 
-          bias=DIRECTION_BIAS_NEUTRALIZE;
-      }
-    return bias;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-ENUM_DIRECTION_BIAS signal_ma_multi_period_trend(string instrument,ENUM_DIRECTION_BIAS bias,int _moving_avg_period,int _since_hours_ago,double _ma_diff_multiplier,int _past_x_periods_same_trend,ENUM_TIMEFRAMES timeframe)
-  {
-    if(bias<=0) 
-      return bias;
-    if(_past_x_periods_same_trend<=0) 
-      bias=DIRECTION_BIAS_NEUTRALIZE;
-    else
-      {
-        for(int i=1;i<=_past_x_periods_same_trend;i++)
-          if(bias>0) bias=signal_ma_trend(instrument,bias,_moving_avg_period,_since_hours_ago,_ma_diff_multiplier,timeframe,i);
-      }
-    return bias;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-ENUM_DIRECTION_BIAS signal_MA_better_2(string instrument,double current_bid) 
-  {
-    ENUM_DIRECTION_BIAS bias=DIRECTION_BIAS_NEUTRALIZE;
-    if(moving_avg_period<=0)
-        bias=DIRECTION_BIAS_IGNORE;
-    else
-      {
-        double ma_price=get_primary_ma_price(instrument);
-        /*if(LOP_price<ma_price && HOP_price>ma_price) 
-          {
-            bias=DIRECTION_BIAS_NEUTRALIZE;
-          }
-        else 
-          {*/
-            if(uptrend && LOP_price<ma_price /*&& HOP_price<ma_price*/) // current_bid>ma_price && uptrend && LOP_price>ma_price
-              { 
-                //price_below_ma=true;
-                //price_above_ma=false;
-                //double point=MarketInfo(instrument,MODE_POINT);
-                //double distance_pts=ma_price-HOP_price;
-                //if(distance_pts>ma_range_pts*point*point_multiplier) bias=DIRECTION_BIAS_IGNORE;
-                //else bias=DIRECTION_BIAS_NEUTRALIZE;
-
-                bias=DIRECTION_BIAS_IGNORE;
-              }
-            else if(downtrend && HOP_price>ma_price /*&& LOP_price>ma_price*/)
-              {
-                //price_below_ma=false;
-                //price_above_ma=true;
-                //double point=MarketInfo(instrument,MODE_POINT);
-                //double distance_pts=LOP_price-ma_price;
-                //if(distance_pts>ma_range_pts*point*point_multiplier) bias=DIRECTION_BIAS_IGNORE;
-                //else bias=DIRECTION_BIAS_NEUTRALIZE;
-
-                bias=DIRECTION_BIAS_IGNORE;          
-              }
-            else bias=DIRECTION_BIAS_NEUTRALIZE;
-
-          //}
-      }
-    return bias;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-ENUM_DIRECTION_BIAS signal_MA_better(string instrument,double current_bid) 
-  {
-    ENUM_DIRECTION_BIAS bias=DIRECTION_BIAS_NEUTRALIZE;
-    if(moving_avg_period<=0)
-        bias=DIRECTION_BIAS_IGNORE;
-    else
-      {
-        double ma_price=get_primary_ma_price(instrument);
-        if(LOP_price<ma_price && HOP_price>ma_price) 
-          {
-            bias=DIRECTION_BIAS_NEUTRALIZE;
-          }
-        else
-          {
-            if(uptrend && HOP_price<ma_price) // current_bid>ma_price && uptrend && LOP_price>ma_price
-              { 
-                //price_below_ma=true;
-                //price_above_ma=false;
-                double point=MarketInfo(instrument,MODE_POINT);
-                double distance_pts=ma_price-HOP_price;
-                if(distance_pts>ma_range_pts*point*point_multiplier) 
-                  bias=DIRECTION_BIAS_IGNORE;
-                else 
-                  bias=DIRECTION_BIAS_NEUTRALIZE;
-
-                bias=DIRECTION_BIAS_IGNORE;
-              }
-            else if(downtrend && LOP_price>ma_price)
-              {
-                //price_below_ma=false;
-                //price_above_ma=true;
-                double point=MarketInfo(instrument,MODE_POINT);
-                double distance_pts=LOP_price-ma_price;
-                if(distance_pts>ma_range_pts*point*point_multiplier) 
-                  bias=DIRECTION_BIAS_IGNORE;
-                else 
-                  bias=DIRECTION_BIAS_NEUTRALIZE;
-                bias=DIRECTION_BIAS_IGNORE;          
-              }
-            else bias=DIRECTION_BIAS_NEUTRALIZE;
-
-          }
-      }
-    return bias;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-/*ENUM_DIRECTION_BIAS _signal_MA_better_test_3(string instrument,double current_bid) 
-  {
-    ENUM_DIRECTION_BIAS bias=DIRECTION_BIAS_NEUTRALIZE;
-    if(moving_avg_period<=0)
-        bias=DIRECTION_BIAS_IGNORE;
-    else
-      {
-        double ma_price=get_primary_ma_price(instrument);
-        if(LOP_price<ma_price && HOP_price>ma_price) 
-          {
-            bias=DIRECTION_BIAS_NEUTRALIZE;
-          }
-        else
-          {
-            if(current_bid<ma_price) // current_bid>ma_price && uptrend && LOP_price>ma_price
-              { 
-                //price_below_ma=true;
-                //price_above_ma=false;
-                double point=MarketInfo(instrument,MODE_POINT);
-                double distance_pts=ma_price-current_bid;
-                if(distance_pts>ma_range_pts*point*point_multiplier) bias=DIRECTION_BIAS_BUY;
-                else bias=DIRECTION_BIAS_NEUTRALIZE;
-                
-             }
-            else if(current_bid>ma_price)
-              {
-                //price_below_ma=false;
-                //price_above_ma=true;
-                double point=MarketInfo(instrument,MODE_POINT);
-                double distance_pts=current_bid-ma_price;
-                if(distance_pts>ma_range_pts*point*point_multiplier) bias=DIRECTION_BIAS_SELL;
-                else bias=DIRECTION_BIAS_NEUTRALIZE;
-                
-              }
-            else bias=DIRECTION_BIAS_NEUTRALIZE;
-          }
-      }
-    return bias;
-  }*/
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-/*ENUM_DIRECTION_BIAS signal_MA_worse(string instrument,ENUM_TIMEFRAMES timeframe) 
-  {
-    ENUM_DIRECTION_BIAS bias=DIRECTION_BIAS_NEUTRALIZE;
-    if(moving_avg_period<=0 || ma_multiplier<=0)
-      {
-        bias=DIRECTION_BIAS_IGNORE;
-      }      
-    else
-      {
-        double ma2_price=iMA(instrument,timeframe,600,0,MODE_SMA,PRICE_MEDIAN,0);
-        if(LOP_price<ma2_price && HOP_price>ma2_price) // First check if the lower quality setup with reduced risk is valid.
-          {
-            // _EJ_1.26pf_10.5dd_432t    tick data,      ADR_pts=65, moving_avg_period=600
-            bias=DIRECTION_BIAS_IGNORE;
-            //Print("a worse trade should happen");
-          }
-      }
-    return bias;  
-  }*/
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
 double get_previous_days_bar_info(string instrument,ENUM_BAR_POINTS bar_point,ENUM_PRICE_OR_TIME price_or_time)
   {
     static double   high_price,low_price,open_price,close_price;
     static datetime high_time,low_time,open_time,close_time;
     static datetime last_date_checked=-1;
     datetime        date=round_down_to_hours(iTime(instrument,PERIOD_D1,0));
-    int             previous_day=TimeDayOfWeek(iTime(instrument,PERIOD_D1,1));
     double          value=-1;
+    int             previous_day=TimeDayOfWeek(iTime(instrument,PERIOD_D1,1));
     int             bar=1;
-    if(previous_day==0) bar=2;
+    if(previous_day==SUNDAY) bar=2;
     if(date!=last_date_checked && (TimeHour(date)==0 && TimeMinute(TimeCurrent())<10))
       {
-        //high_price=iHigh(instrument,PERIOD_D1,bar);
+        // high
         int high_bar=iHighest(instrument,PERIOD_M5,MODE_HIGH,24*12,bar);
         high_price=iHigh(instrument,PERIOD_M5,high_bar);
         high_time=iTime(instrument,PERIOD_M5,high_bar);
 
-        //low_price=iLow(instrument,PERIOD_D1,bar);
+        // low
         int low_bar=iLowest(instrument,PERIOD_M5,MODE_LOW,24*12,bar);
         low_price=iLowest(instrument,PERIOD_M5,low_bar);
         low_time=iTime(instrument,PERIOD_M5,low_bar);
 
+        // open
         open_price=iOpen(instrument,PERIOD_D1,1);
         open_time=round_down_to_hours(iTime(instrument,PERIOD_D1,bar));
 
+        // close
         close_price=iClose(instrument,PERIOD_D1,1);
         close_time=open_time+(3600*24)-1;
 
@@ -1491,10 +1281,6 @@ double get_previous_days_bar_info(string instrument,ENUM_BAR_POINTS bar_point,EN
       }
     switch(bar_point)
       {
-        case myOPEN:
-          if(price_or_time==myTIME) value=(double)open_time;   
-          else if(price_or_time==myPRICE) value=open_price;
-          break;
         case myHIGH:
           if(price_or_time==myTIME) value=(double)high_time;   
           else if(price_or_time==myPRICE) value=high_price;
@@ -1502,6 +1288,10 @@ double get_previous_days_bar_info(string instrument,ENUM_BAR_POINTS bar_point,EN
         case myLOW:
           if(price_or_time==myTIME) value=(double)low_time;   
           else if(price_or_time==myPRICE) value=low_price;
+          break;
+        case myOPEN:
+          if(price_or_time==myTIME) value=(double)open_time;   
+          else if(price_or_time==myPRICE) value=open_price;
           break;
         case myCLOSE:
           if(price_or_time==myTIME) value=(double)close_time;   
@@ -1514,14 +1304,14 @@ double get_previous_days_bar_info(string instrument,ENUM_BAR_POINTS bar_point,EN
 //+------------------------------------------------------------------+
 void get_previous_days_bar_info_testing(string instrument)
   {
-    double open_price=get_previous_days_bar_info(instrument,myOPEN,myPRICE);
-    datetime open_time=(datetime)get_previous_days_bar_info(instrument,myOPEN,myTIME);
-    double close_price=get_previous_days_bar_info(instrument,myCLOSE,myPRICE);
-    datetime close_time=(datetime)get_previous_days_bar_info(instrument,myCLOSE,myTIME);
-    double high_price=get_previous_days_bar_info(instrument,myHIGH,myPRICE);
-    datetime high_time=(datetime)get_previous_days_bar_info(instrument,myHIGH,myTIME);
-    double low_price=get_previous_days_bar_info(instrument,myLOW,myPRICE);
-    datetime low_time=(datetime)get_previous_days_bar_info(instrument,myLOW,myTIME);
+    double    open_price=get_previous_days_bar_info(instrument,myOPEN,myPRICE);
+    datetime  open_time=(datetime)get_previous_days_bar_info(instrument,myOPEN,myTIME);
+    double    close_price=get_previous_days_bar_info(instrument,myCLOSE,myPRICE);
+    datetime  close_time=(datetime)get_previous_days_bar_info(instrument,myCLOSE,myTIME);
+    double    high_price=get_previous_days_bar_info(instrument,myHIGH,myPRICE);
+    datetime  high_time=(datetime)get_previous_days_bar_info(instrument,myHIGH,myTIME);
+    double    low_price=get_previous_days_bar_info(instrument,myLOW,myPRICE);
+    datetime  low_time=(datetime)get_previous_days_bar_info(instrument,myLOW,myTIME);
     Print("open_price: ",DoubleToStr(open_price));
     Print("open_time: ",TimeToStr(open_time));
     Print("close_price: ",DoubleToStr(close_price));
@@ -1544,9 +1334,7 @@ ENUM_DIRECTION_BIAS signal_counter_trend_trade(string instrument,ENUM_DIRECTION_
         if(compare_doubles(high_price-low_price,ADR_pts_raw/4,digits)>=0)
           {
             double open_price=get_previous_days_bar_info(instrument,myOPEN,myPRICE);
-            //datetime open_time=get_previous_days_bar_info(instrument,myOPEN,myTIME);
             double close_price=get_previous_days_bar_info(instrument,myCLOSE,myPRICE);
-            //datetime close_time=(datetime)get_previous_days_bar_info(instrument,myCLOSE,myTIME);
             datetime high_time=(datetime)get_previous_days_bar_info(instrument,myHIGH,myTIME);
             datetime low_time=(datetime)get_previous_days_bar_info(instrument,myLOW,myTIME);
             if(bias==DIRECTION_BIAS_BUY)
@@ -1596,12 +1384,11 @@ bool is_over_extended_trend(string instrument,int days_to_check,ENUM_TREND trend
     static int      new_days_to_check=0;
     static datetime last_date_checked=-1;
     datetime        date=round_down_to_days(iTime(instrument,PERIOD_D1,0));
-    int             digits=(int)MarketInfo(instrument,MODE_DIGITS);
-    //double        bid_price=MarketInfo(instrument,MODE_BID);
     bool            over_extended=false; // keep as false
-    int             uptrend_count=0, downtrend_count=0;
-    int             sat_sun_count=0;
-    int             lower_index=(int)dont_analyze_today;
+    int             digits=(int)MarketInfo(instrument,MODE_DIGITS),
+                    uptrend_count=0, downtrend_count=0,
+                    sat_sun_count=0,
+                    lower_index=(int)dont_analyze_today;
     if(date!=last_date_checked) // get the new value of the static sunday_count the first time it is run or if it is a new day
       {
         new_days_to_check=0;
@@ -1701,67 +1488,6 @@ bool is_over_extended_trend(string instrument,int days_to_check,ENUM_TREND trend
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-/*bool past_x_D1_bars_down_2(string instrument,int x_bars)
-  {
-    int count=0;
-    bool two_day_weekend=false;
-    for(int i=1;i<=x_bars;i++)
-      {
-        int new_i=i;
-        int day=TimeDayOfWeek(iTime(instrument,PERIOD_D1,i));
-        int day_before=TimeDayOfWeek(iTime(instrument,PERIOD_D1,i+1));
-        if((day==0 && day_before==6) || two_day_weekend)
-          {
-            two_day_weekend=true;
-            new_i++;
-          }
-        if(day==0 || day==6)
-          {
-            new_i++;
-          } 
-        if(iOpen(instrument,PERIOD_D1,new_i)>iClose(instrument,PERIOD_D1,new_i))
-          {
-            count++;
-          }
-      }
-    if(count==x_bars) return true;
-    return false;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-bool past_x_D1_bars_down(string instrument,int x_bars)
-  {
-    int count=0;
-    for(int i=1;i<=x_bars;i++)
-      {
-        if(iOpen(instrument,PERIOD_D1,i)<iClose(instrument,PERIOD_D1,i))
-          {
-            count++;
-          }
-      }
-    if(count==x_bars) return true;
-    return false;
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-bool past_x_D1_bars_up(string instrument,int x_bars)
-  {
-    int count=0;
-    for(int i=1;i<=x_bars;i++)
-      {
-        if(iOpen(instrument,PERIOD_D1,i)<iClose(instrument,PERIOD_D1,i))
-          {
-            count++;
-          }
-      }
-    if(count==x_bars) return true;
-    return false;
-  }*/
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
 ENUM_DIRECTION_BIAS signal_ADR_triggered(string instrument,string _previous_candle_triggers_trade)
   {
     ENUM_DIRECTION_BIAS signal=DIRECTION_BIAS_NEUTRALIZE;
@@ -1769,7 +1495,7 @@ ENUM_DIRECTION_BIAS signal_ADR_triggered(string instrument,string _previous_cand
         signal=signal_previous_bar_triggered(instrument,PERIOD_M5,ADR_pts,ADR_pts/5);
     else
       {*/
-        if(/*uptrend_order_was_last==false || retracement_percent==0*/ uptrend==false)
+        if(uptrend==false)
           {
             //if(is_new_M5_bar) Print("uptrend_ADR_threshold_met_price is running");
             RefreshRates();
@@ -1780,7 +1506,7 @@ ENUM_DIRECTION_BIAS signal_ADR_triggered(string instrument,string _previous_cand
           }
         // for a buying signal, take the level that adr was triggered and subtract the pullback_pips to get the pullback_entry_price
         // if the pullback_entry_price is met or exceeded, signal = TRADE_SIGNAL_BUY
-        if(/*downtrend_order_was_last==false || retracement_percent==0*/ downtrend==false)
+        if(downtrend==false)
           {
             //if(is_new_M5_bar) Print("downtrend_ADR_threshold_met_price is running");
             RefreshRates();
@@ -1947,87 +1673,14 @@ ENUM_DIRECTION_BIAS signal_is_railroad_track_bar(string instrument,ENUM_TIMEFRAM
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
-//+------------------------------------------------------------------+  
-/*ENUM_DIRECTION_BIAS _signal_ADR_triggered_test(string instrument)
-  {
-    ENUM_DIRECTION_BIAS signal=DIRECTION_BIAS_NEUTRALIZE;
-    if((price_below_ma && uptrend_order_was_last==false) || retracement_percent==0)
-      {
-        RefreshRates();
-        if(uptrend_ADR_threshold_met_price(instrument,false)==true)
-          {
-            return signal=DIRECTION_BIAS_BUY; // FYI, when using the signal_retracement_pullback_after_ADR_triggered for signals, this return value has absolutely no affect.
-          }
-      }
-    else if((price_above_ma && downtrend_order_was_last==false) || retracement_percent==0)
-      {
-        //if(is_new_M5_bar) Print("downtrend_ADR_threshold_met_price is running");
-        RefreshRates();
-        if(downtrend_ADR_threshold_met_price(instrument,false)==true) 
-          {
-            return signal=DIRECTION_BIAS_SELL; // FYI, when using the signal_retracement_pullback_after_ADR_triggered for signals, this return value has absolutely no affect.
-          }
-      }
-    return signal;
-   }*/
-//+------------------------------------------------------------------+
-//|                                                                  |
 //+------------------------------------------------------------------+
 ENUM_DIRECTION_BIAS signal_retracement_after_ADR_triggered(string instrument)
   {
     ENUM_DIRECTION_BIAS signal=DIRECTION_BIAS_NEUTRALIZE;
     if(uptrend_retracement_met_price(instrument)==true) signal=DIRECTION_BIAS_BUY;
-    //if(signal==DIRECTION_BIAS_BUY) Print("buy signal");
     if(downtrend_retracement_met_price(instrument)==true) signal=DIRECTION_BIAS_SELL;
-    //Print("signal_retracement_pullback_after_ADR_triggered returned: ",signal);
     return signal;
   }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-// Checks for the entry of orders
-/*ENUM_DIRECTION_BIAS signal_entry(string instrument,ENUM_SIGNAL_SET signal_set) // gets called for every tick
-  {
-    ENUM_DIRECTION_BIAS signal=DIRECTION_BIAS_NEUTRALIZE;
-    Add 1 or more entry signals below. 
-    With more than 1 signal, you would follow this code using the signal_compare function. 
-    "signal=signal_compare(signal,signal_pullback_after_ADR_triggered());"
-    As each signal is compared with the previous signal, the signal variable will change and then the final signal wil get returned.
-    
-    if(signal_set==SIGNAL_SET_1)
-      {
-        signal=signal_bias_compare(signal,signal_MA(instrument),false);
-        return signal;
-      }
-    if(signal_set==SIGNAL_SET_2)
-      {
-        return signal;
-      }
-    else return DIRECTION_BIAS_NEUTRALIZE;
-  }*/
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-// Checks for the exit of orders
-/*int signal_exit(string instrument,ENUM_SIGNAL_SET signal_set)
-  {
-    int signal=DIRECTION_BIAS_NEUTRALIZE;
-     Add 1 or more entry signals below. 
-    With more than 1 signal, you would follow this code using the signal_compare function. 
-    "signal=signal_compare(signal,signal_pullback_after_ADR_triggered());"
-    As each signal is compared with the previous signal, the signal variable will change and then the final signal wil get returned.
-    
-    // The 3rd argument of the signal_compare function should explicitely be set to "true" every time.
-    if(signal_set==SIGNAL_SET_1)
-      {
-        return signal;
-      }
-    if(signal_set==SIGNAL_SET_2)
-      {
-        return signal;
-      }
-    else return signal;
-  }*/
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -2083,24 +1736,12 @@ int compare_doubles(double var1,double var2,int precision) // For the precision 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-// Neutralizes situations where there is a conflict between the entry and exit signal.
-// TODO: This function is not yet being called. Since the entry and exit signals are passed by reference, these paremeters would need to be prepared in advance and stored in variables prior to calling the function.
-/*void signal_manage(ENUM_DIRECTION_BIAS &entry,ENUM_DIRECTION_BIAS &exit)
-  {
-    if(exit==DIRECTION_BIAS_VOID)                                  entry=DIRECTION_BIAS_NEUTRALIZE;
-    if(exit==DIRECTION_BIAS_BUY && entry==DIRECTION_BIAS_SELL)     entry=DIRECTION_BIAS_NEUTRALIZE;
-    if(exit==DIRECTION_BIAS_SELL && entry==DIRECTION_BIAS_BUY)     entry=DIRECTION_BIAS_NEUTRALIZE;
-  }*/
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
 int get_string_integer(string string1)
   {
     int i, combined_letter_int=0, letter_int=0;
     for(i=0; i<StringLen(string1); i++)
       {
         letter_int=StringGetChar(string1,i);
-        //Print(combined_letter_int,"+",letter_int);
         combined_letter_int=(combined_letter_int<<5)+combined_letter_int+letter_int; // << Bitwise Left shift operator shifts all bits towards left by certain number of specified bits.
       }
     return combined_letter_int;
@@ -2118,11 +1759,9 @@ int set_magic_num(string instrument, ENUM_SIGNAL_SET)
 //+------------------------------------------------------------------+
 bool is_market_open_today(string instrument,datetime current_time)
   {
-    //int digits=(int)MarketInfo(instrument,MODE_DIGITS);
     bool market_open_today;
     market_open_today=iOpen(instrument,PERIOD_D1,0)>0 && iOpen(instrument,PERIOD_D1,0)!=NULL;
     market_open_today=boolean_compare(market_open_today,MarketInfo(instrument,MODE_TRADEALLOWED));
-    //Print("market_open_today: ",market_open_today);
     return market_open_today;
   }
 //+------------------------------------------------------------------+
@@ -2370,7 +2009,6 @@ bool set_gmt_offset(string instrument,datetime current_time,int coming_from) // 
               }
             else if(gmt_offset_required==false)
               {
-                //Print("gmt_offset_required: ",gmt_offset_required);
                 if(gmt_offset_visible==true) 
                   {
                     int current_gmt_offset=gmt_hour_offset;
@@ -2462,14 +2100,12 @@ bool is_new_M5_bar(string instrument,bool wait_for_next_bar=false)
       {
         M5_bar_time=M5_current_bar_open_time; // assuring the true value only gets returned for 1 tick and not the very next ones
         M5_open_price=M5_current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
-        //Print("new M5 2");
         return true;
       }
     else if(TimeCurrent()-M5_bar_time>300) // sometimes a new bar is not recognized, so this will make sure it is
       {
         M5_bar_time=M5_current_bar_open_time;
         M5_open_price=M5_current_bar_open_price;
-        //Print("NEW M5 3");
         return true; 
       }  
     else return false;
@@ -2498,7 +2134,6 @@ bool is_new_H1_bar(string instrument,bool wait_for_next_bar) // This may not res
       }
     else if(H1_current_bar_open_time>H1_bar_time && compare_doubles(H1_open_price,H1_current_bar_open_price,digits)!=0) // if the opening time and price of this bar is different than the opening time and price of the previous one
       {
-        //if(H1_current_bar_open_time-H1_bar_time>3900 && DayOfWeek()!=0) Print("THE PREVIOUS H1 BAR WAS NOT DETECTED 1");
         H1_bar_time=H1_current_bar_open_time; // assuring the true value only gets returned for 1 tick and not the very next ones
         hours_open_time=H1_current_bar_open_time;
         H1_open_price=H1_current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
@@ -2507,7 +2142,6 @@ bool is_new_H1_bar(string instrument,bool wait_for_next_bar) // This may not res
       }
     else if(TimeCurrent()-H1_bar_time>3600) // sometimes a new bar is not recognized, so this will make sure it is
       {
-        //if(TimeCurrent()-H1_bar_time>3900 && DayOfWeek()!=0) Print("THE PREVIOUS H1 BAR WAS NOT DETECTED 2");
         H1_bar_time=H1_current_bar_open_time;
         H1_open_price=H1_current_bar_open_price;
         //if(print_time_info) Print("NEW HOUR (3)");
@@ -2657,7 +2291,6 @@ bool is_new_custom_W1_bar(string instrument,bool wait_for_next_bar) // this func
       }  
     if(W1_bar_time<=0) // If it is the first time the function is called or it is the start of a new bar. This could be after the open time (aka in the middle) of a bar.
       {
-        //Print("first part");
         W1_bar_time=W1_current_bar_open_time;
         W1_open_price=W1_current_bar_open_price;
         set_custom_W1_times(instrument,include_last_week,hours_to_roll(),gmt_hour_offset); // this will get a value for the weeks_open_time global variable 
@@ -2676,29 +2309,20 @@ bool is_new_custom_W1_bar(string instrument,bool wait_for_next_bar) // this func
     // TODO: work on the commented out code below
     /*else if(gmt_hour_offset<0 && DayOfWeek()==0) // if the opening time and price of this bar is different than the opening time and price of the previous one
       {
-        //Print("second part");
         W1_bar_time=W1_current_bar_open_time; // assuring the true value only gets returned for 1 tick and not the very next ones
         W1_open_price=W1_current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
         weeks_open_time=-1;
         last_weeks_end_time=-1; // for when the user has the include_last_week parameter set to true
         set_custom_W1_times(instrument,include_last_week,hours_to_roll(),gmt_hour_offset); // this will get a value for the weeks_open_time global variable
-
-        Print("new week 3");
         return true; // TODO: test that this returns true only once a week
       }*/
     else if(/*gmt_hour_offset==0 &&*/ W1_current_bar_open_time>W1_bar_time && compare_doubles(W1_open_price,W1_current_bar_open_price,digits)!=0) // if the opening time and price of this bar is different than the opening time and price of the previous one
       {
-        //Print("second part");
         W1_bar_time=W1_current_bar_open_time; // assuring the true value only gets returned for 1 tick and not the very next ones
         W1_open_price=W1_current_bar_open_price; // assuring the true value only gets returned for 1 tick and not the very next ones
         weeks_open_time=-1;
         last_weeks_end_time=-1; // for when the user has the include_last_week parameter set to true
         set_custom_W1_times(instrument,include_last_week,hours_to_roll(),gmt_hour_offset); // this will get a value for the weeks_open_time global variable
-        //Print("new week 4");
-        //Print(TimeDay(days_open_time));
-        //Print(TimeDay(weeks_open_time));
-        //Print(TimeHour(days_open_time));
-        //Print(TimeHour(weeks_open_time));
         if(TimeDay(days_open_time)==TimeDay(weeks_open_time) && TimeHour(days_open_time)==TimeHour(weeks_open_time)) // using the TimeDay function to ensure that the day of the months are only compared (because, sometimes, the minutes might be slightly off)
           {
             if(print_time_info) Print("new custom week (3)");
@@ -2959,8 +2583,6 @@ double ADR_pts_raw_calculation(string instrument,double low_outlier,double high_
           }
       }
     adr_pts=NormalizeDouble(x_mnth_non_sunday_ADR_sum/x_mnth_non_sunday_count,digits);
-    //Print("ADR_calculation returned: ",DoubleToStr(adr_pts,digits));
-    //Print("ADR_calculation adr_pts: ",DoubleToStr(adr_pts));
     return adr_pts;
   }
 //+------------------------------------------------------------------+
@@ -2980,14 +2602,11 @@ double get_ADR_pts_raw(string instrument,double hours_to_roll,double low_outlier
           }
         else
           {
-            //Print("get_raw_ADR_pts: ADR_calculation will be run");
             double calculated_adr_pts=ADR_pts_raw_calculation(instrument,low_outlier,high_outlier,_num_ADR_months);
             _adr_pts=calculated_adr_pts; // make the function remember the calculation the next time it is called
-            //Print("get_raw_ADR_pts 1 returns:",DoubleToStr(_adr_pts));
             date_last_modified=date;
             return _adr_pts;
           }
-        //Print("get_raw_ADR_pts 2 returns:",DoubleToStr(_adr_pts));
       }
     return _adr_pts; // if it is not the first time the function is called it is the middle of a bar, return the static adr
   }
@@ -2996,9 +2615,9 @@ double get_ADR_pts_raw(string instrument,double hours_to_roll,double low_outlier
 //+------------------------------------------------------------------+
 void set_ADR_pts(double hours_to_roll,double low_outlier,double high_outlier,double change_by_percent,string instrument,double _ADR_pts_raw)
   {
-    string   current_chart=Symbol();
-    double   bid_price=MarketInfo(current_chart,MODE_BID);
-    string   ADR_pts_object=current_chart+"_ADR_pts";
+    string current_chart=Symbol();
+    string ADR_pts_object=current_chart+"_ADR_pts";
+    double bid_price=MarketInfo(current_chart,MODE_BID);
     if(display_chart_objects && ObjectFind(current_chart+"_ADR_pts")<0 && instrument==current_chart) 
       {
         ObjectCreate(ADR_pts_object,OBJ_TEXT,0,TimeCurrent(),bid_price);
@@ -3044,9 +2663,7 @@ double hours_to_roll()
         hours_to_roll=H1s_to_roll;
     else if(M1s_to_roll>0) 
       {
-        //Print("minutes to roll 1: ",M1s_to_roll);
         hours_to_roll=NormalizeDouble(M1s_to_roll/60,4);
-        //Print("hours to roll 1: ",DoubleToString(hours_to_roll));
       }
     if(!hours_to_roll>0)
       {
@@ -3123,9 +2740,6 @@ bool set_moves_start_bar(string instrument,ENUM_TIMEFRAMES _moves_start_bar_tf,d
       _moves_start_bar=int(hours_to_roll()*60);
     else if(_moves_start_bar_tf==PERIOD_M5) 
       _moves_start_bar=MathMax(int(hours_to_roll()*12),1);
-    //Print("hours_to_roll() 3: ",DoubleToString(hours_to_roll()));
-    //Print("_moves_start_bar_tf: ",IntegerToString(_moves_start_bar_tf));
-    //Print("_moves_start_bar: ",IntegerToString(_moves_start_bar));
     if(_moves_start_bar>0)
       {
         if(DayOfWeek()==6) // if the broker's server time is Saturday
@@ -3225,20 +2839,12 @@ bool set_moves_start_bar(string instrument,ENUM_TIMEFRAMES _moves_start_bar_tf,d
 //+------------------------------------------------------------------+ 
 double periods_pivot_price(ENUM_DIRECTIONAL_MODE mode,string instrument)
   {
-    //int moves_start_bar=get_moves_start_bar(instrument,hours_to_roll(),gmt_hour_offset,max_weekend_gap_percent,include_last_week); // not needed anymore since it became a global variable
-    //Print("move start bar: ",move_start_bar);
-    //Print("move start bar's time: ",TimeToString(iTime(instrument,moves_start_bar_tf,move_start_bar))," and price is: ",iOpen(instrument,PERIOD_M5,move_start_bar));
     if(mode==BUYING_MODE)
       { 
         int lowest_bar;
         if(moves_start_bar==0) lowest_bar=0;
         else lowest_bar=iLowest(instrument,moves_start_bar_tf,MODE_LOW,moves_start_bar,0);
         double pivot_price=iLow(instrument,moves_start_bar_tf,lowest_bar); // get the price of the bar that has the lowest price for the determined period
-        //Print("The buying mode lowest_bar is: ",DoubleToString(lowest_bar));
-        //Print("The buying mode pivot_price is: ",DoubleToString(pivot_price));
-        //Print("periods_pivot_price(): Bid: ",DoubleToString(Bid));
-        //Print("periods_pivot_price(): Bid-periods_pivot_price: ",DoubleToString(Bid-pivot_price));
-        //Print("periods_pivot_price(): ADR_pts: ",DoubleToString(ADR_pts));
         return pivot_price;
       }
     else if(mode==SELLING_MODE)
@@ -3247,11 +2853,6 @@ double periods_pivot_price(ENUM_DIRECTIONAL_MODE mode,string instrument)
         if(moves_start_bar==0) highest_bar=0;
         else highest_bar=iHighest(instrument,moves_start_bar_tf,MODE_HIGH,moves_start_bar,0);
         double pivot_price=iHigh(instrument,moves_start_bar_tf,highest_bar); // get the price of the bar that has the highest price for the determined period
-        //Print("The selling mode highest_bar is: ",DoubleToString(highest_bar));
-        //Print("The selling mode pivot_price is: ",DoubleToString(pivot_price));
-        //Print("periods_pivot_price(): Bid: ",DoubleToString(Bid));
-        //Print("periods_pivot_price(): periods_pivot_price-Bid: ",DoubleToString(pivot_price-Bid));
-        //Print("periods_pivot_price(): ADR_pts: ",DoubleToString(ADR_pts));
         return pivot_price;
       }
     else return -1;
@@ -3294,13 +2895,7 @@ double range_pts_calculation(int cmd,string instrument,int coming_from)
         HOP=periods_pivot_price(SELLING_MODE,instrument); // get the pivot price since the move's start bar
         ranges_pivot_bar=ranges_pivot_bar(SELLING_MODE,instrument,moves_start_bar_tf,moves_start_bar); // get the range's pivot bar since the move's start bar
         HOP_time=iTime(instrument,moves_start_bar_tf,ranges_pivot_bar);
-        /*if(compare_doubles(HOP_price,HOP,Digits)!=0)
-          {
-            Print("range_pts_calculation: HOP_price changed to: ",DoubleToString(HOP,5));
-            Print("range_pts_calculation: HOP_time changed to: ",TimeToString(HOP_time));       
-          }*/
         HOP_price=HOP;
-        //Print("HOP was recalculated coming from: ",coming_from);
         return(HOP_price-LOP_price);
       }
     if(cmd==OP_SELL)
@@ -3309,12 +2904,6 @@ double range_pts_calculation(int cmd,string instrument,int coming_from)
         LOP=periods_pivot_price(BUYING_MODE,instrument); // get the pivot price since the move's start bar
         ranges_pivot_bar=ranges_pivot_bar(BUYING_MODE,instrument,moves_start_bar_tf,moves_start_bar); // get the range;s pivot bar since the move's start bar
         LOP_time=iTime(instrument,moves_start_bar_tf,ranges_pivot_bar);
-        /*if(compare_doubles(LOP_price,LOP,Digits)!=0)
-          {
-            Print("range_pts_calculation: LOP_price changed to: ",DoubleToString(LOP,5));
-            Print("range_pts_calculation: LOP_time changed to: ",TimeToString(LOP_time));       
-          }*/
-        //Print("LOP was recalculated coming from: ",coming_from);
         LOP_price=LOP;
         return(HOP_price-LOP_price);
       }
@@ -3377,7 +2966,6 @@ bool uptrend_retracement_met_price(string instrument)
         if(last_instrument!=instrument || HOP_price<=0 /*|| LOP_price<=0*/) // if HOP is 0 or -1
           {
             //Print("HOP_price had to be generated");
-            //Print("last_instrument: ",last_instrument," instrument: ",instrument);
             range_pts=range_pts_calculation(OP_BUY,instrument,2950);
             last_instrument=instrument;
             if(compare_doubles(range_pts,ADR_pts,digits)==-1 || HOP_price==-1 /*|| LOP_price==-1*/)
@@ -4050,37 +3638,8 @@ bool is_acceptable_spread(string instrument,double _max_spread_percent,bool _bas
 //+------------------------------------------------------------------+
 double calculate_avg_spread_yesterday(string instrument)
   {
-   int    digits=(int)MarketInfo(instrument,MODE_DIGITS);
-   double point=MarketInfo(instrument,MODE_POINT);
-    /*datetime new_server_day=-1;
-    datetime end_server_day=-1;
-    double spread_total=0;
-    if(TimeDayOfWeek(iTime(instrument,PERIOD_D1,1))!=0) // if not Sunday, analyze yesterday
-      {
-        new_server_day=iTime(instrument,PERIOD_D1,1);
-        end_server_day=iTime(instrument,PERIOD_D1,0)-(5*60);
-      }    
-    else // if Sunday, analyze the day before yesterday
-      {
-        new_server_day=iTime(instrument,PERIOD_D1,2);
-        end_server_day=iTime(instrument,PERIOD_D1,1)-(5*60); // the start of the last bar of the specific day
-      }
-    int new_server_day_bar=iBarShift(instrument,PERIOD_M5,new_server_day,false);
-    int end_server_day_bar=iBarShift(instrument,PERIOD_M5,end_server_day,false);
-    for(int i=new_server_day_bar;i>=end_server_day_bar;i--) // 288 M5 bars in 24 hours
-      {
-        datetime bar_time=iTime(instrument,PERIOD_M5,i);
-        // convert bar_time
-        
-        bool in_time_range=in_time_range(bar_time,start_time_hour,start_time_minute,end_time_hour,end_time_minute,gmt_hour_offset);
-        if(in_time_range)
-          {
-            // TODO: you won't be able to get the average spread from the previous day because it is not possible. Try to code a spread history indicator and get it from there.
-            double spread=NormalizeDouble((MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier)/spread_divider,Digits); // divide by 10
-            spread_total+=spread;
-          }
-      }
-    return NormalizeDouble(spread_total/(new_server_day_bar-end_server_day_bar),Digits); // return the average spread*/
+    int    digits=(int)MarketInfo(instrument,MODE_DIGITS);
+    double point=MarketInfo(instrument,MODE_POINT);
     double avg_spread_yesterday=NormalizeDouble((MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier)/spread_divider,digits); // this line is temporary until I find a way to get spread history with a spread logger
     //Print("calculate_avg_spread_yesterday() returns: ",avg_spread_yesterday);
     return avg_spread_yesterday;
@@ -4892,42 +4451,6 @@ void breakeven_check_all_orders(double threshold_percent,double plus_percent,int
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-/*int count_similar_orders(ENUM_DIRECTIONAL_MODE mode)
-  {
-    int count=0;
-    string this_instrument=OrderSymbol();
-    string this_first_ccy=StringSubstr(this_instrument,0,3);
-    string this_second_ccy=StringSubstr(this_instrument,3,3);
-    for(int i=OrdersTotal()-1;i>=0;i--) // You have to start iterating from the lower part (or 0) of the order array because the newest trades get sent to the start. 
-      {
-        if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
-          {
-            int other_trades_type=OrderType();
-            if(other_trades_type>=2) // if it is a pending order, break
-                break;
-            else
-              {
-                string other_instrument=OrderSymbol();
-                string other_first_ccy=StringSubstr(other_instrument,0,3);
-                string other_second_ccy=StringSubstr(other_instrument,3,3);           
-                switch(mode)
-                  {
-                    case BUYING_MODE:
-                      if((other_trades_type==OP_BUY && this_first_ccy==other_first_ccy) || (other_trades_type==OP_SELL && this_first_ccy==other_second_ccy)) count++;
-                        break;
-                    case SELLING_MODE:
-                      if((other_trades_type==OP_SELL && this_first_ccy==other_first_ccy) || (other_trades_type==OP_BUY && this_first_ccy==other_second_ccy)) count++;
-                        break;
-                    default: count++;
-                  } 
-              }
-          }
-      }
-    return count;
-  }*/
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
 void cleanup_risky_pending_orders(string instrument) // deletes pending orders of the entire account (no matter which EA/magic number) where the single currency of the market order would be the same direction of the single currency in the pending order
   { 
     int digits=(int)MarketInfo(instrument,MODE_DIGITS);
@@ -5188,13 +4711,13 @@ double calculate_lots(ENUM_MM method,double range_pts,double _risk_percent_per_A
 // TODO: is it pips or points that the 4th parameter actually needs?
 double get_lots(ENUM_MM method,bool _reduced_risk,int magic,string instrument,double _risk_percent_per_ADR,double pts,double risk_mm1_percent,double _ma_price)
   {
-    double tick_value=MarketInfo(instrument,MODE_TICKVALUE);
-    double point=MarketInfo(instrument,MODE_POINT);
-    double lots=0;
-    double balance=0;
-    double lot_multiplier=1; // keep at 1
-    double micro_multiplier=0; // micro account multiplier
-    int    instrument_int=get_string_integer(StringSubstr(instrument,0,6));
+    double  tick_value=MarketInfo(instrument,MODE_TICKVALUE),
+            point=MarketInfo(instrument,MODE_POINT),
+            lots=0,
+            balance=0,
+            lot_multiplier=1, // keep at 1
+            micro_multiplier=0; // micro account multiplier
+    int     instrument_int=get_string_integer(StringSubstr(instrument,0,6));
     switch(instrument_int)
       {
         case EURJPY:
@@ -5222,6 +4745,7 @@ double get_lots(ENUM_MM method,bool _reduced_risk,int magic,string instrument,do
           if(pts>0) lots=((balance*_risk_percent_per_ADR)/pts)/(tick_value*micro_multiplier); break;
         case MM_RISK_PERCENT:
           if(pts>0) lots=((balance*risk_mm1_percent)/pts)/(tick_value*micro_multiplier); break;
+        // these are the other money management methods you can implement if you ever decide to change your preferred method
         /*case MM_FIXED_RATIO:
           lots=balance*lots_mm2/per_mm2; break;
         case MM_FIXED_RISK:
@@ -5233,17 +4757,14 @@ double get_lots(ENUM_MM method,bool _reduced_risk,int magic,string instrument,do
       if(last_x_trades_were_loss(increase_lots_after_x_losses,magic))
         {
           lot_multiplier+=increase_lots_by_percent;
-          //if(lot_multiplier>1) Print("THE LOT_MULTIPLIER WAS INCREASED");
         }
     // get information from the broker and then Normalize the lots double
     double min_lots=MarketInfo(instrument,MODE_MINLOT);
     double max_lots=MarketInfo(instrument,MODE_MAXLOT);
-    int lot_digits=int(-MathLog10(MarketInfo(instrument,MODE_LOTSTEP))); // MathLog10 returns the logarithm of a number (in this case, the MODE_LOTSTEP) base 10. So, this finds out how many digits in the lot the broker accepts.
-    if(_reduced_risk==true) 
+    int    lot_digits=int(-MathLog10(MarketInfo(instrument,MODE_LOTSTEP))); // MathLog10 returns the logarithm of a number (in this case, the MODE_LOTSTEP) base 10. So, this finds out how many digits in the lot the broker accepts.
+    if(_reduced_risk) 
       {
-        //Print("lots before changing: ",DoubleToStr(NormalizeDouble(lots*lot_multiplier,lot_digits)));
         lot_multiplier=lot_multiplier*.5;
-        //Print("lots after changing: ",DoubleToStr(NormalizeDouble(lots*lot_multiplier,lot_digits)));
       }
     else if(lot_size_is_ma_distance_based && moving_avg_period>0) // note: setting lot_size_is_ma_distance_based==true doesn't increase the profit factor
       {
@@ -5251,13 +4772,15 @@ double get_lots(ENUM_MM method,bool _reduced_risk,int magic,string instrument,do
         double ma_distance_pts=MathAbs(Bid-_ma_price); // this variable corresponds to the get_lots function
         double distance_percent=NormalizeDouble(ma_distance_pts/ADR_pts_raw,2);
         Print("trade's distance_percent: ",DoubleToString(distance_percent,2));
+        lot_multiplier=MathMin(distance_percent,1)*lot_multiplier;
+
+        // below are tiers if you want to implement this rather than using the above line to get the lot_multiplier
         /*if(distance_percent>=1.50)    lot_multiplier=lot_multiplier*1.50;
         else if(distance_percent>=1.25) lot_multiplier=lot_multiplier*1.25;
         else if(distance_percent>=1.00) lot_multiplier=lot_multiplier*1.00;
         else if(distance_percent>=0.75) lot_multiplier=lot_multiplier*0.75;
         else if(distance_percent>=0.50) lot_multiplier=lot_multiplier*0.50;
         else                            lot_multiplier=lot_multiplier*0.25;*/
-        lot_multiplier=MathMin(distance_percent,1)*lot_multiplier;
       }
     lots=NormalizeDouble(lots*lot_multiplier,lot_digits);
     // If the lots value is below or above the broker's MODE_MINLOT or MODE_MAXLOT, the lots will be change to one of those lot sizes. This is in order to prevent Error 131 - invalid trade volume
@@ -5343,6 +4866,276 @@ int last_order_ticket(ENUM_ORDER_SET order_set,bool most_recent)
     else ticket=0;
     return(ticket);
   }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double get_primary_ma_price(string instrument)
+  {
+    return iMA(instrument,moves_start_bar_tf,moving_avg_period,0,MODE_SMA,PRICE_MEDIAN,0);
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+ENUM_DIRECTION_BIAS signal_ma_trend(string instrument,ENUM_DIRECTION_BIAS bias,int _moving_avg_period,int _since_hours_ago,double _ma_diff_multiplier,ENUM_TIMEFRAMES timeframe,int shift)
+  {
+    if(bias<=0) 
+      return bias;
+    if(shift<=0) 
+      bias=DIRECTION_BIAS_NEUTRALIZE;
+    else
+      {
+        int    digits=(int)MarketInfo(instrument,MODE_DIGITS);
+        double older_ma_price=iMA(instrument,timeframe,_moving_avg_period,0,MODE_SMA,PRICE_MEDIAN,_since_hours_ago*12*shift),
+               newer_ma_price=iMA(instrument,timeframe,_moving_avg_period,0,MODE_SMA,PRICE_MEDIAN,_since_hours_ago*12*(shift-1)),
+               difference=MathAbs(older_ma_price-newer_ma_price);
+        if(compare_doubles(difference,ADR_pts_raw*_ma_diff_multiplier,digits)==-1) 
+          bias=DIRECTION_BIAS_NEUTRALIZE;
+        else if(bias==DIRECTION_BIAS_BUY && older_ma_price>newer_ma_price) 
+          bias=DIRECTION_BIAS_BUY;
+        else if(bias==DIRECTION_BIAS_SELL && older_ma_price<newer_ma_price) 
+          bias=DIRECTION_BIAS_SELL;
+        else 
+          bias=DIRECTION_BIAS_NEUTRALIZE;
+      }
+    return bias;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+ENUM_DIRECTION_BIAS signal_ma_multi_period_trend(string instrument,ENUM_DIRECTION_BIAS bias,int _moving_avg_period,int _since_hours_ago,double _ma_diff_multiplier,int _past_x_periods_same_trend,ENUM_TIMEFRAMES timeframe)
+  {
+    if(bias<=0) 
+      return bias;
+    if(_past_x_periods_same_trend<=0) 
+      bias=DIRECTION_BIAS_NEUTRALIZE;
+    else
+      {
+        for(int i=1;i<=_past_x_periods_same_trend;i++)
+          if(bias>0) bias=signal_ma_trend(instrument,bias,_moving_avg_period,_since_hours_ago,_ma_diff_multiplier,timeframe,i);
+      }
+    return bias;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+ENUM_DIRECTION_BIAS signal_MA_better_2(string instrument,double current_bid) 
+  {
+    ENUM_DIRECTION_BIAS bias=DIRECTION_BIAS_NEUTRALIZE;
+    if(moving_avg_period<=0)
+        bias=DIRECTION_BIAS_IGNORE;
+    else
+      {
+        double ma_price=get_primary_ma_price(instrument);
+        /*if(LOP_price<ma_price && HOP_price>ma_price) 
+          {
+            bias=DIRECTION_BIAS_NEUTRALIZE;
+          }
+        else 
+          {*/
+            if(uptrend && LOP_price<ma_price /*&& HOP_price<ma_price*/) // current_bid>ma_price && uptrend && LOP_price>ma_price
+              { 
+                //price_below_ma=true;
+                //price_above_ma=false;
+                //double point=MarketInfo(instrument,MODE_POINT);
+                //double distance_pts=ma_price-HOP_price;
+                //if(distance_pts>ma_range_pts*point*point_multiplier) bias=DIRECTION_BIAS_IGNORE;
+                //else bias=DIRECTION_BIAS_NEUTRALIZE;
+
+                bias=DIRECTION_BIAS_IGNORE;
+              }
+            else if(downtrend && HOP_price>ma_price /*&& LOP_price>ma_price*/)
+              {
+                //price_below_ma=false;
+                //price_above_ma=true;
+                //double point=MarketInfo(instrument,MODE_POINT);
+                //double distance_pts=LOP_price-ma_price;
+                //if(distance_pts>ma_range_pts*point*point_multiplier) bias=DIRECTION_BIAS_IGNORE;
+                //else bias=DIRECTION_BIAS_NEUTRALIZE;
+
+                bias=DIRECTION_BIAS_IGNORE;          
+              }
+            else bias=DIRECTION_BIAS_NEUTRALIZE;
+
+          //}
+      }
+    return bias;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+ENUM_DIRECTION_BIAS signal_MA_better(string instrument,double current_bid) 
+  {
+    ENUM_DIRECTION_BIAS bias=DIRECTION_BIAS_NEUTRALIZE;
+    if(moving_avg_period<=0)
+        bias=DIRECTION_BIAS_IGNORE;
+    else
+      {
+        double ma_price=get_primary_ma_price(instrument);
+        if(LOP_price<ma_price && HOP_price>ma_price) 
+          {
+            bias=DIRECTION_BIAS_NEUTRALIZE;
+          }
+        else
+          {
+            if(uptrend && HOP_price<ma_price) // current_bid>ma_price && uptrend && LOP_price>ma_price
+              { 
+                //price_below_ma=true;
+                //price_above_ma=false;
+                double point=MarketInfo(instrument,MODE_POINT);
+                double distance_pts=ma_price-HOP_price;
+                if(distance_pts>ma_range_pts*point*point_multiplier) 
+                  bias=DIRECTION_BIAS_IGNORE;
+                else 
+                  bias=DIRECTION_BIAS_NEUTRALIZE;
+
+                bias=DIRECTION_BIAS_IGNORE;
+              }
+            else if(downtrend && LOP_price>ma_price)
+              {
+                //price_below_ma=false;
+                //price_above_ma=true;
+                double point=MarketInfo(instrument,MODE_POINT);
+                double distance_pts=LOP_price-ma_price;
+                if(distance_pts>ma_range_pts*point*point_multiplier) 
+                  bias=DIRECTION_BIAS_IGNORE;
+                else 
+                  bias=DIRECTION_BIAS_NEUTRALIZE;
+                bias=DIRECTION_BIAS_IGNORE;          
+              }
+            else bias=DIRECTION_BIAS_NEUTRALIZE;
+
+          }
+      }
+    return bias;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+/*ENUM_DIRECTION_BIAS _signal_MA_better_test_3(string instrument,double current_bid) 
+  {
+    ENUM_DIRECTION_BIAS bias=DIRECTION_BIAS_NEUTRALIZE;
+    if(moving_avg_period<=0)
+        bias=DIRECTION_BIAS_IGNORE;
+    else
+      {
+        double ma_price=get_primary_ma_price(instrument);
+        if(LOP_price<ma_price && HOP_price>ma_price) 
+          {
+            bias=DIRECTION_BIAS_NEUTRALIZE;
+          }
+        else
+          {
+            if(current_bid<ma_price) // current_bid>ma_price && uptrend && LOP_price>ma_price
+              { 
+                //price_below_ma=true;
+                //price_above_ma=false;
+                double point=MarketInfo(instrument,MODE_POINT);
+                double distance_pts=ma_price-current_bid;
+                if(distance_pts>ma_range_pts*point*point_multiplier) bias=DIRECTION_BIAS_BUY;
+                else bias=DIRECTION_BIAS_NEUTRALIZE;
+                
+             }
+            else if(current_bid>ma_price)
+              {
+                //price_below_ma=false;
+                //price_above_ma=true;
+                double point=MarketInfo(instrument,MODE_POINT);
+                double distance_pts=current_bid-ma_price;
+                if(distance_pts>ma_range_pts*point*point_multiplier) bias=DIRECTION_BIAS_SELL;
+                else bias=DIRECTION_BIAS_NEUTRALIZE;
+                
+              }
+            else bias=DIRECTION_BIAS_NEUTRALIZE;
+          }
+      }
+    return bias;
+  }*/
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+/*ENUM_DIRECTION_BIAS signal_MA_worse(string instrument,ENUM_TIMEFRAMES timeframe) 
+  {
+    ENUM_DIRECTION_BIAS bias=DIRECTION_BIAS_NEUTRALIZE;
+    if(moving_avg_period<=0 || ma_multiplier<=0)
+      {
+        bias=DIRECTION_BIAS_IGNORE;
+      }      
+    else
+      {
+        double ma2_price=iMA(instrument,timeframe,600,0,MODE_SMA,PRICE_MEDIAN,0);
+        if(LOP_price<ma2_price && HOP_price>ma2_price) // First check if the lower quality setup with reduced risk is valid.
+          {
+            // _EJ_1.26pf_10.5dd_432t    tick data,      ADR_pts=65, moving_avg_period=600
+            bias=DIRECTION_BIAS_IGNORE;
+            //Print("a worse trade should happen");
+          }
+      }
+    return bias;  
+  }*/
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+/*bool past_x_D1_bars_down_2(string instrument,int x_bars)
+  {
+    int count=0;
+    bool two_day_weekend=false;
+    for(int i=1;i<=x_bars;i++)
+      {
+        int new_i=i;
+        int day=TimeDayOfWeek(iTime(instrument,PERIOD_D1,i));
+        int day_before=TimeDayOfWeek(iTime(instrument,PERIOD_D1,i+1));
+        if((day==0 && day_before==6) || two_day_weekend)
+          {
+            two_day_weekend=true;
+            new_i++;
+          }
+        if(day==0 || day==6)
+          {
+            new_i++;
+          } 
+        if(iOpen(instrument,PERIOD_D1,new_i)>iClose(instrument,PERIOD_D1,new_i))
+          {
+            count++;
+          }
+      }
+    if(count==x_bars) return true;
+    return false;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool past_x_D1_bars_down(string instrument,int x_bars)
+  {
+    int count=0;
+    for(int i=1;i<=x_bars;i++)
+      {
+        if(iOpen(instrument,PERIOD_D1,i)<iClose(instrument,PERIOD_D1,i))
+          {
+            count++;
+          }
+      }
+    if(count==x_bars) return true;
+    return false;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool past_x_D1_bars_up(string instrument,int x_bars)
+  {
+    int count=0;
+    for(int i=1;i<=x_bars;i++)
+      {
+        if(iOpen(instrument,PERIOD_D1,i)<iClose(instrument,PERIOD_D1,i))
+          {
+            count++;
+          }
+      }
+    if(count==x_bars) return true;
+    return false;
+  }*/
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
