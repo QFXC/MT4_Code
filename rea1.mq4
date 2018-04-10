@@ -612,7 +612,7 @@ void OnTick()
             // ... also because set_gmt_offset can only be run after is_new_D1_bar and is_new_custom_D1_bar is run
             safe_to_trade=boolean_compare(safe_to_trade,set_gmt_offset(instrument,current_time,750));
             //safe_to_trade=boolean_compare(safe_to_trade,is_account_balance_suffucient(NormalizeDouble(fixed_account_balance*.8,2)));
-            if(gmt_offset_visible==false && (gmt_hour_offset!=0 /*|| gmt_hour_offset_is_NULL*/)) 
+            if(gmt_offset_visible==false && (gmt_hour_offset!=0 || gmt_hour_offset_is_NULL))
               {
                 print_and_email("Error","THE EA WILL FOR "+instrument+" WILL BE TERMINATED BECAUSE THE gmt_hour_offset IS 0 OR NULL");
                 platform_alert("Error","THE EA WILL FOR "+instrument+" WILL BE TERMINATED BECAUSE THE gmt_hour_offset IS 0 OR NULL");
@@ -689,13 +689,20 @@ void analyze_market_for_trading(string instrument,int magic,int digits,datetime 
       }
     if(ready && in_time_range)
       {
-        retracement_ea_maintenance(instrument,current_time,current_bid,a_trade_closed,in_time_range); // SPECIFIC TO RETRACEMENT EA
-        ENUM_DIRECTION_BIAS enter_signal=retracement_ea_signal(instrument,digits,current_bid);
-        if(enter_signal>0)
+        ea_retracement_maintenance(instrument,current_time,current_bid,a_trade_closed,in_time_range); // BOTH SPECIFIC AND NOT SPECIFIC TO THE RETRACEMENT EA
+        //ENUM_DIRECTION_BIAS continuation_signal=ea_retracement_signal(instrument,digits,current_bid);
+        ENUM_DIRECTION_BIAS reversal_signal=ea_reversal_signal(instrument,magic,digits,current_bid);
+        /*if(continuation_signal>0)
           {
             ENUM_ORDER_TYPE final_trade_direction=-1;
             final_trade_direction=general_filters(instrument,digits,enter_signal,magic,current_time,current_bid);
-            if(final_trade_direction>-1) retracement_ea_try_to_enter_order(final_trade_direction,magic,entering_max_slippage_pips,instrument,false,max_risky_trades,current_bid); // SPECIFIC TO RETRACEMENT EA
+            if(final_trade_direction>-1) ea_retracement_try_to_enter_order(final_trade_direction,magic,entering_max_slippage_pips,instrument,false,max_risky_trades,current_bid); // SPECIFIC TO RETRACEMENT EA
+          }*/
+        if(reversal_signal>0)
+          {
+            ENUM_ORDER_TYPE final_trade_direction=-1;
+            final_trade_direction=general_filters(instrument,digits,reversal_signal,magic,current_time,current_bid);
+            if(final_trade_direction>-1) ea_reversal_try_to_enter_order(final_trade_direction,magic,entering_max_slippage_pips,instrument,false,max_risky_trades,current_bid); // SPECIFIC TO REVERSAL EA
           }
       }
     else
@@ -714,7 +721,7 @@ void analyze_market_for_trading(string instrument,int magic,int digits,datetime 
             bool daily_time_to_exit=time_to_exit(current_time,exit_time_hour,exit_time_minute,gmt_hour_offset);
             if(daily_time_to_exit) exit_all_trades_set(exiting_max_slippage_pips,ORDER_SET_ALL,magic); // this is the special case where you can exit open and pending trades based on a specified time (this should have been set to be outside of the trading time range)
           }
-        if(is_new_M5_bar) retracement_ea_maintenance(instrument,current_time,current_bid,a_trade_closed,in_time_range);  // SPECIFIC TO RETRACEMENT EA
+        if(is_new_M5_bar) ea_retracement_maintenance(instrument,current_time,current_bid,a_trade_closed,in_time_range);  // SPECIFIC TO RETRACEMENT EA
       }
   }
 //+------------------------------------------------------------------+
@@ -782,7 +789,7 @@ void daily_ready_check(string instrument,datetime current_time,int magic)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void retracement_ea_maintenance(string instrument,datetime current_time,double current_bid,bool a_trade_closed,bool _in_time_range)
+void ea_retracement_maintenance(string instrument,datetime current_time,double current_bid,bool a_trade_closed,bool _in_time_range)
   {
     string current_chart=Symbol();
     bool   current_chart_matches=(current_chart==instrument);
@@ -800,7 +807,7 @@ void retracement_ea_maintenance(string instrument,datetime current_time,double c
                 // reset the LOP_price, HOP_price, and trends because the signal is no longer valid
                 reset_pivot_peak(instrument);
               }
-            if(_display_chart_objects && is_new_H1_bar)
+            if(_display_chart_objects)
               {
                 static bool last_uptrend_order=uptrend_order_was_last;
                 static bool last_downtrend_order=downtrend_order_was_last;
@@ -811,21 +818,24 @@ void retracement_ea_maintenance(string instrument,datetime current_time,double c
                     ObjectDelete(current_chart+"_retrace_LOP_up");
                     ObjectDelete(current_chart+"_retrace_LOP_down");
                     last_uptrend_order=uptrend_order_was_last;
-                    last_downtrend_order=downtrend_order_was_last;  
+                    last_downtrend_order=downtrend_order_was_last;
                   }
-                double bid_price=current_bid;
-                string dow_text=current_chart+"_day_of_week";
-                if(ObjectFind(dow_text)<0)
+                if(is_new_H1_bar) // NOT SPECIFIC TO THE RETRACEMENT EA
                   {
-                    ObjectCreate(dow_text,OBJ_TEXT,0,TimeCurrent(),bid_price);
-                    ObjectSetText(dow_text,"0",15,NULL,clrWhite);
+                    double bid_price=current_bid;
+                    string dow=current_chart+"_day_of_week";
+                    if(ObjectFind(dow)<0)
+                      {
+                        ObjectCreate(dow,OBJ_TEXT,0,TimeCurrent(),bid_price);
+                        ObjectSetText(dow,"0",15,NULL,clrWhite);
+                      }
+                    ObjectSetText(dow,IntegerToString(DayOfWeek(),1),0);
+                    if(uptrend) ObjectMove(dow,0,TimeCurrent(),bid_price-ADR_pts_raw/2);
+                    else ObjectMove(dow,0,TimeCurrent(),bid_price+ADR_pts_raw/2);                  
                   }
-                ObjectSetText(dow_text,IntegerToString(DayOfWeek(),1),0);
-                if(uptrend) ObjectMove(dow_text,0,TimeCurrent(),bid_price-ADR_pts_raw/2);
-                else ObjectMove(dow_text,0,TimeCurrent(),bid_price+ADR_pts_raw/2);
               }
           }
-        if(_display_chart_objects)
+        if(_display_chart_objects) // NOT SPECIFIC TO THE RETRACEMENT EA
           {
             if(ObjectFind(current_chart+"_LOP_price")<0)
               {
@@ -856,11 +866,11 @@ void retracement_ea_maintenance(string instrument,datetime current_time,double c
       }
     else
       {
-        if(is_new_M5_bar)
+        if(is_new_M5_bar) 
           {
             if(_display_chart_objects)
               {
-                if(ObjectFind(current_chart+"_HOP")>=0)
+                if(ObjectFind(current_chart+"_HOP")>=0) // NOT COMPLETELY SPECIFIC TO THE RETRACEMENT EA AND CAN BE APPLIED TO THE REVERSAL EA
                   {
                     // TODO: try the ObjectsDeleteAll function
                     ObjectDelete(current_chart+"_HOP");
@@ -879,7 +889,7 @@ void retracement_ea_maintenance(string instrument,datetime current_time,double c
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-ENUM_DIRECTION_BIAS retracement_ea_signal(string instrument,int digits,double current_bid)
+ENUM_DIRECTION_BIAS ea_retracement_signal(string instrument,int digits,double current_bid)
   {
     // start to filter and generally look for the buy or sell enter signals before specifically analyzing the buy and sell signals
     ENUM_DIRECTION_BIAS enter_signal=DIRECTION_BIAS_NEUTRALIZE; // 0
@@ -928,49 +938,56 @@ ENUM_DIRECTION_BIAS retracement_ea_signal(string instrument,int digits,double cu
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-ENUM_DIRECTION_BIAS reversals_ea_signal(string instrument,int digits,double current_bid)
+ENUM_DIRECTION_BIAS ea_reversal_signal(string instrument,int magic,int digits,double current_bid)
   {
-    // start to filter and generally look for the buy or sell enter signals before specifically analyzing the buy and sell signals
     ENUM_DIRECTION_BIAS enter_signal=DIRECTION_BIAS_NEUTRALIZE; // 0
-    /*
-    1) ADR threshold meets price
-    2) start checking for reversal candlesticks
-    3) after reversal candlestick, take a trade in the opposite direction of the trend (if uptrend is triggered you should sell)
-    4) determine the takeprofit_pts=MathAbs(ma_price-current_price)*takeprofit_percent;
-    5) determine the stoploss_pts=takeprofit_pts*stoploss_percent;
-
-
-    functions dependant on moves_start_bar
-    
-    set_moves_start_bar
-    	on_initialization
-    	signal_EA_with_ADR_filters
-    
-    periods_pivot_price
-    	range_pts_calculation
-    	try_to_enter_order
-    	check_for_entry_errors
-    	send_and_get_order_ticket
-    	
-    range_pts_calculation
-    	uptrend_retracement_met_price
-    	downtrend_retracement_met_price
-    	uptrend_ADR_threshold_met_price
-    	downtrend_ADR_threshold_met_price
-    	reset_pivot_peak
-    
-    reset_pivot_peak
-    	on_initialization
-    	main_script_ran
-    	uptrend_retracement_met_price
-    	downtrend_retracement_met_price
-    */
+    if(is_new_M5_bar)
+      {
+        ENUM_DIRECTION_BIAS pinbar_signal=signal_is_pin_bar(instrument,PERIOD_M5,1,MathMax(ADR_pts_raw/10,ADR_pts));
+        if(pinbar_signal>0) enter_signal=signal_bias_compare(pinbar_signal,ea_reversal_overextended_trend(instrument,current_bid,.75));
+      }
     return enter_signal;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-ENUM_DIRECTION_BIAS signal_pinbar_ea(string instrument,int digits,double current_bid)
+ENUM_DIRECTION_BIAS ea_reversal_overextended_trend(string instrument,double current_bid,double _ADR_pts_raw_multiplier)
+  {
+    double ma_price=iMA(instrument,PERIOD_M5,250,0,MODE_SMA,PRICE_MEDIAN,0);
+    double distance=ma_price-current_bid;
+    if(uptrend_order_was_last==false && distance>ADR_pts_raw*_ADR_pts_raw_multiplier) 
+      {
+        downtrend=true;
+        uptrend=false;
+        //moves_start_bar=iBarShift(instrument,PERIOD_M5,iTime(instrument,PERIOD_M5,1));
+        HOP_price=ma_price;
+        HOP_time=iTime(instrument,PERIOD_M5,1);
+        LOP_price=iLow(instrument,PERIOD_M5,1);
+        LOP_time=HOP_time;
+        return DIRECTION_BIAS_BUY;
+      }
+    else if(downtrend_order_was_last==false && distance<-ADR_pts_raw*_ADR_pts_raw_multiplier) 
+      {
+        downtrend=false;
+        uptrend=true;
+        //moves_start_bar=iBarShift(instrument,PERIOD_M5,iTime(instrument,PERIOD_M5,1));
+        LOP_price=ma_price;
+        LOP_time=iTime(instrument,PERIOD_M5,1);
+        HOP_price=iHigh(instrument,PERIOD_M5,1);
+        HOP_time=LOP_time;
+        return DIRECTION_BIAS_SELL;
+      }
+    else 
+      {
+        downtrend=false;
+        uptrend=false;
+        return DIRECTION_BIAS_NEUTRALIZE;
+      } 
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+ENUM_DIRECTION_BIAS ea_pinbar_signal(string instrument,int digits,double current_bid)
   {
     // start to filter and generally look for the buy or sell enter signals before specifically analyzing the buy and sell signals
     ENUM_DIRECTION_BIAS enter_signal=DIRECTION_BIAS_NEUTRALIZE; // 0
@@ -978,7 +995,6 @@ ENUM_DIRECTION_BIAS signal_pinbar_ea(string instrument,int digits,double current
     1) large pin bar occurs
     2) stoploss is at the pin
     3) takeprofit is the size of the pin
-
     */
     return enter_signal;
   }
@@ -998,7 +1014,7 @@ ENUM_ORDER_TYPE general_filters(string instrument,int digits,ENUM_DIRECTION_BIAS
         else if(enter_signal==DIRECTION_BIAS_SELL && is_over_extended_trend(instrument,past_x_periods_same_trend,UPTREND,OPEN_MINUS_CLOSE_ABSOLUTE,NormalizeDouble(ADR_pts_raw/ADR_pts_raw_divider,digits),past_x_periods_same_trend,true,current_bid)) enter_signal=DIRECTION_BIAS_SELL;
         else enter_signal=DIRECTION_BIAS_NEUTRALIZE;
       }*/
-    if(enter_signal>0 && diff_moving_avg_period>0 && past_x_periods_same_trend>0)
+    if(enter_signal>0 && diff_moving_avg_period>0 && past_x_periods_same_trend>0 && ma_diff_multiplier>0)
       {
         enter_signal=signal_ma_multi_period_trend(instrument,enter_signal,diff_moving_avg_period,since_hours_ago,ma_diff_multiplier,past_x_periods_same_trend,moves_start_bar_tf);
       }
@@ -1008,18 +1024,7 @@ ENUM_ORDER_TYPE general_filters(string instrument,int digits,ENUM_DIRECTION_BIAS
       }*/
     int x_seconds;
     int y_seconds;
-    if(!include_previous_day) 
-      {
-        if(x_hours>0) 
-          x_seconds=MathMin(int(current_time-days_open_time),int(x_hours*3600)); // ensure that the seconds span never spans to the previous day while also taking x_hours into account
-        else 
-          x_seconds=int(current_time-days_open_time);
-        if(y_hours>0) 
-          y_seconds=MathMin(int(current_time-days_open_time),int(y_hours*3600)); // ensure that the seconds span never spans to the previous day while also taking x_hours into account
-        else 
-          y_seconds=int(current_time-days_open_time);
-      }
-    else 
+    if(include_previous_day)
       {
         if(x_hours>0) 
           x_seconds=int(x_hours*3600);
@@ -1030,26 +1035,39 @@ ENUM_ORDER_TYPE general_filters(string instrument,int digits,ENUM_DIRECTION_BIAS
         else 
           y_seconds=86400; // Default to the past 24 hours. (There are 86400 seconds in a day.)
       }
+    else
+      {
+        if(x_hours>0) 
+          x_seconds=MathMin(int(current_time-days_open_time),int(x_hours*3600)); // ensure that the seconds span never spans to the previous day while also taking x_hours into account
+        else 
+          x_seconds=int(current_time-days_open_time);
+        if(y_hours>0) 
+          y_seconds=MathMin(int(current_time-days_open_time),int(y_hours*3600)); // ensure that the seconds span never spans to the previous day while also taking x_hours into account
+        else 
+          y_seconds=int(current_time-days_open_time);
+      }
     if(enter_signal>0 && max_any_trades_in_y_hours>0)
       {
         int market_trades_in_y_hours=count_orders(ORDER_SET_MARKET,magic,MODE_HISTORY,OrdersHistoryTotal()-1,y_seconds,current_time);
-        if(market_trades_in_y_hours==max_any_trades_in_y_hours) 
+        if(market_trades_in_y_hours>=max_any_trades_in_y_hours) 
           enter_signal=DIRECTION_BIAS_NEUTRALIZE;
       }
     int current_long_count=count_orders(ORDER_SET_BUY,magic,MODE_TRADES,OrdersTotal()-1); 
     int current_short_count=count_orders(ORDER_SET_SELL,magic,MODE_TRADES,OrdersTotal()-1);
-    if(reverse_trade_direction==true)
-      {
-        if(enter_signal==DIRECTION_BIAS_BUY) enter_signal=DIRECTION_BIAS_SELL;
-        else if(enter_signal==DIRECTION_BIAS_SELL) enter_signal=DIRECTION_BIAS_BUY;
-      }
-    if(!hedging_allowed)
-      {
-        if(enter_signal==DIRECTION_BIAS_BUY && current_short_count>0) 
-          enter_signal=DIRECTION_BIAS_NEUTRALIZE;
-        else if(enter_signal==DIRECTION_BIAS_SELL && current_long_count>0) 
-          enter_signal=DIRECTION_BIAS_NEUTRALIZE;
-      }
+    { // keep the if statements in this block in this order
+      if(reverse_trade_direction==true)
+        {
+          if(enter_signal==DIRECTION_BIAS_BUY) enter_signal=DIRECTION_BIAS_SELL;
+          else if(enter_signal==DIRECTION_BIAS_SELL) enter_signal=DIRECTION_BIAS_BUY;
+        }
+      if(!hedging_allowed)
+        {
+          if(enter_signal==DIRECTION_BIAS_BUY && current_short_count>0) 
+            enter_signal=DIRECTION_BIAS_NEUTRALIZE;
+          else if(enter_signal==DIRECTION_BIAS_SELL && current_long_count>0) 
+            enter_signal=DIRECTION_BIAS_NEUTRALIZE;
+        }
+    }
     // these if ane else if blocks will start to specifically analyze the buy or sell signals from the above filters
     if(enter_signal==DIRECTION_BIAS_BUY && long_allowed)
       {
@@ -1060,7 +1078,6 @@ ENUM_ORDER_TYPE general_filters(string instrument,int digits,ENUM_DIRECTION_BIAS
                                                    OrdersHistoryTotal()-1,
                                                    x_seconds,
                                                    current_time);
-       
         if(current_long_count<max_directional_trades_at_once &&
           current_long_count+long_trades_closed_today<max_directional_trades_in_x_hours)
           {
@@ -1084,7 +1101,7 @@ ENUM_ORDER_TYPE general_filters(string instrument,int digits,ENUM_DIRECTION_BIAS
                 print_and_email("Info","A potential "+instrument+" trade was prevented because the market was overbought.");
               }
           }
-        else retracement_ea_maintenance(instrument,0,0,0,false); // this will delete the chart objects
+        else ea_retracement_maintenance(instrument,0,0,0,false); // this will delete the chart objects
       }
     else if(enter_signal==DIRECTION_BIAS_SELL && short_allowed)
       {
@@ -1095,7 +1112,6 @@ ENUM_ORDER_TYPE general_filters(string instrument,int digits,ENUM_DIRECTION_BIAS
                                                    OrdersHistoryTotal()-1,
                                                    x_seconds,
                                                    current_time);
-
         if(current_short_count<max_directional_trades_at_once &&
           current_short_count+short_trades_closed_today<max_directional_trades_in_x_hours)
           {
@@ -1119,7 +1135,7 @@ ENUM_ORDER_TYPE general_filters(string instrument,int digits,ENUM_DIRECTION_BIAS
                 print_and_email("Info","A potential "+instrument+" trade was prevented because the market was oversold.");
               }
           }
-        else retracement_ea_maintenance(instrument,0,0,0,false); // this will delete the chart objects
+        else ea_retracement_maintenance(instrument,0,0,0,false); // this will delete the chart objects
       }
     return -1;
   }
@@ -1185,7 +1201,7 @@ bool a_trade_closed_since_last_checked(int magic)
     static int last_trade_count=-1;
     if(last_trade_count==-1) last_trade_count=count_orders(ORDER_SET_MARKET,magic,MODE_TRADES,OrdersTotal()-1);
     int current_trade_count=count_orders(ORDER_SET_MARKET,magic,MODE_TRADES,OrdersTotal()-1);
-    if(current_trade_count==last_trade_count-1) 
+    if(current_trade_count<last_trade_count) 
       {
         last_trade_count=current_trade_count;
         //Print("a_trade_closed_since_last_checked=true");
@@ -3707,7 +3723,7 @@ bool expired_pivot_level(datetime _current_time)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void retracement_ea_try_to_enter_order(int type,int magic,int max_slippage_pips,string instrument,bool _reduced_risk,int _max_risky_trades,double current_bid)
+void ea_retracement_try_to_enter_order(int type,int magic,int max_slippage_pips,string instrument,bool _reduced_risk,int _max_risky_trades,double current_bid)
   {
     color   arrow_color;
     int     digits=(int)MarketInfo(instrument,MODE_DIGITS);
@@ -3847,6 +3863,127 @@ void retracement_ea_try_to_enter_order(int type,int magic,int max_slippage_pips,
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+void ea_reversal_try_to_enter_order(int type,int magic,int max_slippage_pips,string instrument,bool _reduced_risk,int _max_risky_trades,double current_bid)
+  {
+    color   arrow_color;
+    int     digits=(int)MarketInfo(instrument,MODE_DIGITS);
+    double  pending_order_distance_pts=0, // keep at 0
+            periods_pivot_price=0,
+            point=MarketInfo(instrument,MODE_POINT),
+            takeprofit_pts=0,
+            stoploss_pts=0,
+            _pullback_percent=pullback_percent,
+            _retracement_percent=retracement_percent,
+            periods_range_pts=HOP_price-LOP_price,
+            ma_price=get_primary_ma_price(instrument);
+    if(reverse_trade_direction) // TODO: should this code be run before or after range_pts_calculation is run? I think before because the periods_range_pts need to be calculated as if it was not a reverse trade.
+      {
+        if(type==OP_BUY) type=OP_SELL;
+        else if(type==OP_SELL) type=OP_BUY;
+      }
+    if(_pullback_percent==NULL) 
+      {
+        _pullback_percent=0;
+      }
+    else if(_pullback_percent<0) 
+      {
+        print_and_email("Error","pullback_percent cannot be less than 0");
+        platform_alert("Error","pullback_percent cannot be less than 0");
+        return;
+      }
+    if(_pullback_percent>0) pending_order_distance_pts=NormalizeDouble(_pullback_percent*periods_range_pts,digits);
+    //Print("try_to_enter_order(): distance_pts: ",DoubleToString(pullback_distance_pts));
+    if(type==OP_BUY)
+      {
+        if(reverse_trade_direction) arrow_color=clrRed;
+        else arrow_color=clrGreen;
+        if(LOP_price>0) periods_pivot_price=LOP_price;
+      }
+    else if(type==OP_SELL)
+      {
+        if(reverse_trade_direction) arrow_color=clrGreen;
+        else arrow_color=clrRed;
+        if(HOP_price>0) periods_pivot_price=HOP_price;
+      }
+    else 
+      {
+        print_and_email("Error","The algorithm programmer can only use OP_BUY and OP_SELL for signals.");
+        return;
+      }
+    // This part checks to see if the market order is too risky to be made while running with other instances of the algorithm in the same account and, if so, a trade gets simulated but not actually executed. 
+    // The trade simulation is important because it affects other functions.
+    if(_pullback_percent==0) // if it is a market order signal
+      {
+        ENUM_DIRECTION_BIAS bias=DIRECTION_BIAS_IGNORE;
+        int temp_type=type;
+        string current_chart=Symbol();
+        bool current_chart_matches=(current_chart==instrument);
+        if(reverse_trade_direction) // since it may not pass through the final reverse_trade_direction in the send_and_get_ticket function, a temporary reverse_trade_direction has to be done here
+          {
+            // this only switches the order_type for both instant and market executions in this scope
+            if(temp_type==OP_BUY) temp_type=OP_SELL;
+            else if(temp_type==OP_SELL) temp_type=OP_BUY;
+          } 
+        if(temp_type==OP_BUY)
+          {
+            downtrend_order_was_last=false;
+            uptrend_order_was_last=true;
+            if(current_chart_matches && display_chart_objects)
+              {
+                ObjectSet(current_chart+"_HOP",OBJPROP_WIDTH,1);
+                Comment("uptrend SIGNAL(not order) was last");
+                //ObjectSetString(0,current_chart+"_last_order_direction",OBJPROP_TEXT,"uptrend SIGNAL(not order) was last");
+              }
+            bias=signal_check_risky_market_trade(instrument,DIRECTION_BIAS_BUY,_max_risky_trades);            
+          }
+        else if(temp_type==OP_SELL)
+          {
+            uptrend_order_was_last=false;
+            downtrend_order_was_last=true;
+            if(current_chart_matches && display_chart_objects)
+              {
+                ObjectSet(current_chart+"_LOP",OBJPROP_WIDTH,1);
+                Comment("downtrend SIGNAL(not order) was last");
+                //ObjectSetString(0,current_chart+"_last_order_direction",OBJPROP_TEXT,"downtrend SIGNAL(not order) was last");
+              }
+            bias=signal_check_risky_market_trade(instrument,DIRECTION_BIAS_SELL,_max_risky_trades);      
+          }
+        if(bias<=0 && bias!=DIRECTION_BIAS_IGNORE && bias!=NULL) 
+            return; // do not make any trades but they have been simulated in order to pretend they have been made
+      }
+    // If the flow reaches this point, the trade should really be made and not simulated.
+    RefreshRates();
+    double spread_pts=NormalizeDouble((MarketInfo(instrument,MODE_SPREAD)*point*point_multiplier)/spread_divider,digits);
+    double lots;
+    lots=calculate_lots(money_management,periods_range_pts,risk_percent_per_range,spread_pts,instrument,magic,_reduced_risk,ma_price);
+    takeprofit_pts=NormalizeDouble(periods_range_pts*takeprofit_percent,digits);
+    stoploss_pts=NormalizeDouble(periods_range_pts*stoploss_percent,digits);
+    print_and_email_margin_info(instrument,"Margin Info Before Trying To Enter Trade");
+    int ticket=check_for_entry_errors (instrument,
+                                       type,
+                                       lots,
+                                       pending_order_distance_pts, // it should always be 0 or positive
+                                       periods_pivot_price,
+                                       stoploss_pts,
+                                       takeprofit_pts,
+                                       max_slippage_pips,
+                                       spread_pts,
+                                       periods_range_pts,
+                                       WindowExpertName(),
+                                       magic,
+                                       int(pending_order_expire*3600),
+                                       arrow_color,
+                                       market_exec,
+                                       retries);
+    if(ticket>0)
+      {
+        if(pullback_percent!=0) cleanup_risky_pending_orders(instrument);
+        print_and_email_margin_info(instrument,"Margin Info After Entering Trade");
+      }
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 double get_new_takeprofit_percent(string instrument,double _periods_range_pts,int _digits,double current_bid,double _ma_price)
   {
     double _takeprofit_percent;
@@ -3856,7 +3993,8 @@ double get_new_takeprofit_percent(string instrument,double _periods_range_pts,in
         double ma_distance_pts=MathAbs(current_bid-_ma_price);
         double distance_percent=NormalizeDouble(ma_distance_pts/ADR_pts_raw,2);
         //if(distance_percent<0) distance_percent=0;
-        _takeprofit_percent=MathMin(takeprofit_percent*distance_percent,takeprofit_percent)+takeprofit_percent;
+        _takeprofit_percent=MathMin(NormalizeDouble(takeprofit_percent*distance_percent,2),takeprofit_percent)+takeprofit_percent;
+        Print("new_takeprofit_percent: ",DoubleToString(_takeprofit_percent));
         set_new_active_trade_expire(_takeprofit_percent);
       }
     else
@@ -3866,14 +4004,14 @@ double get_new_takeprofit_percent(string instrument,double _periods_range_pts,in
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void set_new_active_trade_expire(double _new_takeprofit_percent)
+void set_new_active_trade_expire(double new_takeprofit_percent)
   {
     if(active_trade_expire_is_tp_based)
       {
         if(takeprofit_percent>0)
           {
-            double change_percent=MathMin(NormalizeDouble((_new_takeprofit_percent/takeprofit_percent),2),active_trade_expire*2);
-            if(change_percent<1) return;
+            double change_percent=MathMin(NormalizeDouble(new_takeprofit_percent/takeprofit_percent,2),2.00); // do not let the value be change to more than double (2.00 aka 200%)
+            if(change_percent<=1) return; // do not let the value be change to less than what it was originally
             else active_trade_expire=NormalizeDouble(active_trade_expire*change_percent,2); // Note: this will be changed back to the original value stored in active_trade_expire_stored after the trade closes as seen in the main_script_ran function
           }
         else
@@ -3931,24 +4069,8 @@ void unacceptable_spread_message(double spread_pts,string instrument)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-// the distanceFromCurrentPrice parameter is used to specify what type of order you would like to enter
-// Documentation: Requirements and Limitions in Making Trades https://book.mql4.com/appendix/limits
-int send_and_get_order_ticket(string instrument,int cmd,double lots,double _distance_pts,double periods_pivot_price,double sl_pts,double tp_pts,int max_slippage,double spread_pts,double range_pts,string _EA_name=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool _market_exec=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
+void send_and_get_order_ticket_test()
   {
-    double     entry_price=0, price_sl=0, price_tp=0;
-    double     point=MarketInfo(instrument,MODE_POINT);
-    double     min_distance_pts=MarketInfo(instrument,MODE_STOPLEVEL)*point*point_multiplier;
-    int        digits=(int)MarketInfo(instrument,MODE_DIGITS);
-    //RefreshRates(); // may not be necessary since rates were extremely recently refreshed in try_to_enter_order function
-    double     current_ask=MarketInfo(instrument,MODE_ASK);
-    double     current_bid=MarketInfo(instrument,MODE_BID);
-    string     current_chart=Symbol();
-    datetime   expire_time=0; // 0 means there is no expiration time for a pending order
-    int        order_type=-1; // -1 means there is no order because actual orders are >=0
-    bool       instant_exec=!_market_exec;
-    int        ticket=0;
-    //Print("send_and_get_order_ticket(): tp_pts before adding spread_pts: ",DoubleToString(tp_pts)); 
-    tp_pts+=spread_pts; // increase the take profit so the user can get the full pips of profit they wanted if the take profit price is hit
     //if(range_pts>ADR_pts) _ADR_pts=range_pts;
     /*Print("send_and_get_order_ticket(): lots: ",DoubleToString(lots));
     Print("send_and_get_order_ticket(): _distance_pts: ",DoubleToString(_distance_pts));
@@ -3960,11 +4082,28 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
     Print("send_and_get_order_ticket(): tp_pts: ",DoubleToString(tp_pts));
     Print("send_and_get_order_ticket(): sl_pts: ",DoubleToString(sl_pts));
     Print("send_and_get_order_ticket(): magic: ",IntegerToString(magic));*/
-    /*if(reverse_trade_direction)
-      {
-        if(cmd==OP_BUY) cmd=OP_SELL;
-        else if(cmd==OP_SELL) cmd=OP_BUY;
-      }*/
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+// the distanceFromCurrentPrice parameter is used to specify what type of order you would like to enter
+// Documentation: Requirements and Limitions in Making Trades https://book.mql4.com/appendix/limits
+int send_and_get_order_ticket(string instrument,int cmd,double lots,double _distance_pts,double periods_pivot_price,double sl_pts,double tp_pts,int max_slippage,double spread_pts,double range_pts,string _EA_name=NULL,int magic=0,int expire=0,color a_clr=clrNONE,bool _market_exec=false) // the "market" argument is to make this function compatible with brokers offering market execution. By default, it uses instant execution.
+  {
+    double     entry_price=0, price_sl=0, price_tp=0;
+    double     point=MarketInfo(instrument,MODE_POINT);
+    double     min_distance_pts=MarketInfo(instrument,MODE_STOPLEVEL)*point*point_multiplier;
+    //RefreshRates(); // may not be necessary since rates were extremely recently refreshed in try_to_enter_order function
+    double     current_ask=MarketInfo(instrument,MODE_ASK);
+    double     current_bid=MarketInfo(instrument,MODE_BID);
+    string     current_chart=Symbol();
+    datetime   expire_time=0; // 0 means there is no expiration time for a pending order
+    int        digits=(int)MarketInfo(instrument,MODE_DIGITS);
+    int        order_type=-1; // -1 means there is no order because actual orders are >=0
+    bool       instant_exec=!_market_exec;
+    int        ticket=0;
+    tp_pts+=spread_pts; // increase the take profit so the user can get the full pips of profit they wanted if the take profit price is hit
+    //send_and_get_order_ticket_test();
     bool is_acceptable_spread=true;
     if(max_spread_percent>0) is_acceptable_spread(instrument,max_spread_percent,false,true,spread_pts,false);
     //Print("send_and_get_order_ticket(): is_acceptable_spread: ",is_acceptable_spread);
@@ -3972,14 +4111,13 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
       {
         // Keeps the EA from entering trades when the spread is too wide for market orders (but not pending orders). Note: It may never enter on exotic currencies (which is good automation).
         unacceptable_spread_message(spread_pts,instrument);
-        // TODO: create an alert informing the user that the trade was not executed because the spread was too wide
         return 0;
       }
     if(cmd==OP_BUY) // logic for long trades
       {
         if(_distance_pts>0) order_type=OP_BUYLIMIT;
         else if(_distance_pts==0) order_type=OP_BUY;
-        else /*if(_distance_pts<0) order_type=OP_BUYSTOP*/ return 0;
+        else return 0;
         if(order_type==OP_BUYLIMIT)
           {
             if(periods_pivot_price<0) return 0;
@@ -4017,7 +4155,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
       {
         if(_distance_pts>0) order_type=OP_SELLLIMIT;
         else if(_distance_pts==0) order_type=OP_SELL;
-        else /*if(_distance_pts<0) order_type=OP_SELLSTOP*/ return 0;
+        else return 0;
         if(order_type==OP_SELLLIMIT)
           {
             if(periods_pivot_price<0) return 0;
@@ -4182,9 +4320,9 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
                                             ", price_sl: ",DoubleToString(price_sl,digits),
                                             ", price_tp: ",DoubleToString(price_tp,digits),
                                             ", ticket: ",IntegerToString(ticket)
-                                           );  
+                                           );
         print_and_email(subject,email_body);
-      }  
+      }
     return ticket;
   }
 //+------------------------------------------------------------------+
@@ -4213,10 +4351,6 @@ int count_orders(ENUM_ORDER_SET type_needed=ORDER_SET_ALL,int magic=-1,int pool=
                       if(actual_type==OP_BUYLIMIT) count++; break;
                     case ORDER_SET_SELL_LIMIT:
                       if(actual_type==OP_SELLLIMIT) count++; break;
-                    /*case ORDER_SET_BUY_STOP:
-                      if(actual_type==OP_BUYSTOP) count++; break;
-                    case ORDER_SET_SELL_STOP:
-                      if(actual_type==OP_SELLSTOP) count++; break;*/
                     case ORDER_SET_LONG:
                       if(actual_type==OP_BUY || actual_type==OP_BUYLIMIT /*|| actual_type==OP_BUYSTOP*/)
                         count++; break;
@@ -4229,9 +4363,6 @@ int count_orders(ENUM_ORDER_SET type_needed=ORDER_SET_ALL,int magic=-1,int pool=
                     case ORDER_SET_LIMIT:
                       if(actual_type==OP_BUYLIMIT || actual_type==OP_SELLLIMIT)
                         count++; break;
-                    /*case ORDER_SET_STOP:
-                      if(actual_type==OP_BUYSTOP || actual_type==OP_SELLSTOP)
-                        count++; break;*/
                     case ORDER_SET_MARKET:
                       if(actual_type<=1) count++; break;
                     case ORDER_SET_PENDING:
@@ -4866,9 +4997,6 @@ int last_order_ticket(ENUM_ORDER_SET order_set,bool most_recent)
     else ticket=0;
     return(ticket);
   }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
