@@ -3403,12 +3403,15 @@ bool modify_order(int ticket,double sl_pts,double tp_pts=-1,datetime expire=-1,d
     bool result=false;
     if(OrderSelect(ticket,SELECT_BY_TICKET))
       {
+        string instrument=OrderSymbol();
+        double point=MarketInfo(instrument,MODE_POINT);
+        int order_type=OrderType();
         int digits=(int)MarketInfo(OrderSymbol(),MODE_DIGITS); // The count of digits after the decimal point.
         if(sl_pts==-1) sl_pts=OrderStopLoss(); // if stoploss is not changed from the default set in the argument
         else sl_pts=NormalizeDouble(sl_pts,digits);
         if(tp_pts==-1) tp_pts=OrderTakeProfit(); // if takeprofit is not changed from the default set in the argument
         else tp_pts=NormalizeDouble(tp_pts,digits); // it needs to be normalized since you calculated it yourself to prevent errors when modifying an order
-        if(OrderType()<=1) // if it IS NOT a pending order
+        if(order_type<=1) // if it IS NOT a pending order
           {
             // to prevent Error Code 1, check if there was a change
             // compare_doubles returns 0 if the doubles are equal
@@ -3417,7 +3420,7 @@ bool modify_order(int ticket,double sl_pts,double tp_pts=-1,datetime expire=-1,d
               return true; //terminate the function
             entry_price=OrderOpenPrice();
           }
-        else if(OrderType()>1) // if it IS a pending order
+        else if(order_type>1) // if it IS a pending order
           {
             if(entry_price==-1) // it is -1 if there was no entry_price sent to this function (the 4th parameter)
               entry_price=OrderOpenPrice();
@@ -3431,6 +3434,17 @@ bool modify_order(int ticket,double sl_pts,double tp_pts=-1,datetime expire=-1,d
               return true; //terminate the function
           }
         result=OrderModify(ticket,entry_price,sl_pts,tp_pts,expire,a_color);
+        check_for_trading_limitations(instrument,
+                                      "modify",
+                                      digits,
+                                      point,
+                                      order_type,
+                                      entry_price,
+                                      MarketInfo(instrument,MODE_BID),
+                                      MarketInfo(instrument,MODE_ASK),
+                                      tp_pts,
+                                      sl_pts,
+                                      MarketInfo(instrument,MODE_STOPLEVEL)*point*point_multiplier);
       }
     return result;
   }
@@ -3874,7 +3888,7 @@ void ea_reversal_try_to_enter_order(int type,int magic,int max_slippage_pips,str
             stoploss_pts=0,
             _pullback_percent=pullback_percent,
             _retracement_percent=retracement_percent,
-            periods_range_pts=HOP_price-LOP_price,
+            periods_range_pts=MathMin(HOP_price-LOP_price,ADR_pts_raw),
             ma_price=get_primary_ma_price(instrument);
     if(reverse_trade_direction) // TODO: should this code be run before or after range_pts_calculation is run? I think before because the periods_range_pts need to be calculated as if it was not a reverse trade.
       {
@@ -4204,23 +4218,8 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
     else generated_comments=generate_comment(instrument,magic,sl_pts,tp_pts,spread_pts);
     if(instant_exec)
       {
-        //Print("instant_exec expire_time=",expire_time);
-        /*Print("send_and_get_order_ticket(): entry_price: ",DoubleToString(entry_price,digits));        
-        Print("send_and_get_order_ticket(): current_bid: ",DoubleToString(current_bid,digits));
-        Print("send_and_get_order_ticket(): current_ask: ",DoubleToString(current_ask,digits));
-        Print("send_and_get_order_ticket(): price_sl: ",DoubleToString(price_sl,digits));
-        Print("send_and_get_order_ticket(): price_tp: ",DoubleToString(price_tp,digits));
-        Print("send_and_get_order_ticket(): price_tp-entry_price: ",DoubleToString(MathAbs(price_tp-entry_price),digits));
-        Print("send_and_get_order_ticket(): price_sl-entry_price: ",DoubleToString(MathAbs(price_sl-entry_price),digits));
-        Print("instrument: ",instrument,", ordertype: ",order_type,", lots: ",lots,", entryprice: ",DoubleToString(entry_price),", max_slippage: ",IntegerToString(max_slippage),", price_sl: ",DoubleToString(price_sl),", price_tp: ",price_tp,", magic: ",magic,", expire_time: ",expire_time);*/
-        if(order_type==OP_BUYLIMIT && reverse_trade_direction==false)
-          {
-            // alert the user of the algorithm if there will be a problem with their order
-            if(compare_doubles(current_ask-entry_price,min_distance_pts,digits)==-1) print_and_email("Error",instrument+": If BuyLimit, this will result in an Open Price error because current_ask-entry_price("+DoubleToString(current_ask-entry_price)+")<min_distance_pips");
-            if(compare_doubles(entry_price-price_sl,min_distance_pts,digits)==-1)    print_and_email("Error",instrument+": If BuyLimit, this will result in an Stoploss error because entry_price-price_sl("+DoubleToString(entry_price-price_sl)+")<min_distance_pips");
-            if(compare_doubles(price_tp-entry_price,min_distance_pts,digits)==-1)    print_and_email("Error",instrument+": If BuyLimit, this will result in an Takeprofit error because price_tp-entry_price("+DoubleToString(price_tp-entry_price)+")<min_distance_pips");
-          }
         ticket=OrderSend(instrument,order_type,lots,NormalizeDouble(entry_price,digits),max_slippage,NormalizeDouble(price_sl,digits),NormalizeDouble(price_tp,digits),generated_comments,magic,expire_time,a_clr);
+        check_for_trading_limitations(instrument,"instant execution send",digits,point,order_type,entry_price,current_bid,current_ask,price_tp,price_sl,min_distance_pts);
         if(ticket>0)
           {
             if(OrderSelect(ticket,SELECT_BY_TICKET))
@@ -4257,6 +4256,7 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
             sl_pts=new_sl_pts;
           }
         ticket=OrderSend(instrument,order_type,lots,NormalizeDouble(entry_price,digits),max_slippage,0,0,generated_comments,magic,expire_time,a_clr);
+        check_for_trading_limitations(instrument,"market execution send",digits,point,order_type,entry_price,current_bid,current_ask,price_tp,price_sl,min_distance_pts);
         if(ticket>0) // if there is a valid ticket
           {
             if(OrderSelect(ticket,SELECT_BY_TICKET))
@@ -4324,6 +4324,45 @@ int send_and_get_order_ticket(string instrument,int cmd,double lots,double _dist
         print_and_email(subject,email_body);
       }
     return ticket;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void check_for_trading_limitations(string instrument,string from_function,int digits,double point,double order_type,double entry_price,double current_bid,double current_ask,double price_tp,double price_sl,double min_distance_pts)
+  {
+    // documentation on these send or modify trading limitations: https://book.mql4.com/appendix/limits
+    double freezelevel=MarketInfo(instrument,MODE_FREEZELEVEL)*point*point_multiplier;
+    if(min_distance_pts>0 || freezelevel>0)
+      {
+        string string_beginning=(instrument+": This "+from_function+" order is a ");
+        // alert the user of the algorithm if there will be a problem with their order
+        if(order_type==OP_BUY)
+          {
+            if(compare_doubles(current_bid-price_sl,min_distance_pts,digits)==-1)    print_and_email("Error",string_beginning+"Buy and will result in a StopLevel Minimum Distance Limitation error because current_bid-price_sl("+DoubleToString(entry_price-price_sl)+")<min_distance_pips");
+            if(compare_doubles(price_tp-current_bid,min_distance_pts,digits)==-1)    print_and_email("Error",string_beginning+"Buy and will result in a StopLevel Minimum Distance Limitation error because price_tp-current_bid("+DoubleToString(price_tp-entry_price)+")<min_distance_pips");
+            if(compare_doubles(current_bid-price_sl,freezelevel,digits)<=0)          print_and_email("Error",string_beginning+"Buy and will result in a FreezeLevel Minimum Limitation error because current_bid-price_sl("+DoubleToString(entry_price-price_sl)+")<=freezelevel");
+            if(compare_doubles(price_tp-current_bid,freezelevel,digits)<=0)          print_and_email("Error",string_beginning+"Buy and will result in a FreezeLevel Minimum Limitation error because price_tp-current_bid("+DoubleToString(price_tp-entry_price)+")<=freezelevel"); 
+          }
+        else if(order_type==OP_SELL)
+          {
+            if(compare_doubles(price_sl-current_ask,min_distance_pts,digits)==-1)    print_and_email("Error",string_beginning+"Sell and will result in a StopLevel Minimum Distance Limitation error because price_sl-current_ask("+DoubleToString(price_sl-current_ask)+")<min_distance_pips");
+            if(compare_doubles(current_ask-price_tp,min_distance_pts,digits)==-1)    print_and_email("Error",string_beginning+"Sell and will result in a StopLevel Minimum Distance Limitation error because current_ask-price_tp("+DoubleToString(current_ask-price_tp)+")<min_distance_pips");
+            if(compare_doubles(price_sl-current_ask,freezelevel,digits)<=0)          print_and_email("Error",string_beginning+"Sell and will result in a FreezeLevel Minimum Limitation error because current_bid-price_sl("+DoubleToString(entry_price-price_sl)+")<=freezelevel");
+            if(compare_doubles(current_ask-price_tp,freezelevel,digits)<=0)          print_and_email("Error",string_beginning+"Sell and will result in a FreezeLevel Minimum Limitation error because price_tp-current_bid("+DoubleToString(price_tp-entry_price)+")<=freezelevel"); 
+          }
+        else if(order_type==OP_BUYLIMIT)
+          {
+            if(compare_doubles(current_ask-entry_price,min_distance_pts,digits)==-1) print_and_email("Error",string_beginning+"BuyLimit and will result in a StopLevel Minimum Distance Limitation error because current_ask-entry_price("+DoubleToString(current_ask-entry_price)+")<min_distance_pips");
+            if(compare_doubles(entry_price-price_sl,min_distance_pts,digits)==-1)    print_and_email("Error",string_beginning+"BuyLimit and will result in a StopLevel Minimum Distance Limitation error because entry_price-price_sl("+DoubleToString(entry_price-price_sl)+")<min_distance_pips");
+            if(compare_doubles(price_tp-entry_price,min_distance_pts,digits)==-1)    print_and_email("Error",string_beginning+"BuyLimit and will result in a StopLevel Minimum Distance Limitation error because price_tp-entry_price("+DoubleToString(price_tp-entry_price)+")<min_distance_pips");
+          }
+        else if(order_type==OP_SELLLIMIT)
+          {
+            if(compare_doubles(entry_price-current_bid,min_distance_pts,digits)==-1) print_and_email("Error",string_beginning+"SellLimit and will result in a StopLevel Minimum Distance Limitation error because entry_price-current_bid("+DoubleToString(entry_price-current_bid)+")<min_distance_pips");
+            if(compare_doubles(price_sl-entry_price,min_distance_pts,digits)==-1)    print_and_email("Error",string_beginning+"SellLimit and will result in a StopLevel Minimum Distance Limitation error because price_sl-entry_price("+DoubleToString(price_sl-entry_price)+")<min_distance_pips");
+            if(compare_doubles(entry_price-price_tp,min_distance_pts,digits)==-1)    print_and_email("Error",string_beginning+"SellLimit and will result in a StopLevel Minimum Distance Limitation error because entry_price-price_tp("+DoubleToString(entry_price-price_tp)+")<min_distance_pips");
+          }
+      }
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
