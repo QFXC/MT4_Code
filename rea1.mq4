@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Quant FX Capital/Tom Mazurek"
 #property link      "https://www.quantfxcapital.com"
-#property version   "3.02"
+#property version   "3.03"
 #property strict
 /* 
 Remember:
@@ -132,17 +132,17 @@ enum ENUM_MM // Money Management
   static bool       uptrend_order_was_last=false, downtrend_order_was_last=false;
   static double     average_spread_yesterday=0;
 	
-	input bool        reverse_trade_direction=false;
-	/*input*/ bool    exit_opposite_signal=false; //false exit_opposite_signal: Should the EA exit trades when there is a signal in the opposite direction?
+  input bool        reverse_trade_direction=false;
+  /*input*/ bool    exit_opposite_signal=false; //false exit_opposite_signal: Should the EA exit trades when there is a signal in the opposite direction?
   bool              long_allowed=true;  // Are long trades allowed? // TODO: this is never set to anything in the code
-	bool              short_allowed=true; // Are short trades allowed? // TODO: this is never set to anything in the code
+  bool              short_allowed=true; // Are short trades allowed? // TODO: this is never set to anything in the code
 		
-	input bool        filter_over_extended_trends=false;  // filter_over_extended_trends: // TODO: test that this filter works
-	/*input*/ int     max_pending_orders_at_once=2;       // max_pending_orders_at_once:
-	//input int       max_open_trades_at_once=2;          // market_trades_at_once: How many long or short market trades can be on at the same time?
+  input bool        filter_over_extended_trends=false;  // filter_over_extended_trends: // TODO: test that this filter works
+  /*input*/ int     max_pending_orders_at_once=2;       // max_pending_orders_at_once:
+  //input int       max_open_trades_at_once=2;          // market_trades_at_once: How many long or short market trades can be on at the same time?
   /*input*/ int     max_directional_trades_at_once=1;   // max_directional_trades_at_once: How many trades can the EA enter at the same time in the one direction on the current chart? (If 1, a long and short trade (2 trades) can be opened at the same time.)input int max_num_EAs_at_once=28; // What is the maximum number of EAs you will run on the same instance of a platform at the same time?
-	extern int        max_directional_trades_in_x_hours=2;// max_directional_trades_in_x_hours: How many trades are allowed to be opened (even if they are close now) after the start of each current day?
-	extern double     x_hours=6;                          // x_hours: Any whole or fraction of an hour. // FYI, this setting only takes affect when
+  extern int        max_directional_trades_in_x_hours=2;// max_directional_trades_in_x_hours: How many trades are allowed to be opened (even if they are close now) after the start of each current day?
+  extern double     x_hours=6;                          // x_hours: Any whole or fraction of an hour. // FYI, this setting only takes affect when
   extern int        max_any_trades_in_y_hours=2;
   extern double     y_hours=24;
   extern bool       hedging_allowed=false;
@@ -158,20 +158,20 @@ enum ENUM_MM // Money Management
   
 // time filters - only allow EA to enter trades between a range of time in a day
   input bool        automatic_gmt_offset=true;
-	int               gmt_hour_offset;                    // gmt_hour_offset: Only tested to be working with values <=0. The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). The code will automatically adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
-	bool              gmt_hour_offset_is_NULL=true;       // keep as true // since in MQL4 NULL==0, this variable exists because I need a way to determine if the variable has been modified yet
-	input bool        gmt_offset_visible=true;            // gmt_offset_visible: By looking at it, does the algorithm need a GMT Offset.
-	input int         start_time_hour=1;                  // start_time_hour: 0-23
-	input int         start_time_minute=0;                // start_time_minute: 0-59
-	extern int        end_time_hour=17;                   // end_time_hour: 0-23
-	extern int        end_time_minute=0;                  // end_time_minute: 0-59
-	input bool        exit_trades_EOD=true;               // exit_trades_EOD
+  int               gmt_hour_offset;                    // gmt_hour_offset: Only tested to be working with values <=0. The value of 0 refers to the time zone used by the broker (seen as 0:00 on the chart). The code will automatically adjust this offset hour value if the broker's 0:00 server time is not equal to when the time the NY session ends their trading day.
+  bool              gmt_hour_offset_is_NULL=true;       // keep as true // since in MQL4 NULL==0, this variable exists because I need a way to determine if the variable has been modified yet
+  input bool        gmt_offset_visible=true;            // gmt_offset_visible: By looking at it, does the algorithm need a GMT Offset.
+  input int         start_time_hour=1;                  // start_time_hour: 0-23
+  input int         start_time_minute=0;                // start_time_minute: 0-59
+  extern int        end_time_hour=17;                   // end_time_hour: 0-23
+  extern int        end_time_minute=0;                  // end_time_minute: 0-59
+  input bool        exit_trades_EOD=true;               // exit_trades_EOD
   input int         exit_time_hour=23;                  // exit_time_hour: should be before the trading range start_time and after trading range end_time
   input int         exit_time_minute=45;                // exit_time_minute: 0-59
 	
-	input bool        trade_friday=true;                  // trade_friday:
-	extern int        fri_end_time_hour=17;               // fri_end_time_hour: 0-23
-	extern int        fri_end_time_minute=0;              // fri_end_time_minute: 0-59
+  input bool        trade_friday=true;                  // trade_friday:
+  extern int        fri_end_time_hour=17;               // fri_end_time_hour: 0-23
+  extern int        fri_end_time_minute=0;              // fri_end_time_minute: 0-59
   input int         fri_exit_time_hour=22;              // fri_exit_time_hour
   input int         fri_exit_time_minute=45;            // fri_exit_time_min
   
@@ -179,47 +179,47 @@ enum ENUM_MM // Money Management
   /*input*/ ENUM_SIGNAL_SET SIGNAL_SET=SIGNAL_SET_1; //SIGNAL_SET: Which signal set would you like to test? (the details of each signal set are found in the signal_entry function)
   // TODO: make sure you have coded for the scenerios when each of these is set to 0
   extern bool       take_retracement_trade_based_on_candle=false;
-	extern double     retracement_percent=.25;            // retracement_percent: Must be positive.
-	input double      pullback_percent=0;                 // pullback_percent:  Must be positive. If you want a buy or sell limit order, it must be positive.
-	extern double     takeprofit_percent=.4;              // takeprofit_percent: Must be a positive number. (What % of ADR should you tarket?)
+  extern double     retracement_percent=.25;            // retracement_percent: Must be positive.
+  input double      pullback_percent=0;                 // pullback_percent:  Must be positive. If you want a buy or sell limit order, it must be positive.
+  extern double     takeprofit_percent=.4;              // takeprofit_percent: Must be a positive number. (What % of ADR should you tarket?)
   input double      stoploss_percent=1.0;               // stoploss_percent: Must be a positive number.
   input bool        prevent_ultrawide_stoploss=false;   // prevent_ultrawide_stoploss:
-	input double      max_spread_percent=0;               // max_spread_percent: .05 Must be positive. What percent of ADR should the spread be less than? (Only for immediate orders and not pending.)
+  input double      max_spread_percent=0;               // max_spread_percent: .05 Must be positive. What percent of ADR should the spread be less than? (Only for immediate orders and not pending.)
 
 // virtual stoploss variables
-	int               virtual_sl=0; // 0 TODO: Change to a percent of ADR
-	int               virtual_tp=0; // 0 TODO: Change to a percent of ADR
+  int               virtual_sl=0; // 0 TODO: Change to a percent of ADR
+  int               virtual_tp=0; // 0 TODO: Change to a percent of ADR
 	
 // breakeven variables
-	input double      breakeven_threshold_percent=0;      // breakeven_threshold_percent: % of takeprofit before setting the stop to breakeven.
-	input double      breakeven_plus_percent=0;           // breakeven_plus_percent: % of takeprofit above breakeven. Allows you to move the stoploss +/- from the entry price where 0 is breakeven, <0 loss zone, and >0 profit zone
+  input double      breakeven_threshold_percent=0;      // breakeven_threshold_percent: % of takeprofit before setting the stop to breakeven.
+  input double      breakeven_plus_percent=0;           // breakeven_plus_percent: % of takeprofit above breakeven. Allows you to move the stoploss +/- from the entry price where 0 is breakeven, <0 loss zone, and >0 profit zone
   input double      negative_threshold_multiplier=0;    // negative_threshold_multiplier:
   
 // trailing stop variables
-	input double      trail_threshold_percent=0;          // trail_threshold_percent: % of takeprofit before activating the trailing stop.
-	input double      trail_step_percent=0;               // trail_step_percent: The % of takeprofit to set the minimum difference between the proposed new value of the stoploss to the current stoploss price
-	/*input*/ int     entering_max_slippage_pips=5;       // entering_max_slippage_pips: Must be in whole number. // TODO: For 3 and 5 digit brokers, is 50 equivalent to 5 pips?
-	/*input*/ int     exiting_max_slippage_pips=50;       // exiting_max_slippage_pips: Must be in whole number. // TODO: For 3 and 5 digit brokers, is 50 equivalent to 5 pips?
+  input double      trail_threshold_percent=0;          // trail_threshold_percent: % of takeprofit before activating the trailing stop.
+  input double      trail_step_percent=0;               // trail_step_percent: The % of takeprofit to set the minimum difference between the proposed new value of the stoploss to the current stoploss price
+  /*input*/ int     entering_max_slippage_pips=5;       // entering_max_slippage_pips: Must be in whole number. // TODO: For 3 and 5 digit brokers, is 50 equivalent to 5 pips?
+  /*input*/ int     exiting_max_slippage_pips=50;       // exiting_max_slippage_pips: Must be in whole number. // TODO: For 3 and 5 digit brokers, is 50 equivalent to 5 pips?
 
 // exit or do not take orders based on time
-	extern double     active_trade_expire=1;            // active_trade_expire: Any hours or fractions of hour(s). How many hours can a trade be on that hasn't hit stoploss or takeprofit?
+  extern double     active_trade_expire=1;            // active_trade_expire: Any hours or fractions of hour(s). How many hours can a trade be on that hasn't hit stoploss or takeprofit?
   extern bool       expire_negative_trades_sooner=false; // expire_negative_trades_sooner:
   static double     active_trade_expire_stored=active_trade_expire;
-	input double      pending_order_expire=0;             // pending_order_expire: Any hours or fractions of hour(s). In how many hours do you want your pending orders to expire?
-	int               pending_orders_open;
+  input double      pending_order_expire=0;             // pending_order_expire: Any hours or fractions of hour(s). In how many hours do you want your pending orders to expire?
+  int               pending_orders_open;
   extern double     retracement_virtual_expire=.5;      // retracement_virtual_expire: Any hours or fractions of hour(s). In how many hours after the high/low do you want the potential retracement trades to expire?
-	extern double     trigger_to_peak_max=0;              // trigger_to_peak_max:
+  extern double     trigger_to_peak_max=0;              // trigger_to_peak_max:
   
 // calculate_lots/money management variables
-	ENUM_MM           money_management=MM_RISK_PERCENT_PER_ADR;
-	input bool        compound_balance=false;
-	extern double     risk_percent_per_range=0.03;        // risk_percent_per_range: percent risked when using the MM_RISK_PER_ADR_PERCENT money management calculations. Any amount of digits after the decimal point. Note: This is not the percent of your balance you will be risking.
-	double            mm1_risk_percent=0.02;              // mm1_risk_percent: percent risked when using the MM_RISK_PERCENT money management calculations
-   // these variables will not be used with the MM_RISK_PERCENT money management strategy
-	double            lot_size=0.0;
-	/*input*/ int     increase_lots_after_x_losses=0;
-	/*input*/ double  increase_lots_by_percent=0;
-	input int         max_risky_trades=2;
+  ENUM_MM           money_management=MM_RISK_PERCENT_PER_ADR;
+  input bool        compound_balance=false;
+  extern double     risk_percent_per_range=0.03;        // risk_percent_per_range: percent risked when using the MM_RISK_PER_ADR_PERCENT money management calculations. Any amount of digits after the decimal point. Note: This is not the percent of your balance you will be risking.
+  double            mm1_risk_percent=0.02;              // mm1_risk_percent: percent risked when using the MM_RISK_PERCENT money management calculations
+  // these variables will not be used with the MM_RISK_PERCENT money management strategy
+  double            lot_size=0.0;
+  /*input*/ int     increase_lots_after_x_losses=0;
+  /*input*/ double  increase_lots_by_percent=0;
+  input int         max_risky_trades=2;
 	 
 // Market Trends
   input bool        include_previous_day=true;
@@ -690,20 +690,20 @@ void analyze_market_for_trading(string instrument,int magic,int digits,datetime 
     if(ready && in_time_range)
       {
         ea_retracement_maintenance(instrument,current_time,current_bid,a_trade_closed,in_time_range); // BOTH SPECIFIC AND NOT SPECIFIC TO THE RETRACEMENT EA
-        //ENUM_DIRECTION_BIAS continuation_signal=ea_retracement_signal(instrument,digits,current_bid);
-        ENUM_DIRECTION_BIAS reversal_signal=ea_reversal_signal(instrument,magic,digits,current_bid);
-        /*if(continuation_signal>0)
+        ENUM_DIRECTION_BIAS continuation_signal=ea_retracement_signal(instrument,digits,current_bid);
+        //ENUM_DIRECTION_BIAS reversal_signal=ea_reversal_signal(instrument,magic,digits,current_bid);
+        if(continuation_signal>0)
           {
             ENUM_ORDER_TYPE final_trade_direction=-1;
-            final_trade_direction=general_filters(instrument,digits,enter_signal,magic,current_time,current_bid);
+            final_trade_direction=general_filters(instrument,digits,continuation_signal,magic,current_time,current_bid);
             if(final_trade_direction>-1) ea_retracement_try_to_enter_order(final_trade_direction,magic,entering_max_slippage_pips,instrument,false,max_risky_trades,current_bid); // SPECIFIC TO RETRACEMENT EA
-          }*/
-        if(reversal_signal>0)
+          }
+        /*if(reversal_signal>0)
           {
             ENUM_ORDER_TYPE final_trade_direction=-1;
             final_trade_direction=general_filters(instrument,digits,reversal_signal,magic,current_time,current_bid);
             if(final_trade_direction>-1) ea_reversal_try_to_enter_order(final_trade_direction,magic,entering_max_slippage_pips,instrument,false,max_risky_trades,current_bid); // SPECIFIC TO REVERSAL EA
-          }
+          }*/
       }
     else
       {
@@ -2699,15 +2699,15 @@ ENUM_TIMEFRAMES string_to_timeframe(string timeframe)
       {
         timeframe2=PERIOD_D1;
       }
-    else if(timeframe=="H1" || timeframe=="PERIOD_H1")
+    else if(timeframe=="H1" || timeframe=="h1" || timeframe=="PERIOD_H1")
       {
         timeframe2=PERIOD_H1;
       }
-    else if(timeframe=="M5" || timeframe=="PERIOD_M5")
+    else if(timeframe=="M5" || timeframe=="m5" || timeframe=="PERIOD_M5")
       {
         timeframe2=PERIOD_M5;
       }
-    else if(timeframe=="M1" || timeframe=="PERIOD_M1")
+    else if(timeframe=="M1" || timeframe=="m1" || timeframe=="PERIOD_M1")
       {
         timeframe2=PERIOD_M1;
       }
@@ -4338,17 +4338,21 @@ void check_for_trading_limitations(string instrument,string from_function,int di
         // alert the user of the algorithm if there will be a problem with their order
         if(order_type==OP_BUY)
           {
-            if(compare_doubles(current_bid-price_sl,min_distance_pts,digits)==-1)    print_and_email("Error",string_beginning+"Buy and will result in a StopLevel Minimum Distance Limitation error because current_bid-price_sl("+DoubleToString(entry_price-price_sl)+")<min_distance_pips");
-            if(compare_doubles(price_tp-current_bid,min_distance_pts,digits)==-1)    print_and_email("Error",string_beginning+"Buy and will result in a StopLevel Minimum Distance Limitation error because price_tp-current_bid("+DoubleToString(price_tp-entry_price)+")<min_distance_pips");
-            if(compare_doubles(current_bid-price_sl,freezelevel,digits)<=0)          print_and_email("Error",string_beginning+"Buy and will result in a FreezeLevel Minimum Limitation error because current_bid-price_sl("+DoubleToString(entry_price-price_sl)+")<=freezelevel");
-            if(compare_doubles(price_tp-current_bid,freezelevel,digits)<=0)          print_and_email("Error",string_beginning+"Buy and will result in a FreezeLevel Minimum Limitation error because price_tp-current_bid("+DoubleToString(price_tp-entry_price)+")<=freezelevel"); 
+            double distance1=current_bid-price_sl;
+            double distance2=price_tp-current_bid;
+            if(compare_doubles(distance1,min_distance_pts,digits)==-1) print_and_email("Error",string_beginning+"Buy and will result in a StopLevel Minimum Distance Limitation error because current_bid-price_sl("+DoubleToString(entry_price-price_sl)+")<min_distance_pips");
+            if(compare_doubles(distance2,min_distance_pts,digits)==-1) print_and_email("Error",string_beginning+"Buy and will result in a StopLevel Minimum Distance Limitation error because price_tp-current_bid("+DoubleToString(price_tp-entry_price)+")<min_distance_pips");
+            if(compare_doubles(distance1,freezelevel,digits)<=0)       print_and_email("Error",string_beginning+"Buy and will result in a FreezeLevel Minimum Limitation error because current_bid-price_sl("+DoubleToString(entry_price-price_sl)+")<=freezelevel");
+            if(compare_doubles(distance2,freezelevel,digits)<=0)       print_and_email("Error",string_beginning+"Buy and will result in a FreezeLevel Minimum Limitation error because price_tp-current_bid("+DoubleToString(price_tp-entry_price)+")<=freezelevel"); 
           }
         else if(order_type==OP_SELL)
           {
-            if(compare_doubles(price_sl-current_ask,min_distance_pts,digits)==-1)    print_and_email("Error",string_beginning+"Sell and will result in a StopLevel Minimum Distance Limitation error because price_sl-current_ask("+DoubleToString(price_sl-current_ask)+")<min_distance_pips");
-            if(compare_doubles(current_ask-price_tp,min_distance_pts,digits)==-1)    print_and_email("Error",string_beginning+"Sell and will result in a StopLevel Minimum Distance Limitation error because current_ask-price_tp("+DoubleToString(current_ask-price_tp)+")<min_distance_pips");
-            if(compare_doubles(price_sl-current_ask,freezelevel,digits)<=0)          print_and_email("Error",string_beginning+"Sell and will result in a FreezeLevel Minimum Limitation error because current_bid-price_sl("+DoubleToString(entry_price-price_sl)+")<=freezelevel");
-            if(compare_doubles(current_ask-price_tp,freezelevel,digits)<=0)          print_and_email("Error",string_beginning+"Sell and will result in a FreezeLevel Minimum Limitation error because price_tp-current_bid("+DoubleToString(price_tp-entry_price)+")<=freezelevel"); 
+            double distance3=price_sl-current_ask;
+            double distance4=current_ask-price_tp;
+            if(compare_doubles(distance3,min_distance_pts,digits)==-1) print_and_email("Error",string_beginning+"Sell and will result in a StopLevel Minimum Distance Limitation error because price_sl-current_ask("+DoubleToString(price_sl-current_ask)+")<min_distance_pips");
+            if(compare_doubles(distance4,min_distance_pts,digits)==-1) print_and_email("Error",string_beginning+"Sell and will result in a StopLevel Minimum Distance Limitation error because current_ask-price_tp("+DoubleToString(current_ask-price_tp)+")<min_distance_pips");
+            if(compare_doubles(distance3,freezelevel,digits)<=0)       print_and_email("Error",string_beginning+"Sell and will result in a FreezeLevel Minimum Limitation error because current_bid-price_sl("+DoubleToString(entry_price-price_sl)+")<=freezelevel");
+            if(compare_doubles(distance4,freezelevel,digits)<=0)       print_and_email("Error",string_beginning+"Sell and will result in a FreezeLevel Minimum Limitation error because price_tp-current_bid("+DoubleToString(price_tp-entry_price)+")<=freezelevel"); 
           }
         else if(order_type==OP_BUYLIMIT)
           {
@@ -4881,32 +4885,27 @@ double calculate_lots(ENUM_MM method,double range_pts,double _risk_percent_per_A
 // TODO: is it pips or points that the 4th parameter actually needs?
 double get_lots(ENUM_MM method,bool _reduced_risk,int magic,string instrument,double _risk_percent_per_ADR,double pts,double risk_mm1_percent,double _ma_price)
   {
-    double  tick_value=MarketInfo(instrument,MODE_TICKVALUE),
-            point=MarketInfo(instrument,MODE_POINT),
-            lots=0,
-            balance=0,
-            lot_multiplier=1, // keep at 1
-            micro_multiplier=0; // micro account multiplier
-    int     instrument_int=get_string_integer(StringSubstr(instrument,0,6));
+    double tick_value=MarketInfo(instrument,MODE_TICKVALUE),
+           point=MarketInfo(instrument,MODE_POINT),
+           lots=0,
+           balance=0,
+           lot_multiplier=1, // keep at 1
+           micro_multiplier=0;
+    int    quote_ccy=StringSubstr(instrument,3,3);
+    if(quote_ccy=="JPY") 
+      micro_multiplier=point_multiplier*100;
+    else 
+      micro_multiplier=point_multiplier*10000;
+    /*int    instrument_int=get_string_integer(StringSubstr(instrument,0,6));
     switch(instrument_int)
       {
         case EURJPY:
           micro_multiplier=point_multiplier*100; break;
         case EURUSD:
           micro_multiplier=point_multiplier*10000; break;
-        case GBPCHF:
-          micro_multiplier=point_multiplier*10000; break;
-        case GBPJPY:
-          micro_multiplier=point_multiplier*100; break;
-        case GBPUSD:
-          micro_multiplier=point_multiplier*10000; break;
-        case USDCHF:
-          micro_multiplier=point_multiplier*10000; break;
-        case USDJPY:
-          micro_multiplier=point_multiplier*100; break;
         default:
           micro_multiplier=0;
-      }    
+      }*/
     if(compound_balance || AccountBalance()<5000) balance=AccountBalance();
     else balance=fixed_account_balance;
     switch(method)
